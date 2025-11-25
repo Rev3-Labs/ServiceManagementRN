@@ -19,6 +19,10 @@ module.exports = (env, argv) => {
       alias: {
         'react-native$': 'react-native-web',
         'react-native-vector-icons': 'react-native-vector-icons/dist',
+        '@react-native-async-storage/async-storage': path.resolve(__dirname, 'web-mocks/async-storage.js'),
+        '@react-native-community/netinfo': path.resolve(__dirname, 'web-mocks/netinfo.js'),
+        '@react-native-vector-icons/material-design-icons': path.resolve(__dirname, 'web-mocks/material-design-icons.js'),
+        '@expo/vector-icons/MaterialCommunityIcons': path.resolve(__dirname, 'web-mocks/material-community-icons.js'),
       },
       fallback: {
         'crypto': false,
