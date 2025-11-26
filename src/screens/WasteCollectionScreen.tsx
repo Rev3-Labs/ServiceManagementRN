@@ -32,6 +32,7 @@ import {
   CardTitleText,
 } from '../components/Card';
 import {Badge} from '../components/Badge';
+import {Switch} from '../components/Switch';
 import {syncService, SyncStatus} from '../services/syncService';
 import {
   colors,
@@ -107,7 +108,7 @@ const MOCK_ORDERS: OrderData[] = [
     city: 'Denver',
     state: 'CO',
     genNumber: 'GEN-12345',
-    programs: ['Hazardous Waste', 'Universal Waste'],
+    programs: ['Retail', 'DEA'],
     serviceDate: 'Today, 9:00 AM',
     status: 'Not Started',
   },
@@ -118,7 +119,7 @@ const MOCK_ORDERS: OrderData[] = [
     city: 'Aurora',
     state: 'CO',
     orderType: 'Regular Service',
-    programs: ['Hazardous Waste'],
+    programs: ['Retail', 'Pharmacy'],
     serviceDate: 'Today, 11:00 AM',
     status: 'Not Started',
   },
@@ -129,7 +130,7 @@ const MOCK_ORDERS: OrderData[] = [
     city: 'Commerce City',
     state: 'CO',
     genNumber: 'GEN-12346',
-    programs: ['Hazardous Waste', 'Non-Hazardous Solid Waste'],
+    programs: ['Retail', 'Pharmacy', 'DEA'],
     serviceDate: 'Today, 1:00 PM',
     status: 'Not Started',
   },
@@ -140,7 +141,7 @@ const MOCK_ORDERS: OrderData[] = [
     city: 'Boulder',
     state: 'CO',
     orderType: 'Emergency Service',
-    programs: ['Universal Waste'],
+    programs: ['Retail'],
     serviceDate: 'Today, 3:00 PM',
     status: 'Not Started',
   },
@@ -150,10 +151,29 @@ const MOCK_ORDERS: OrderData[] = [
     site: 'Warehouse #234',
     city: 'Westminster',
     state: 'CO',
-    programs: ['Hazardous Waste'],
+    programs: ['Retail', 'Pharmacy'],
     serviceDate: 'Today, 4:30 PM',
     status: 'Not Started',
   },
+];
+
+// Pre-determined materials and supplies catalog
+const MATERIALS_CATALOG = [
+  {itemNumber: 'MAT-001', description: 'Personal Protective Equipment (PPE)'},
+  {itemNumber: 'MAT-002', description: 'Safety Glasses'},
+  {itemNumber: 'MAT-003', description: 'Nitrile Gloves'},
+  {itemNumber: 'MAT-004', description: 'Protective Suit'},
+  {itemNumber: 'MAT-005', description: 'Respirator'},
+  {itemNumber: 'MAT-006', description: 'Cleaning Supplies'},
+  {itemNumber: 'MAT-007', description: 'Container Labels'},
+  {itemNumber: 'MAT-008', description: 'Documentation Forms'},
+  {itemNumber: 'MAT-009', description: 'Absorbent Pads'},
+  {itemNumber: 'MAT-010', description: 'Spill Kit'},
+  {itemNumber: 'MAT-011', description: 'Hazardous Waste Bags'},
+  {itemNumber: 'MAT-012', description: 'Drum Liners'},
+  {itemNumber: 'MAT-013', description: 'Seal Tape'},
+  {itemNumber: 'MAT-014', description: 'Barcode Labels'},
+  {itemNumber: 'MAT-015', description: 'Manifest Forms'},
 ];
 
 interface WasteCollectionScreenProps {
@@ -176,6 +196,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [tareWeight, setTareWeight] = useState('45');
   const [grossWeight, setGrossWeight] = useState('285');
   const [barcode, setBarcode] = useState('');
+  const [isManualWeightEntry, setIsManualWeightEntry] = useState(false);
   const [completedOrders, setCompletedOrders] = useState<string[]>([]);
   const [orderStatuses, setOrderStatuses] = useState<
     Record<string, OrderData['status']>
@@ -191,11 +212,43 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       tareWeight: string;
       grossWeight: string;
       netWeight: number;
+      isManualEntry?: boolean;
+      shippingLabelBarcode?: string;
     }>
   >([]);
   const [selectedPrograms, setSelectedPrograms] = useState<
     Record<string, 'ship' | 'noship'>
   >({});
+  const [manifestTrackingNumber, setManifestTrackingNumber] = useState<
+    string | null
+  >(null);
+  const [manifestData, setManifestData] = useState<{
+    trackingNumber?: string;
+    createdAt?: Date;
+    scannedImageUri?: string;
+  } | null>(null);
+  const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [showPrintOptions, setShowPrintOptions] = useState(false);
+  const [materialsSupplies, setMaterialsSupplies] = useState<
+    Array<{
+      id: string;
+      itemNumber: string;
+      description: string;
+      quantity: number;
+      type: 'used' | 'left_behind';
+    }>
+  >([]);
+  // Material modal state - moved to parent to persist across re-renders
+  const [showAddMaterialModal, setShowAddMaterialModal] = useState(false);
+  const [selectedMaterialItem, setSelectedMaterialItem] = useState<{
+    itemNumber: string;
+    description: string;
+  } | null>(null);
+  const [materialQuantity, setMaterialQuantity] = useState('1');
+  const [materialType, setMaterialType] = useState<'used' | 'left_behind'>(
+    'used',
+  );
+  const [showAddMaterialSuccess, setShowAddMaterialSuccess] = useState(false);
   const [useMasterDetail, setUseMasterDetail] = useState(false); // Toggle for master-detail view
   const [dashboardSelectedOrder, setDashboardSelectedOrder] =
     useState<OrderData | null>(null); // Selected order in master-detail view
@@ -247,6 +300,247 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       Alert.alert(
         'Sync Failed',
         error.message || 'Unable to sync. Please check your connection.',
+      );
+    }
+  }, []);
+
+  // Generate unique shipping label barcode
+  // Format: I-8digitssalesorder-001 (e.g., I-20241234-001)
+  const generateShippingLabelBarcode = useCallback(
+    (orderNumber: string, containerIndex: number): string => {
+      // Extract numeric part from order number (e.g., "WO-2024-1234" -> "20241234")
+      // Or use the last 8 digits if available
+      const numericMatch = orderNumber.match(/\d+/g);
+      let salesOrderDigits = '00000000';
+
+      if (numericMatch) {
+        // Combine all numeric parts and take last 8 digits
+        const combined = numericMatch.join('');
+        salesOrderDigits = combined.slice(-8).padStart(8, '0');
+      }
+
+      // Container number is 3 digits, zero-padded (001, 002, etc.)
+      const containerNumber = String(containerIndex + 1).padStart(3, '0');
+
+      return `I-${salesOrderDigits}-${containerNumber}`;
+    },
+    [],
+  );
+
+  // Print shipping label via thermal printer
+  const printShippingLabel = useCallback(
+    async (container: {
+      shippingLabelBarcode?: string;
+      streamName: string;
+      containerSize: string;
+      containerType: string;
+      netWeight: number;
+      tareWeight: string;
+      grossWeight: string;
+    }) => {
+      if (!container.shippingLabelBarcode) {
+        Alert.alert('Error', 'Shipping label barcode not found');
+        return;
+      }
+
+      try {
+        // TODO: Implement actual thermal printer integration
+        // This would use a library like react-native-thermal-printer
+        // or a native module for Zebra/Honeywell printers
+
+        // For now, show a placeholder alert
+        Alert.alert(
+          'Printing Label',
+          `Shipping label barcode: ${container.shippingLabelBarcode}\n\nThermal printer integration will be implemented here.`,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // In production, this would trigger actual printing
+                console.log('Printing label:', {
+                  barcode: container.shippingLabelBarcode,
+                  stream: container.streamName,
+                  size: container.containerSize,
+                  type: container.containerType,
+                  netWeight: container.netWeight,
+                  tareWeight: container.tareWeight,
+                  grossWeight: container.grossWeight,
+                });
+              },
+            },
+          ],
+        );
+      } catch (error: any) {
+        Alert.alert(
+          'Print Error',
+          error.message || 'Failed to print label. Please try again.',
+        );
+      }
+    },
+    [],
+  );
+
+  // Generate manifest tracking number (tied to label printing to prevent discrepancies)
+  const generateManifestTrackingNumber = useCallback(() => {
+    // Format: M-YYYYMMDD-HHMMSS-XXX (e.g., M-20241215-143022-001)
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const sequence = String(Math.floor(Math.random() * 999) + 1).padStart(
+      3,
+      '0',
+    );
+
+    return `M-${year}${month}${day}-${hours}${minutes}${seconds}-${sequence}`;
+  }, []);
+
+  // Assign tracking number when labels are printed
+  const assignTrackingNumberOnLabelPrint = useCallback(() => {
+    if (!manifestTrackingNumber) {
+      const trackingNumber = generateManifestTrackingNumber();
+      setManifestTrackingNumber(trackingNumber);
+      setManifestData(prev => ({
+        ...prev,
+        trackingNumber,
+        createdAt: new Date(),
+      }));
+      return trackingNumber;
+    }
+    return manifestTrackingNumber;
+  }, [manifestTrackingNumber, generateManifestTrackingNumber]);
+
+  // Print manifest
+  const printManifest = useCallback(async () => {
+    try {
+      // Assign tracking number when printing (to prevent discrepancies)
+      const trackingNumber = assignTrackingNumberOnLabelPrint();
+
+      // TODO: Implement actual thermal printer integration for manifest
+      Alert.alert(
+        'Printing Manifest',
+        `Tracking Number: ${trackingNumber}\n\nManifest printer integration will be implemented here.`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              console.log('Printing manifest:', {
+                trackingNumber,
+                orderNumber: selectedOrderData?.orderNumber,
+                containers: addedContainers,
+                programs: selectedPrograms,
+              });
+            },
+          },
+        ],
+      );
+    } catch (error: any) {
+      Alert.alert(
+        'Print Error',
+        error.message || 'Failed to print manifest. Please try again.',
+      );
+    }
+  }, [
+    assignTrackingNumberOnLabelPrint,
+    selectedOrderData,
+    addedContainers,
+    selectedPrograms,
+  ]);
+
+  // Print LDR (Land Disposal Restriction)
+  const printLDR = useCallback(async () => {
+    try {
+      const trackingNumber =
+        manifestTrackingNumber || assignTrackingNumberOnLabelPrint();
+
+      // TODO: Implement actual thermal printer integration for LDR
+      Alert.alert(
+        'Printing LDR',
+        `Tracking Number: ${trackingNumber}\n\nLDR printer integration will be implemented here.`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              console.log('Printing LDR:', {
+                trackingNumber,
+                orderNumber: selectedOrderData?.orderNumber,
+                containers: addedContainers,
+              });
+            },
+          },
+        ],
+      );
+    } catch (error: any) {
+      Alert.alert(
+        'Print Error',
+        error.message || 'Failed to print LDR. Please try again.',
+      );
+    }
+  }, [
+    manifestTrackingNumber,
+    assignTrackingNumberOnLabelPrint,
+    selectedOrderData,
+    addedContainers,
+  ]);
+
+  // Void manifest
+  const voidManifest = useCallback(() => {
+    Alert.alert(
+      'Void Manifest',
+      'Are you sure you want to void this manifest? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Void',
+          style: 'destructive',
+          onPress: () => {
+            setManifestTrackingNumber(null);
+            setManifestData(null);
+            setSelectedPrograms({});
+            Alert.alert('Success', 'Manifest has been voided.');
+          },
+        },
+      ],
+    );
+  }, []);
+
+  // Scan manifest with camera
+  const scanManifestWithCamera = useCallback(async () => {
+    try {
+      // TODO: Implement camera integration
+      // This would use react-native-image-picker or expo-image-picker
+      Alert.alert(
+        'Camera Scan',
+        'Camera integration will be implemented here. This will allow scanning and uploading manifest documents.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // In production, this would:
+              // 1. Open camera
+              // 2. Capture image
+              // 3. Upload to server
+              // 4. Store URI in manifestData
+              const mockImageUri = 'file:///mock/manifest-scan.jpg';
+              setManifestData(prev => ({
+                ...prev,
+                scannedImageUri: mockImageUri,
+              }));
+              console.log('Manifest scanned and uploaded:', mockImageUri);
+            },
+          },
+        ],
+      );
+    } catch (error: any) {
+      Alert.alert(
+        'Scan Error',
+        error.message || 'Failed to scan manifest. Please try again.',
       );
     }
   }, []);
@@ -1071,11 +1365,63 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const ContainerEntryScreen = () => {
     const netWeight =
       parseInt(grossWeight || '0') - parseInt(tareWeight || '0');
-    const showSoftWarning = netWeight > 200 && netWeight < 350;
-    const showHardWarning = netWeight > 400;
+
+    // Get weight limits from selected container type
+    const getWeightLimits = () => {
+      if (!selectedContainerType) {
+        return {
+          max: 400,
+          softThreshold: 240,
+          hardThreshold: 400,
+        };
+      }
+
+      // Parse weight string like "400 lbs max" to get the number
+      const weightMatch = selectedContainerType.weight.match(/(\d+)/);
+      const maxWeight = weightMatch ? parseInt(weightMatch[1]) : 400;
+
+      // Soft warning at 60% of max, hard warning at 100% of max
+      return {
+        max: maxWeight,
+        softThreshold: Math.floor(maxWeight * 0.6),
+        hardThreshold: maxWeight,
+      };
+    };
+
+    const weightLimits = getWeightLimits();
+    const showSoftWarning =
+      netWeight >= weightLimits.softThreshold &&
+      netWeight < weightLimits.hardThreshold;
+    const showHardWarning = netWeight >= weightLimits.hardThreshold;
+
     const isCurrentOrderCompleted = selectedOrderData
       ? isOrderCompleted(selectedOrderData.orderNumber)
       : false;
+
+    // Handle Bluetooth scale weight capture
+    const handleBluetoothScaleCapture = async () => {
+      // TODO: Implement Bluetooth scale integration
+      // This would connect to a Bluetooth scale and capture weight
+      // For now, this is a placeholder
+      Alert.alert(
+        'Bluetooth Scale',
+        'Bluetooth scale integration will be implemented here. This will automatically capture weight from the connected scale.',
+      );
+      setIsManualWeightEntry(false);
+    };
+
+    // Handle manual weight entry
+    const handleManualWeightChange = (
+      field: 'tare' | 'gross',
+      value: string,
+    ) => {
+      if (field === 'tare') {
+        setTareWeight(value);
+      } else {
+        setGrossWeight(value);
+      }
+      setIsManualWeightEntry(true);
+    };
 
     return (
       <View style={styles.container}>
@@ -1102,39 +1448,28 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           <Card>
             <CardHeader>
               <CardTitle>
-                <CardTitleText>Container Identification</CardTitleText>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Input
-                placeholder="Scan or enter barcode"
-                value={barcode}
-                onChangeText={setBarcode}
-                editable={!isCurrentOrderCompleted}
-              />
-              <Button
-                title="Scan"
-                variant="outline"
-                size="md"
-                disabled={isCurrentOrderCompleted}
-                onPress={() => {}}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>
                 <CardTitleText>Weight Information</CardTitleText>
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {/* Bluetooth Scale Button */}
+              <Button
+                title="Read Scale Weight"
+                variant="outline"
+                size="md"
+                disabled={isCurrentOrderCompleted}
+                onPress={handleBluetoothScaleCapture}
+                style={{marginBottom: spacing.md}}
+              />
+
               <View style={styles.weightInputsRow}>
                 <View style={styles.weightInput}>
                   <Input
                     label="Tare Weight (lbs)"
                     value={tareWeight}
-                    onChangeText={setTareWeight}
+                    onChangeText={value =>
+                      handleManualWeightChange('tare', value)
+                    }
                     keyboardType="numeric"
                     editable={!isCurrentOrderCompleted}
                   />
@@ -1143,12 +1478,23 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   <Input
                     label="Gross Weight (lbs)"
                     value={grossWeight}
-                    onChangeText={setGrossWeight}
+                    onChangeText={value =>
+                      handleManualWeightChange('gross', value)
+                    }
                     keyboardType="numeric"
                     editable={!isCurrentOrderCompleted}
                   />
                 </View>
               </View>
+
+              {/* Manual Entry Indicator */}
+              {isManualWeightEntry && (
+                <View style={styles.manualEntryIndicator}>
+                  <Text style={styles.manualEntryText}>
+                    ⚠️ Weight entered manually
+                  </Text>
+                </View>
+              )}
 
               <View style={styles.netWeightCard}>
                 <Text style={styles.netWeightLabel}>
@@ -1161,8 +1507,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 <View style={styles.warningCard}>
                   <Text style={styles.warningTitle}>Soft Weight Warning</Text>
                   <Text style={styles.warningText}>
-                    Container is approaching maximum capacity (60% full).
-                    Consider consolidation or new container.
+                    Container is approaching maximum capacity (
+                    {Math.round((netWeight / weightLimits.max) * 100)}% of{' '}
+                    {weightLimits.max} lbs max). Consider consolidation or new
+                    container.
                   </Text>
                 </View>
               )}
@@ -1173,8 +1521,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     Hard Weight Limit Exceeded
                   </Text>
                   <Text style={styles.warningText}>
-                    Container exceeds maximum weight of 400 lbs. Reduce weight
-                    or select larger container.
+                    Container exceeds maximum weight of {weightLimits.max} lbs.
+                    Reduce weight or select larger container.
                   </Text>
                 </View>
               )}
@@ -1187,7 +1535,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             title="Cancel"
             variant="outline"
             size="md"
-            onPress={() => setCurrentStep('container-selection')}
+            onPress={() => {
+              setIsManualWeightEntry(false);
+              setCurrentStep('container-selection');
+            }}
           />
           <Button
             title="Add Container"
@@ -1202,6 +1553,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               ) {
                 const netWeight =
                   parseInt(grossWeight || '0') - parseInt(tareWeight || '0');
+
+                // Get current container count for this order to generate sequential barcode
+                const currentContainerCount = addedContainers.length;
+                const orderNumber =
+                  selectedOrderData?.orderNumber || 'WO-2024-0000';
+                const shippingLabelBarcode = generateShippingLabelBarcode(
+                  orderNumber,
+                  currentContainerCount,
+                );
+
                 const newContainer = {
                   id: `container-${Date.now()}`,
                   streamName: selectedStream,
@@ -1212,6 +1573,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   tareWeight,
                   grossWeight,
                   netWeight,
+                  isManualEntry: isManualWeightEntry, // Track if manually entered
+                  shippingLabelBarcode, // Unique shipping label barcode
                 };
 
                 setAddedContainers(prev => [...prev, newContainer]);
@@ -1222,10 +1585,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   newContainer,
                 );
 
+                // Auto-print shipping label
+                await printShippingLabel(newContainer);
+
                 // Reset form
                 setBarcode('');
                 setTareWeight('45');
                 setGrossWeight('285');
+                setIsManualWeightEntry(false);
                 setCurrentStep('container-summary');
               }
             }}
@@ -1410,6 +1777,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           </Text>
                         </View>
                       </View>
+                      {container.shippingLabelBarcode && (
+                        <View style={styles.containerSummaryInfoRow}>
+                          <View style={styles.containerSummaryInfoItem}>
+                            <Text style={styles.containerSummaryInfoLabel}>
+                              Shipping Label
+                            </Text>
+                            <Text style={styles.containerSummaryInfoValue}>
+                              {container.shippingLabelBarcode}
+                            </Text>
+                          </View>
+                          <View style={styles.containerSummaryInfoItem}>
+                            <Button
+                              title="Reprint Label"
+                              variant="outline"
+                              size="sm"
+                              disabled={isCurrentOrderCompleted}
+                              onPress={() => printShippingLabel(container)}
+                            />
+                          </View>
+                        </View>
+                      )}
                       <View style={styles.containerSummaryWeightsRow}>
                         <View style={styles.containerSummaryWeightItem}>
                           <Text style={styles.containerSummaryWeightLabel}>
@@ -1543,104 +1931,155 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             <Card>
               <CardHeader>
                 <CardTitle>
-                  <CardTitleText>Select Programs for Manifest</CardTitleText>
+                  <CardTitleText>Manifest Shipment</CardTitleText>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <Text style={styles.cardDescription}>
-                  Choose "Ship" or "No Ship" for each program in this order
-                </Text>
-
-                {orderPrograms.length > 0 ? (
-                  orderPrograms.map(program => (
-                    <View key={program} style={styles.programSelectionRow}>
-                      <Text style={styles.programName}>{program}</Text>
-                      <View style={styles.programButtons}>
-                        <Button
-                          title="Ship"
-                          variant={
-                            selectedPrograms[program] === 'ship'
-                              ? 'primary'
-                              : 'outline'
-                          }
-                          size="sm"
-                          disabled={isCurrentOrderCompleted}
-                          onPress={async () => {
-                            if (isCurrentOrderCompleted) return;
-                            const updated = {
-                              ...selectedPrograms,
-                              [program]: 'ship' as const,
-                            };
-                            setSelectedPrograms(updated);
-                            // Queue for sync
-                            await syncService.addPendingOperation('manifest', {
-                              orderId: selectedOrderData?.orderNumber,
-                              program,
-                              action: 'ship',
-                            });
-                          }}
-                        />
-                        <Button
-                          title="No Ship"
-                          variant={
-                            selectedPrograms[program] === 'noship'
-                              ? 'destructive'
-                              : 'outline'
-                          }
-                          size="sm"
-                          disabled={isCurrentOrderCompleted}
-                          onPress={async () => {
-                            if (isCurrentOrderCompleted) return;
-                            const updated = {
-                              ...selectedPrograms,
-                              [program]: 'noship' as const,
-                            };
-                            setSelectedPrograms(updated);
-                            // Queue for sync
-                            await syncService.addPendingOperation('manifest', {
-                              orderId: selectedOrderData?.orderNumber,
-                              program,
-                              action: 'noship',
-                            });
-                          }}
-                        />
-                      </View>
+                {/* Summary Information Section */}
+                <View style={styles.manifestSummarySection}>
+                  <View style={styles.manifestSummaryRow}>
+                    <View style={styles.manifestSummaryItem}>
+                      <Text style={styles.manifestSummaryLabel}>
+                        Total Containers
+                      </Text>
+                      <Text style={styles.manifestSummaryValue}>
+                        {addedContainers.length}
+                      </Text>
                     </View>
-                  ))
-                ) : (
-                  <Text style={styles.emptyStateText}>
-                    No programs found for this order
+                    <View style={styles.manifestSummaryDivider} />
+                    <View style={styles.manifestSummaryItem}>
+                      <Text style={styles.manifestSummaryLabel}>
+                        Programs to Ship
+                      </Text>
+                      <Text style={styles.manifestSummaryValue}>
+                        {
+                          Object.values(selectedPrograms).filter(
+                            p => p === 'ship',
+                          ).length
+                        }{' '}
+                        / {orderPrograms.length}
+                      </Text>
+                    </View>
+                    {manifestTrackingNumber && (
+                      <>
+                        <View style={styles.manifestSummaryDivider} />
+                        <View style={styles.manifestSummaryItem}>
+                          <Text style={styles.manifestSummaryLabel}>
+                            Tracking Number
+                          </Text>
+                          <Text
+                            style={[
+                              styles.manifestSummaryValue,
+                              styles.trackingNumber,
+                            ]}>
+                            {manifestTrackingNumber}
+                          </Text>
+                        </View>
+                      </>
+                    )}
+                  </View>
+                </View>
+
+                {/* Programs Section */}
+                <View style={styles.programsSection}>
+                  <Text style={styles.sectionTitle}>Program Selection</Text>
+                  <Text style={styles.sectionDescription}>
+                    Toggle each program to Ship or No Ship
                   </Text>
+
+                  {orderPrograms.length > 0 ? (
+                    orderPrograms.map(program => {
+                      const isShip = selectedPrograms[program] === 'ship';
+                      const isNoShip = selectedPrograms[program] === 'noship';
+                      const toggleValue = isShip; // true = ship, false = noship (or undefined)
+
+                      return (
+                        <View key={program} style={styles.programSelectionRow}>
+                          <Text style={styles.programName}>{program}</Text>
+                          <View style={styles.programToggleContainer}>
+                            <Text style={styles.programStatusLabel}>
+                              {isShip
+                                ? 'Ship'
+                                : isNoShip
+                                  ? 'No Ship'
+                                  : 'No Ship'}
+                            </Text>
+                            <Switch
+                              value={toggleValue}
+                              disabled={isCurrentOrderCompleted}
+                              onValueChange={async value => {
+                                if (isCurrentOrderCompleted) return;
+                                const action: 'ship' | 'noship' = value
+                                  ? 'ship'
+                                  : 'noship';
+                                const updated = {
+                                  ...selectedPrograms,
+                                  [program]: action,
+                                };
+                                setSelectedPrograms(updated);
+                                // Queue for sync
+                                await syncService.addPendingOperation(
+                                  'manifest',
+                                  {
+                                    orderId: selectedOrderData?.orderNumber,
+                                    program,
+                                    action,
+                                  },
+                                );
+                              }}
+                            />
+                          </View>
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <Text style={styles.emptyStateText}>
+                      No programs found for this order
+                    </Text>
+                  )}
+                </View>
+
+                {/* Scanned Document Indicator */}
+                {manifestData?.scannedImageUri && (
+                  <View style={styles.scannedImageIndicator}>
+                    <Text style={styles.scannedImageText}>
+                      ✓ Manifest document scanned and uploaded
+                    </Text>
+                  </View>
                 )}
               </CardContent>
             </Card>
-
-            <Card style={styles.summaryCard}>
-              <CardHeader>
-                <CardTitle>
-                  <CardTitleText>Manifest Summary</CardTitleText>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Total Containers:</Text>
-                  <Text style={styles.summaryValue}>
-                    {addedContainers.length}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Programs to Ship:</Text>
-                  <Text style={styles.summaryValue}>
-                    {
-                      Object.values(selectedPrograms).filter(p => p === 'ship')
-                        .length
-                    }{' '}
-                    of {orderPrograms.length}
-                  </Text>
-                </View>
-              </CardContent>
-            </Card>
           </ScrollView>
+        </View>
+
+        {/* Fixed Footer with Manifest Actions */}
+        <View style={styles.manifestActionsFooter}>
+          <View style={styles.manifestActionsRow}>
+            <Button
+              title="Print Preview"
+              variant="outline"
+              size="md"
+              disabled={isCurrentOrderCompleted}
+              onPress={() => setShowPrintPreview(true)}
+              style={styles.manifestActionButton}
+            />
+            <Button
+              title="Print Options"
+              variant="outline"
+              size="md"
+              disabled={isCurrentOrderCompleted}
+              onPress={() => setShowPrintOptions(true)}
+              style={styles.manifestActionButton}
+            />
+            <Button
+              title="Scan & Upload"
+              variant="outline"
+              size="md"
+              disabled={isCurrentOrderCompleted}
+              onPress={scanManifestWithCamera}
+              style={styles.manifestActionButton}
+            />
+          </View>
         </View>
 
         <View style={styles.footer}>
@@ -1662,11 +2101,224 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             }}
           />
         </View>
+
+        {/* Print Preview Modal */}
+        <Modal
+          visible={showPrintPreview}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowPrintPreview(false)}>
+          <TouchableOpacity
+            style={styles.bottomSheetOverlay}
+            activeOpacity={1}
+            onPress={() => setShowPrintPreview(false)}>
+            <TouchableOpacity
+              style={[
+                styles.bottomSheetContent,
+                styles.bottomSheetContentLarge,
+              ]}
+              activeOpacity={1}
+              onPress={e => e.stopPropagation()}>
+              {/* Bottom Sheet Handle */}
+              <View style={styles.bottomSheetHandle} />
+
+              <View style={styles.bottomSheetHeader}>
+                <Text style={styles.bottomSheetTitle}>
+                  Manifest Print Preview
+                </Text>
+              </View>
+
+              <ScrollView style={styles.bottomSheetBody}>
+                <Card>
+                  <CardContent>
+                    <Text style={styles.previewLabel}>Order Number:</Text>
+                    <Text style={styles.previewValue}>
+                      {selectedOrderData?.orderNumber || 'N/A'}
+                    </Text>
+
+                    <Text style={styles.previewLabel}>Tracking Number:</Text>
+                    <Text style={styles.previewValue}>
+                      {manifestTrackingNumber || 'Not assigned yet'}
+                    </Text>
+
+                    <Text style={styles.previewLabel}>Date:</Text>
+                    <Text style={styles.previewValue}>
+                      {new Date().toLocaleDateString()}
+                    </Text>
+
+                    <Text style={styles.previewLabel}>Total Containers:</Text>
+                    <Text style={styles.previewValue}>
+                      {addedContainers.length}
+                    </Text>
+
+                    <Text style={styles.previewLabel}>Programs:</Text>
+                    {orderPrograms.map(program => (
+                      <Text key={program} style={styles.previewValue}>
+                        • {program}:{' '}
+                        {selectedPrograms[program] || 'Not selected'}
+                      </Text>
+                    ))}
+
+                    <Text style={styles.previewLabel}>Containers:</Text>
+                    {addedContainers.map((container, index) => (
+                      <View
+                        key={container.id}
+                        style={styles.previewContainerItem}>
+                        <Text style={styles.previewValue}>
+                          {index + 1}. {container.containerSize} -{' '}
+                          {container.streamName}
+                        </Text>
+                        <Text style={styles.previewSubValue}>
+                          Net Weight: {container.netWeight} lbs | Label:{' '}
+                          {container.shippingLabelBarcode}
+                        </Text>
+                      </View>
+                    ))}
+                  </CardContent>
+                </Card>
+              </ScrollView>
+
+              <View style={styles.bottomSheetFooter}>
+                <Button
+                  title="Close"
+                  variant="outline"
+                  size="lg"
+                  onPress={() => setShowPrintPreview(false)}
+                  style={styles.bottomSheetCancelButton}
+                />
+                <Button
+                  title="Print"
+                  variant="primary"
+                  size="lg"
+                  onPress={async () => {
+                    setShowPrintPreview(false);
+                    await printManifest();
+                  }}
+                  style={styles.bottomSheetDeleteButton}
+                />
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Print Options Modal */}
+        <Modal
+          visible={showPrintOptions}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowPrintOptions(false)}>
+          <TouchableOpacity
+            style={styles.bottomSheetOverlay}
+            activeOpacity={1}
+            onPress={() => setShowPrintOptions(false)}>
+            <TouchableOpacity
+              style={styles.bottomSheetContent}
+              activeOpacity={1}
+              onPress={e => e.stopPropagation()}>
+              {/* Bottom Sheet Handle */}
+              <View style={styles.bottomSheetHandle} />
+
+              <View style={styles.bottomSheetHeader}>
+                <Text style={styles.bottomSheetTitle}>Print Options</Text>
+              </View>
+
+              <View style={styles.bottomSheetBody}>
+                <Button
+                  title="Print Manifest"
+                  variant="primary"
+                  size="lg"
+                  onPress={async () => {
+                    setShowPrintOptions(false);
+                    await printManifest();
+                  }}
+                  style={styles.printOptionButton}
+                />
+                <Button
+                  title="Print LDR"
+                  variant="primary"
+                  size="lg"
+                  onPress={async () => {
+                    setShowPrintOptions(false);
+                    await printLDR();
+                  }}
+                  style={styles.printOptionButton}
+                />
+                <Button
+                  title="Void Manifest"
+                  variant="destructive"
+                  size="lg"
+                  onPress={() => {
+                    setShowPrintOptions(false);
+                    voidManifest();
+                  }}
+                  style={styles.printOptionButton}
+                />
+              </View>
+
+              <View style={styles.bottomSheetFooter}>
+                <Button
+                  title="Cancel"
+                  variant="outline"
+                  size="lg"
+                  onPress={() => setShowPrintOptions(false)}
+                  style={styles.bottomSheetCancelButton}
+                />
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
       </View>
     );
   };
 
   const MaterialsSuppliesScreen = () => {
+    const isCurrentOrderCompleted = selectedOrderData
+      ? isOrderCompleted(selectedOrderData.orderNumber)
+      : false;
+    const [editingQuantityId, setEditingQuantityId] = useState<string | null>(
+      null,
+    );
+    const [editQuantityValue, setEditQuantityValue] = useState('');
+
+    const handleAddMaterial = useCallback(() => {
+      if (!selectedMaterialItem) return;
+      const newMaterial = {
+        id: `mat-${Date.now()}`,
+        itemNumber: selectedMaterialItem.itemNumber,
+        description: selectedMaterialItem.description,
+        quantity: parseInt(materialQuantity) || 1,
+        type: materialType,
+      };
+
+      // Update materials list and reset form in the same batch
+      setMaterialsSupplies(prev => [...prev, newMaterial]);
+      setSelectedMaterialItem(null);
+      setMaterialQuantity('1');
+      setMaterialType('used');
+
+      // Show success indicator
+      setShowAddMaterialSuccess(true);
+      setTimeout(() => setShowAddMaterialSuccess(false), 2000);
+    }, [selectedMaterialItem, materialQuantity, materialType]);
+
+    const handleDeleteMaterial = (id: string) => {
+      setMaterialsSupplies(prev => prev.filter(m => m.id !== id));
+    };
+
+    const handleStartEditQuantity = (id: string, currentQuantity: number) => {
+      setEditingQuantityId(id);
+      setEditQuantityValue(String(currentQuantity));
+    };
+
+    const handleSaveQuantity = (id: string) => {
+      const newQuantity = parseInt(editQuantityValue) || 1;
+      setMaterialsSupplies(prev =>
+        prev.map(m => (m.id === id ? {...m, quantity: newQuantity} : m)),
+      );
+      setEditingQuantityId(null);
+      setEditQuantityValue('');
+    };
+
     return (
       <View style={styles.container}>
         <View style={styles.screenHeader}>
@@ -1693,49 +2345,125 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             <Card>
               <CardHeader>
                 <CardTitle>
-                  <CardTitleText>Materials Used</CardTitleText>
+                  <CardTitleText>Materials & Supplies</CardTitleText>
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <Text style={styles.cardDescription}>
-                  Track materials and supplies used during service
+                  Track materials and supplies used or left behind for this
+                  order
                 </Text>
-                <View style={styles.materialsList}>
-                  <Text style={styles.materialItem}>
-                    • Personal Protective Equipment (PPE)
-                  </Text>
-                  <Text style={styles.materialItem}>• Cleaning Supplies</Text>
-                  <Text style={styles.materialItem}>• Container Labels</Text>
-                  <Text style={styles.materialItem}>• Documentation Forms</Text>
-                </View>
-              </CardContent>
-            </Card>
 
-            <Card style={styles.summaryCard}>
-              <CardHeader>
-                <CardTitle>
-                  <CardTitleText>Order Information</CardTitleText>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Customer:</Text>
-                  <Text style={styles.summaryValue}>
-                    {selectedOrderData?.customer || 'N/A'}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Site:</Text>
-                  <Text style={styles.summaryValue}>
-                    {selectedOrderData?.site || 'N/A'}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Service Date:</Text>
-                  <Text style={styles.summaryValue}>
-                    {selectedOrderData?.serviceDate || 'N/A'}
-                  </Text>
-                </View>
+                {materialsSupplies.length > 0 ? (
+                  <View style={styles.materialsTable}>
+                    <View style={styles.materialsTableHeader}>
+                      <Text style={styles.materialsTableHeaderText}>
+                        Item #
+                      </Text>
+                      <Text style={styles.materialsTableHeaderText}>
+                        Description
+                      </Text>
+                      <Text style={styles.materialsTableHeaderText}>Qty</Text>
+                      <Text style={styles.materialsTableHeaderText}>Type</Text>
+                      <Text style={styles.materialsTableHeaderText}>
+                        Action
+                      </Text>
+                    </View>
+                    {materialsSupplies.map((material, index) => (
+                      <View key={material.id} style={styles.materialsTableRow}>
+                        <Text style={styles.materialsTableCell}>
+                          {material.itemNumber}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.materialsTableCell,
+                            styles.materialsTableCellDescription,
+                          ]}>
+                          {material.description}
+                        </Text>
+                        <View style={styles.materialsTableCell}>
+                          {editingQuantityId === material.id ? (
+                            <View style={styles.quantityEditContainer}>
+                              <TextInput
+                                style={styles.quantityEditInput}
+                                value={editQuantityValue}
+                                onChangeText={setEditQuantityValue}
+                                keyboardType="numeric"
+                                autoFocus
+                              />
+                              <TouchableOpacity
+                                onPress={() => handleSaveQuantity(material.id)}
+                                style={styles.quantityEditButton}>
+                                <Text style={styles.quantityEditButtonText}>
+                                  ✓
+                                </Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={() => {
+                                  setEditingQuantityId(null);
+                                  setEditQuantityValue('');
+                                }}
+                                style={styles.quantityEditButton}>
+                                <Text style={styles.quantityEditButtonText}>
+                                  ✕
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              onPress={() =>
+                                handleStartEditQuantity(
+                                  material.id,
+                                  material.quantity,
+                                )
+                              }
+                              disabled={isCurrentOrderCompleted}>
+                              <Text style={styles.materialsTableQuantity}>
+                                {material.quantity}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                        <View style={styles.materialsTableCell}>
+                          <Badge
+                            variant={
+                              material.type === 'used' ? 'default' : 'secondary'
+                            }>
+                            {material.type === 'used' ? 'Used' : 'Left Behind'}
+                          </Badge>
+                        </View>
+                        <View style={styles.materialsTableCell}>
+                          <TouchableOpacity
+                            onPress={() => handleDeleteMaterial(material.id)}
+                            disabled={isCurrentOrderCompleted}
+                            style={styles.deleteMaterialButton}>
+                            <Text style={styles.deleteMaterialButtonText}>
+                              Delete
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.emptyMaterialsState}>
+                    <Text style={styles.emptyMaterialsText}>
+                      No materials or supplies added yet
+                    </Text>
+                    <Text style={styles.emptyMaterialsSubtext}>
+                      Tap "Add Material" to get started
+                    </Text>
+                  </View>
+                )}
+
+                <Button
+                  title="Add Material & Supply"
+                  variant="primary"
+                  size="md"
+                  disabled={isCurrentOrderCompleted}
+                  onPress={() => setShowAddMaterialModal(true)}
+                  style={styles.addMaterialButton}
+                />
               </CardContent>
             </Card>
           </ScrollView>
@@ -1755,6 +2483,213 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             onPress={() => setCurrentStep('order-service')}
           />
         </View>
+
+        {/* Add Material Modal - Full Screen for Tablets */}
+        <Modal
+          visible={showAddMaterialModal}
+          animationType="slide"
+          onRequestClose={() => setShowAddMaterialModal(false)}>
+          <View style={styles.fullScreenModalContainer}>
+            <View style={styles.fullScreenModalHeader}>
+              <Text style={styles.fullScreenModalTitle}>
+                Add Material & Supply
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowAddMaterialModal(false);
+                  setSelectedMaterialItem(null);
+                  setMaterialQuantity('1');
+                  setMaterialType('used');
+                }}
+                hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+                style={styles.fullScreenModalCloseButton}>
+                <Text style={styles.fullScreenModalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.fullScreenModalBody}>
+              <View
+                style={[
+                  styles.modalSplitContainer,
+                  isTablet()
+                    ? styles.modalSplitContainerRow
+                    : styles.modalSplitContainerColumn,
+                ]}>
+                {/* Left: Catalog Selection */}
+                <View
+                  style={[
+                    styles.modalCatalogPane,
+                    isTablet() && styles.modalCatalogPaneTablet,
+                  ]}>
+                  <Text style={styles.sectionTitle}>Select Item</Text>
+                  <Text style={styles.sectionDescription}>
+                    Choose a material or supply from the catalog
+                  </Text>
+                  <ScrollView
+                    style={styles.modalCatalogScroll}
+                    contentContainerStyle={styles.modalCatalogContent}>
+                    {MATERIALS_CATALOG.map(item => (
+                      <TouchableOpacity
+                        key={item.itemNumber}
+                        style={[
+                          styles.materialCatalogItemVertical,
+                          selectedMaterialItem?.itemNumber ===
+                            item.itemNumber &&
+                            styles.materialCatalogItemSelected,
+                        ]}
+                        onPress={() => setSelectedMaterialItem(item)}>
+                        <Text
+                          style={[
+                            styles.materialCatalogItemNumber,
+                            selectedMaterialItem?.itemNumber ===
+                              item.itemNumber &&
+                              styles.materialCatalogItemNumberSelected,
+                          ]}>
+                          {item.itemNumber}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.materialCatalogItemDescription,
+                            selectedMaterialItem?.itemNumber ===
+                              item.itemNumber &&
+                              styles.materialCatalogItemDescriptionSelected,
+                          ]}>
+                          {item.description}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+
+                {/* Right: Details Section (Always Visible) */}
+                <View
+                  style={[
+                    styles.modalDetailsPane,
+                    isTablet() && styles.modalDetailsPaneTablet,
+                  ]}>
+                  <Text style={styles.sectionTitle}>Item Details</Text>
+                  {showAddMaterialSuccess && (
+                    <View style={styles.addSuccessIndicator}>
+                      <Text style={styles.addSuccessText}>
+                        ✓ Material added successfully!
+                      </Text>
+                    </View>
+                  )}
+                  {selectedMaterialItem ? (
+                    <>
+                      <View style={styles.selectedItemInfo}>
+                        <Text style={styles.selectedItemNumber}>
+                          {selectedMaterialItem.itemNumber}
+                        </Text>
+                        <Text style={styles.selectedItemDescription}>
+                          {selectedMaterialItem.description}
+                        </Text>
+                      </View>
+
+                      <View style={styles.materialInputSection}>
+                        <Text style={styles.inputLabel}>Quantity</Text>
+                        <Input
+                          label="Quantity"
+                          value={materialQuantity}
+                          onChangeText={setMaterialQuantity}
+                          keyboardType="numeric"
+                          placeholder="1"
+                        />
+                      </View>
+
+                      <View style={styles.materialInputSection}>
+                        <Text style={styles.inputLabel}>Type</Text>
+                        <Text style={styles.sectionDescription}>
+                          Select whether this item was used or left behind
+                        </Text>
+                        <View style={styles.materialTypeCards}>
+                          <TouchableOpacity
+                            style={[
+                              styles.materialTypeCard,
+                              materialType === 'used' &&
+                                styles.materialTypeCardSelected,
+                            ]}
+                            onPress={() => setMaterialType('used')}>
+                            <Text
+                              style={[
+                                styles.materialTypeCardTitle,
+                                materialType === 'used' &&
+                                  styles.materialTypeCardTitleSelected,
+                              ]}>
+                              Used
+                            </Text>
+                            <Text
+                              style={[
+                                styles.materialTypeCardDescription,
+                                materialType === 'used' &&
+                                  styles.materialTypeCardDescriptionSelected,
+                              ]}>
+                              Material was used during service
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[
+                              styles.materialTypeCard,
+                              materialType === 'left_behind' &&
+                                styles.materialTypeCardSelected,
+                            ]}
+                            onPress={() => setMaterialType('left_behind')}>
+                            <Text
+                              style={[
+                                styles.materialTypeCardTitle,
+                                materialType === 'left_behind' &&
+                                  styles.materialTypeCardTitleSelected,
+                              ]}>
+                              Left Behind
+                            </Text>
+                            <Text
+                              style={[
+                                styles.materialTypeCardDescription,
+                                materialType === 'left_behind' &&
+                                  styles.materialTypeCardDescriptionSelected,
+                              ]}>
+                              Material was left at customer site
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.noSelectionPlaceholder}>
+                      <Text style={styles.noSelectionText}>
+                        Select an item from the catalog to configure quantity
+                        and type
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.fullScreenModalFooter}>
+              <Button
+                title="Done"
+                variant="outline"
+                size="lg"
+                onPress={() => {
+                  setShowAddMaterialModal(false);
+                  setSelectedMaterialItem(null);
+                  setMaterialQuantity('1');
+                  setMaterialType('used');
+                }}
+                style={styles.fullScreenModalCancelButton}
+              />
+              <Button
+                title="Add Material"
+                variant="primary"
+                size="lg"
+                disabled={!selectedMaterialItem}
+                onPress={handleAddMaterial}
+                style={styles.fullScreenModalAddButton}
+              />
+            </View>
+          </View>
+        </Modal>
       </View>
     );
   };
@@ -1767,144 +2702,659 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const programsToShip = Object.values(selectedPrograms).filter(
       p => p === 'ship',
     ).length;
+    const [equipmentPPE, setEquipmentPPE] = useState<
+      Array<{
+        id: string;
+        name: string;
+        count: number;
+      }>
+    >([]);
+    const [showEquipmentEntry, setShowEquipmentEntry] = useState(true);
+    const [showCustomerAcknowledgment, setShowCustomerAcknowledgment] =
+      useState(false);
+    const [customerFirstName, setCustomerFirstName] = useState('');
+    const [customerLastName, setCustomerLastName] = useState('');
+    const [customerEmail, setCustomerEmail] = useState('');
+    const [editingEquipmentId, setEditingEquipmentId] = useState<string | null>(
+      null,
+    );
+    const [editEquipmentCount, setEditEquipmentCount] = useState('');
+    const [showAddEquipmentModal, setShowAddEquipmentModal] = useState(false);
+    const [selectedEquipmentItem, setSelectedEquipmentItem] = useState<
+      string | null
+    >(null);
+    const [equipmentQuantity, setEquipmentQuantity] = useState('1');
+    const [showAddEquipmentSuccess, setShowAddEquipmentSuccess] =
+      useState(false);
 
-    return (
-      <View style={styles.container}>
-        <View style={styles.screenHeader}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setCurrentStep('materials-supplies')}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.screenHeaderContent}>
-            <Text style={styles.screenHeaderTitle}>
-              {selectedOrderData?.orderNumber || 'Order'}
-            </Text>
-            <Text style={styles.screenHeaderSubtitle}>Service Summary</Text>
+    // Pre-determined equipment/PPE list
+    const EQUIPMENT_PPE_CATALOG = [
+      'Safety Glasses',
+      'Nitrile Gloves',
+      'Protective Suit',
+      'Respirator',
+      'Hard Hat',
+      'Safety Boots',
+      'Hearing Protection',
+      'Face Shield',
+      'Apron',
+      'Coveralls',
+    ];
+
+    const handleAddEquipment = () => {
+      if (!selectedEquipmentItem) return;
+      const newEquipment = {
+        id: `eq-${Date.now()}`,
+        name: selectedEquipmentItem,
+        count: parseInt(equipmentQuantity) || 1,
+      };
+      setEquipmentPPE(prev => [...prev, newEquipment]);
+      // Show success indicator
+      setShowAddEquipmentSuccess(true);
+      setTimeout(() => setShowAddEquipmentSuccess(false), 2000);
+      // Reset form but keep modal open
+      setSelectedEquipmentItem(null);
+      setEquipmentQuantity('1');
+    };
+
+    const handleDeleteEquipment = (id: string) => {
+      setEquipmentPPE(prev => prev.filter(e => e.id !== id));
+    };
+
+    const handleStartEditCount = (id: string, currentCount: number) => {
+      setEditingEquipmentId(id);
+      setEditEquipmentCount(String(currentCount));
+    };
+
+    const handleSaveCount = (id: string) => {
+      const newCount = parseInt(editEquipmentCount) || 1;
+      setEquipmentPPE(prev =>
+        prev.map(e => (e.id === id ? {...e, count: newCount} : e)),
+      );
+      setEditingEquipmentId(null);
+      setEditEquipmentCount('');
+    };
+
+    const handleSkipEquipment = () => {
+      setShowEquipmentEntry(false);
+      setShowCustomerAcknowledgment(true);
+    };
+
+    const handleContinueToAcknowledgment = () => {
+      setShowEquipmentEntry(false);
+      setShowCustomerAcknowledgment(true);
+    };
+
+    const handleCompleteOrder = async () => {
+      if (!customerFirstName.trim() || !customerLastName.trim()) {
+        Alert.alert(
+          'Required Fields',
+          'Please enter customer first name and last name.',
+        );
+        return;
+      }
+
+      if (selectedOrderData) {
+        // Queue order completion for sync
+        await syncService.addPendingOperation('order', {
+          orderNumber: selectedOrderData.orderNumber,
+          completed: true,
+          containers: addedContainers,
+          programs: selectedPrograms,
+          materialsSupplies,
+          equipmentPPE,
+          totalNetWeight,
+          programsToShip,
+          customerAcknowledgment: {
+            firstName: customerFirstName,
+            lastName: customerLastName,
+            email: customerEmail || undefined,
+            acknowledgedAt: new Date().toISOString(),
+          },
+        });
+
+        // Mark order as completed
+        setCompletedOrders(prev => [...prev, selectedOrderData.orderNumber]);
+        // Update order status
+        setOrderStatuses(prev => ({
+          ...prev,
+          [selectedOrderData.orderNumber]: 'Completed',
+        }));
+        // Reset state
+        setAddedContainers([]);
+        setSelectedPrograms({});
+        setMaterialsSupplies([]);
+        setEquipmentPPE([]);
+        setBarcode('');
+        setTareWeight('45');
+        setGrossWeight('285');
+        setCustomerFirstName('');
+        setCustomerLastName('');
+        setCustomerEmail('');
+      }
+      setCurrentStep('dashboard');
+    };
+
+    // Equipment Entry View
+    if (showEquipmentEntry) {
+      return (
+        <View style={styles.container}>
+          <View style={styles.screenHeader}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => setCurrentStep('materials-supplies')}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+              <Text style={styles.backButtonText}>←</Text>
+            </TouchableOpacity>
+            <View style={styles.screenHeaderContent}>
+              <Text style={styles.screenHeaderTitle}>
+                {selectedOrderData?.orderNumber || 'Order'}
+              </Text>
+              <Text style={styles.screenHeaderSubtitle}>Equipment & PPE</Text>
+            </View>
+          </View>
+
+          <View style={styles.scrollViewContainer}>
+            <ScrollView
+              style={styles.scrollView}
+              contentContainerStyle={styles.scrollContent}>
+              <Card>
+                <CardHeader>
+                  <CardTitle>
+                    <CardTitleText>Equipment & PPE</CardTitleText>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Text style={styles.cardDescription}>
+                    Track equipment and PPE items used during service completion
+                  </Text>
+
+                  {equipmentPPE.length > 0 ? (
+                    <View style={styles.materialsTable}>
+                      <View style={styles.materialsTableHeader}>
+                        <Text style={styles.materialsTableHeaderText}>
+                          Equipment
+                        </Text>
+                        <Text style={styles.materialsTableHeaderText}>Qty</Text>
+                        <Text style={styles.materialsTableHeaderText}>
+                          Action
+                        </Text>
+                      </View>
+                      {equipmentPPE.map(equipment => (
+                        <View
+                          key={equipment.id}
+                          style={styles.materialsTableRow}>
+                          <Text
+                            style={[
+                              styles.materialsTableCell,
+                              styles.materialsTableCellDescription,
+                            ]}>
+                            {equipment.name}
+                          </Text>
+                          <View style={styles.materialsTableCell}>
+                            {editingEquipmentId === equipment.id ? (
+                              <View style={styles.quantityEditContainer}>
+                                <TextInput
+                                  style={styles.quantityEditInput}
+                                  value={editEquipmentCount}
+                                  onChangeText={setEditEquipmentCount}
+                                  keyboardType="numeric"
+                                  autoFocus
+                                />
+                                <TouchableOpacity
+                                  onPress={() => handleSaveCount(equipment.id)}
+                                  style={styles.quantityEditButton}>
+                                  <Text style={styles.quantityEditButtonText}>
+                                    ✓
+                                  </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    setEditingEquipmentId(null);
+                                    setEditEquipmentCount('');
+                                  }}
+                                  style={styles.quantityEditButton}>
+                                  <Text style={styles.quantityEditButtonText}>
+                                    ✕
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            ) : (
+                              <TouchableOpacity
+                                onPress={() =>
+                                  handleStartEditCount(
+                                    equipment.id,
+                                    equipment.count,
+                                  )
+                                }>
+                                <Text style={styles.materialsTableQuantity}>
+                                  {equipment.count}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                          <View style={styles.materialsTableCell}>
+                            <TouchableOpacity
+                              onPress={() =>
+                                handleDeleteEquipment(equipment.id)
+                              }
+                              style={styles.deleteMaterialButton}>
+                              <Text style={styles.deleteMaterialButtonText}>
+                                Delete
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <View style={styles.emptyMaterialsState}>
+                      <Text style={styles.emptyMaterialsText}>
+                        No equipment or PPE added yet
+                      </Text>
+                      <Text style={styles.emptyMaterialsSubtext}>
+                        Tap "Add Equipment" to get started
+                      </Text>
+                    </View>
+                  )}
+
+                  <Button
+                    title="Add Equipment & PPE"
+                    variant="primary"
+                    size="md"
+                    onPress={() => setShowAddEquipmentModal(true)}
+                    style={styles.addMaterialButton}
+                  />
+                </CardContent>
+              </Card>
+            </ScrollView>
+          </View>
+
+          <View style={styles.footer}>
+            <Button
+              title="Skip"
+              variant="outline"
+              size="md"
+              onPress={handleSkipEquipment}
+            />
+            <Button
+              title="Continue"
+              variant="primary"
+              size="md"
+              onPress={handleContinueToAcknowledgment}
+            />
+          </View>
+
+          {/* Add Equipment Modal - Full Screen */}
+          <Modal
+            visible={showAddEquipmentModal}
+            animationType="slide"
+            onRequestClose={() => setShowAddEquipmentModal(false)}>
+            <View style={styles.fullScreenModalContainer}>
+              <View style={styles.fullScreenModalHeader}>
+                <Text style={styles.fullScreenModalTitle}>
+                  Add Equipment & PPE
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowAddEquipmentModal(false);
+                    setSelectedEquipmentItem(null);
+                    setEquipmentQuantity('1');
+                  }}
+                  hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+                  style={styles.fullScreenModalCloseButton}>
+                  <Text style={styles.fullScreenModalCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.fullScreenModalBody}>
+                <View
+                  style={[
+                    styles.modalSplitContainer,
+                    isTablet()
+                      ? styles.modalSplitContainerRow
+                      : styles.modalSplitContainerColumn,
+                  ]}>
+                  {/* Left: Catalog Selection */}
+                  <View
+                    style={[
+                      styles.modalCatalogPane,
+                      isTablet() && styles.modalCatalogPaneTablet,
+                    ]}>
+                    <Text style={styles.sectionTitle}>Select Equipment</Text>
+                    <Text style={styles.sectionDescription}>
+                      Choose equipment or PPE from the catalog
+                    </Text>
+                    <ScrollView
+                      style={styles.modalCatalogScroll}
+                      contentContainerStyle={styles.modalCatalogContent}>
+                      {EQUIPMENT_PPE_CATALOG.map(item => (
+                        <TouchableOpacity
+                          key={item}
+                          style={[
+                            styles.materialCatalogItemVertical,
+                            selectedEquipmentItem === item &&
+                              styles.materialCatalogItemSelected,
+                          ]}
+                          onPress={() => setSelectedEquipmentItem(item)}>
+                          <Text
+                            style={[
+                              styles.materialCatalogItemDescription,
+                              selectedEquipmentItem === item &&
+                                styles.materialCatalogItemDescriptionSelected,
+                            ]}>
+                            {item}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+
+                  {/* Right: Details Section (Always Visible) */}
+                  <View
+                    style={[
+                      styles.modalDetailsPane,
+                      isTablet() && styles.modalDetailsPaneTablet,
+                    ]}>
+                    <Text style={styles.sectionTitle}>Item Details</Text>
+                    {showAddEquipmentSuccess && (
+                      <View style={styles.addSuccessIndicator}>
+                        <Text style={styles.addSuccessText}>
+                          ✓ Equipment added successfully!
+                        </Text>
+                      </View>
+                    )}
+                    {selectedEquipmentItem ? (
+                      <>
+                        <View style={styles.selectedItemInfo}>
+                          <Text style={styles.selectedItemDescription}>
+                            {selectedEquipmentItem}
+                          </Text>
+                        </View>
+
+                        <View style={styles.materialInputSection}>
+                          <Text style={styles.inputLabel}>Quantity</Text>
+                          <Input
+                            label="Quantity"
+                            value={equipmentQuantity}
+                            onChangeText={setEquipmentQuantity}
+                            keyboardType="numeric"
+                            placeholder="1"
+                          />
+                        </View>
+                      </>
+                    ) : (
+                      <View style={styles.noSelectionPlaceholder}>
+                        <Text style={styles.noSelectionText}>
+                          Select an item from the catalog to configure quantity
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.fullScreenModalFooter}>
+                <Button
+                  title="Done"
+                  variant="outline"
+                  size="lg"
+                  onPress={() => {
+                    setShowAddEquipmentModal(false);
+                    setSelectedEquipmentItem(null);
+                    setEquipmentQuantity('1');
+                  }}
+                  style={styles.fullScreenModalCancelButton}
+                />
+                <Button
+                  title="Add Equipment"
+                  variant="primary"
+                  size="lg"
+                  disabled={!selectedEquipmentItem}
+                  onPress={handleAddEquipment}
+                  style={styles.fullScreenModalAddButton}
+                />
+              </View>
+            </View>
+          </Modal>
+        </View>
+      );
+    }
+
+    // Customer Acknowledgment View
+    if (showCustomerAcknowledgment) {
+      return (
+        <View style={styles.container}>
+          <View style={styles.screenHeader}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => {
+                setShowCustomerAcknowledgment(false);
+                setShowEquipmentEntry(true);
+              }}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+              <Text style={styles.backButtonText}>←</Text>
+            </TouchableOpacity>
+            <View style={styles.screenHeaderContent}>
+              <Text style={styles.screenHeaderTitle}>
+                {selectedOrderData?.orderNumber || 'Order'}
+              </Text>
+              <Text style={styles.screenHeaderSubtitle}>
+                Customer Acknowledgment
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.scrollViewContainer}>
+            <ScrollView
+              style={styles.scrollView}
+              contentContainerStyle={styles.scrollContent}>
+              {/* Print-Friendly Order Summary */}
+              <Card style={styles.printSummaryCard}>
+                <CardHeader>
+                  <CardTitle>
+                    <CardTitleText>Order Summary</CardTitleText>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <View style={styles.printSummarySection}>
+                    <View style={styles.printSummaryRow}>
+                      <Text style={styles.printSummaryLabel}>
+                        Order Number:
+                      </Text>
+                      <Text style={styles.printSummaryValue}>
+                        {selectedOrderData?.orderNumber || 'N/A'}
+                      </Text>
+                    </View>
+                    <View style={styles.printSummaryRow}>
+                      <Text style={styles.printSummaryLabel}>Customer:</Text>
+                      <Text style={styles.printSummaryValue}>
+                        {selectedOrderData?.customer || 'N/A'}
+                      </Text>
+                    </View>
+                    <View style={styles.printSummaryRow}>
+                      <Text style={styles.printSummaryLabel}>Site:</Text>
+                      <Text style={styles.printSummaryValue}>
+                        {selectedOrderData?.site || 'N/A'}
+                      </Text>
+                    </View>
+                    <View style={styles.printSummaryRow}>
+                      <Text style={styles.printSummaryLabel}>Date:</Text>
+                      <Text style={styles.printSummaryValue}>
+                        {new Date().toLocaleDateString()}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.printSummaryDivider} />
+
+                  <View style={styles.printSummarySection}>
+                    <Text style={styles.printSummarySectionTitle}>
+                      Containers
+                    </Text>
+                    {addedContainers.map((container, index) => (
+                      <View key={container.id} style={styles.printSummaryItem}>
+                        <Text style={styles.printSummaryItemText}>
+                          {index + 1}. {container.containerSize} -{' '}
+                          {container.streamName}
+                        </Text>
+                        <Text style={styles.printSummaryItemSubtext}>
+                          Net Weight: {container.netWeight} lbs | Label:{' '}
+                          {container.shippingLabelBarcode}
+                        </Text>
+                      </View>
+                    ))}
+                    <View style={styles.printSummaryRow}>
+                      <Text style={styles.printSummaryLabel}>
+                        Total Containers:
+                      </Text>
+                      <Text style={styles.printSummaryValue}>
+                        {addedContainers.length}
+                      </Text>
+                    </View>
+                    <View style={styles.printSummaryRow}>
+                      <Text style={styles.printSummaryLabel}>
+                        Total Net Weight:
+                      </Text>
+                      <Text
+                        style={[
+                          styles.printSummaryValue,
+                          styles.netWeightHighlight,
+                        ]}>
+                        {totalNetWeight} lbs
+                      </Text>
+                    </View>
+                  </View>
+
+                  {materialsSupplies.length > 0 && (
+                    <>
+                      <View style={styles.printSummaryDivider} />
+                      <View style={styles.printSummarySection}>
+                        <Text style={styles.printSummarySectionTitle}>
+                          Materials & Supplies
+                        </Text>
+                        {materialsSupplies.map(material => (
+                          <View
+                            key={material.id}
+                            style={styles.printSummaryItem}>
+                            <Text style={styles.printSummaryItemText}>
+                              {material.itemNumber} - {material.description}
+                            </Text>
+                            <Text style={styles.printSummaryItemSubtext}>
+                              Qty: {material.quantity} | Type:{' '}
+                              {material.type === 'used'
+                                ? 'Used'
+                                : 'Left Behind'}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    </>
+                  )}
+
+                  {equipmentPPE.length > 0 && (
+                    <>
+                      <View style={styles.printSummaryDivider} />
+                      <View style={styles.printSummarySection}>
+                        <Text style={styles.printSummarySectionTitle}>
+                          Equipment & PPE
+                        </Text>
+                        {equipmentPPE.map(equipment => (
+                          <View
+                            key={equipment.id}
+                            style={styles.printSummaryItem}>
+                            <Text style={styles.printSummaryItemText}>
+                              {equipment.name} - {equipment.count}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    </>
+                  )}
+
+                  <View style={styles.printSummaryDivider} />
+
+                  <View style={styles.printSummarySection}>
+                    <Text style={styles.printSummarySectionTitle}>
+                      Programs
+                    </Text>
+                    {selectedOrderData?.programs.map(program => (
+                      <View key={program} style={styles.printSummaryItem}>
+                        <Text style={styles.printSummaryItemText}>
+                          {program}:{' '}
+                          {selectedPrograms[program] || 'Not selected'}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </CardContent>
+              </Card>
+
+              {/* Customer Information Form */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>
+                    <CardTitleText>Customer Information</CardTitleText>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Text style={styles.cardDescription}>
+                    Enter customer information to acknowledge this order
+                  </Text>
+
+                  <Input
+                    label="First Name *"
+                    value={customerFirstName}
+                    onChangeText={setCustomerFirstName}
+                    placeholder="Enter first name"
+                    style={styles.customerInput}
+                  />
+
+                  <Input
+                    label="Last Name *"
+                    value={customerLastName}
+                    onChangeText={setCustomerLastName}
+                    placeholder="Enter last name"
+                    style={styles.customerInput}
+                  />
+
+                  <Input
+                    label="Email (Optional)"
+                    value={customerEmail}
+                    onChangeText={setCustomerEmail}
+                    placeholder="Enter email address"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    style={styles.customerInput}
+                  />
+                </CardContent>
+              </Card>
+            </ScrollView>
+          </View>
+
+          <View style={styles.footer}>
+            <Button
+              title="Back"
+              variant="outline"
+              size="md"
+              onPress={() => {
+                setShowCustomerAcknowledgment(false);
+                setShowEquipmentEntry(true);
+              }}
+            />
+            <Button
+              title="Acknowledge & Complete"
+              variant="primary"
+              size="md"
+              onPress={handleCompleteOrder}
+            />
           </View>
         </View>
+      );
+    }
 
-        <View style={styles.scrollViewContainer}>
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}>
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <CardTitleText>Service Summary</CardTitleText>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Order Number:</Text>
-                  <Text style={styles.summaryValue}>
-                    {selectedOrderData?.orderNumber || 'N/A'}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Customer:</Text>
-                  <Text style={styles.summaryValue}>
-                    {selectedOrderData?.customer || 'N/A'}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Site:</Text>
-                  <Text style={styles.summaryValue}>
-                    {selectedOrderData?.site || 'N/A'}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Total Containers:</Text>
-                  <Text style={styles.summaryValue}>
-                    {addedContainers.length}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Total Net Weight:</Text>
-                  <Text
-                    style={[styles.summaryValue, styles.netWeightHighlight]}>
-                    {totalNetWeight} lbs
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Programs to Ship:</Text>
-                  <Text style={styles.summaryValue}>
-                    {programsToShip} of{' '}
-                    {selectedOrderData?.programs.length || 0}
-                  </Text>
-                </View>
-              </CardContent>
-            </Card>
-
-            <Card style={styles.summaryCard}>
-              <CardHeader>
-                <CardTitle>
-                  <CardTitleText>Equipment & PPE</CardTitleText>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Text style={styles.cardDescription}>
-                  Equipment and personal protective equipment used during
-                  service
-                </Text>
-                <View style={styles.materialsList}>
-                  <Text style={styles.materialItem}>• Safety Glasses</Text>
-                  <Text style={styles.materialItem}>• Gloves</Text>
-                  <Text style={styles.materialItem}>• Protective Suit</Text>
-                  <Text style={styles.materialItem}>• Respirator</Text>
-                </View>
-              </CardContent>
-            </Card>
-          </ScrollView>
-        </View>
-
-        <View style={styles.footer}>
-          <Button
-            title="Back"
-            variant="outline"
-            size="md"
-            onPress={() => setCurrentStep('materials-supplies')}
-          />
-          <Button
-            title="Complete Order"
-            variant="primary"
-            size="md"
-            onPress={async () => {
-              if (selectedOrderData) {
-                // Queue order completion for sync
-                await syncService.addPendingOperation('order', {
-                  orderNumber: selectedOrderData.orderNumber,
-                  completed: true,
-                  containers: addedContainers,
-                  programs: selectedPrograms,
-                  totalNetWeight,
-                  programsToShip,
-                });
-
-                // Mark order as completed
-                setCompletedOrders(prev => [
-                  ...prev,
-                  selectedOrderData.orderNumber,
-                ]);
-                // Update order status
-                setOrderStatuses(prev => ({
-                  ...prev,
-                  [selectedOrderData.orderNumber]: 'Completed',
-                }));
-                // Reset state
-                setAddedContainers([]);
-                setSelectedPrograms({});
-                setBarcode('');
-                setTareWeight('45');
-                setGrossWeight('285');
-              }
-              setCurrentStep('dashboard');
-            }}
-          />
-        </View>
-      </View>
-    );
+    // Fallback (shouldn't reach here)
+    return null;
   };
 
   const renderScreen = () => {
@@ -2400,6 +3850,19 @@ const styles = StyleSheet.create({
     ...typography.sm,
     color: colors.mutedForeground,
   },
+  manualEntryIndicator: {
+    backgroundColor: '#fef3c720',
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+  },
+  manualEntryText: {
+    ...typography.sm,
+    color: '#92400e',
+    textAlign: 'center',
+  },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2532,6 +3995,58 @@ const styles = StyleSheet.create({
   netWeightHighlight: {
     color: colors.primary,
   },
+  // Manifest Configuration Styles
+  manifestSummarySection: {
+    marginBottom: spacing.xl,
+    paddingBottom: spacing.lg,
+    borderBottomWidth: 2,
+    borderBottomColor: colors.border,
+  },
+  manifestSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+  },
+  manifestSummaryItem: {
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 120,
+  },
+  manifestSummaryLabel: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginBottom: spacing.xs,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  manifestSummaryValue: {
+    ...typography.xl,
+    fontWeight: '600',
+    color: colors.foreground,
+    textAlign: 'center',
+  },
+  manifestSummaryDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: colors.border,
+  },
+  programsSection: {
+    marginTop: spacing.lg,
+  },
+  sectionTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.xs,
+  },
+  sectionDescription: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginBottom: spacing.md,
+  },
   programSelectionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2546,9 +4061,17 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     flex: 1,
   },
-  programButtons: {
+  programToggleContainer: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
+  },
+  programStatusLabel: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '500',
+    minWidth: 60,
+    textAlign: 'right',
   },
   summaryCard: {
     marginTop: spacing.lg,
@@ -2579,6 +4102,446 @@ const styles = StyleSheet.create({
     ...typography.base,
     color: colors.foreground,
     paddingLeft: spacing.md,
+  },
+  // Materials & Supplies Table Styles
+  materialsTable: {
+    marginTop: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+  },
+  materialsTableHeader: {
+    flexDirection: 'row',
+    backgroundColor: colors.background,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 2,
+    borderBottomColor: colors.border,
+  },
+  materialsTableHeaderText: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.mutedForeground,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    flex: 1,
+  },
+  materialsTableRow: {
+    flexDirection: 'row',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    alignItems: 'center',
+  },
+  materialsTableCell: {
+    flex: 1,
+    ...typography.sm,
+    color: colors.foreground,
+  },
+  materialsTableCellDescription: {
+    flex: 2,
+  },
+  materialsTableQuantity: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  quantityEditContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  quantityEditInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    minWidth: 50,
+    ...typography.base,
+    color: colors.foreground,
+  },
+  quantityEditButton: {
+    padding: spacing.xs,
+  },
+  quantityEditButtonText: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  deleteMaterialButton: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  deleteMaterialButtonText: {
+    ...typography.sm,
+    color: colors.destructive,
+    fontWeight: '600',
+  },
+  emptyMaterialsState: {
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
+    marginTop: spacing.md,
+  },
+  emptyMaterialsText: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    marginBottom: spacing.xs,
+  },
+  emptyMaterialsSubtext: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  addMaterialButton: {
+    marginTop: spacing.lg,
+  },
+  // Full Screen Modal Styles
+  fullScreenModalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  fullScreenModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  fullScreenModalTitle: {
+    ...typography['2xl'],
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  fullScreenModalCloseButton: {
+    padding: spacing.sm,
+  },
+  fullScreenModalCloseText: {
+    ...typography.xl,
+    color: colors.mutedForeground,
+    fontWeight: '600',
+  },
+  fullScreenModalBody: {
+    flex: 1,
+  },
+  fullScreenModalContent: {
+    padding: spacing.lg,
+  },
+  // Split Layout Styles for Modal
+  modalSplitContainer: {
+    flex: 1,
+    padding: spacing.lg,
+    gap: spacing.lg,
+  },
+  modalSplitContainerRow: {
+    flexDirection: 'row',
+  },
+  modalSplitContainerColumn: {
+    flexDirection: 'column',
+  },
+  modalCatalogPane: {
+    flex: 1,
+    minHeight: 300,
+  },
+  modalCatalogPaneTablet: {
+    flex: 1,
+    minHeight: undefined,
+  },
+  modalCatalogScroll: {
+    flex: 1,
+  },
+  modalCatalogContent: {
+    paddingBottom: spacing.md,
+  },
+  modalDetailsPane: {
+    padding: spacing.lg,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minHeight: 300,
+  },
+  modalDetailsPaneTablet: {
+    flex: 1,
+    minHeight: undefined,
+  },
+  selectedItemInfo: {
+    marginBottom: spacing.lg,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  selectedItemNumber: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.primary,
+    marginBottom: spacing.xs,
+  },
+  selectedItemDescription: {
+    ...typography.base,
+    color: colors.foreground,
+  },
+  noSelectionPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
+  },
+  noSelectionText: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  inputLabel: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.sm,
+  },
+  addSuccessIndicator: {
+    backgroundColor: `${colors.success || colors.primary}20`,
+    borderWidth: 1,
+    borderColor: colors.success || colors.primary,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  addSuccessText: {
+    ...typography.base,
+    color: colors.success || colors.primary,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  fullScreenModalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.card,
+    gap: spacing.md,
+  },
+  fullScreenModalCancelButton: {
+    flex: 1,
+    minHeight: touchTargets.comfortable,
+  },
+  fullScreenModalAddButton: {
+    flex: 1,
+    minHeight: touchTargets.comfortable,
+  },
+  materialSelectionSection: {
+    marginBottom: spacing.xl,
+  },
+  materialCatalogGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    marginTop: spacing.md,
+  },
+  materialCatalogItem: {
+    width: '48%',
+    padding: spacing.lg,
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.card,
+    minHeight: 100,
+    justifyContent: 'center',
+  },
+  materialCatalogItemVertical: {
+    padding: spacing.md,
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.card,
+    marginBottom: spacing.sm,
+    minHeight: 60,
+    justifyContent: 'center',
+  },
+  materialCatalogItemSelected: {
+    borderColor: colors.primary,
+    borderWidth: 2,
+    backgroundColor: `${colors.primary}10`,
+  },
+  materialCatalogItemNumber: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.xs,
+  },
+  materialCatalogItemNumberSelected: {
+    color: colors.primary,
+  },
+  materialCatalogItemDescription: {
+    ...typography.base,
+    color: colors.foreground,
+  },
+  materialCatalogItemDescriptionSelected: {
+    color: colors.primary,
+    fontWeight: '500',
+  },
+  materialDetailsSection: {
+    marginTop: spacing.xl,
+    paddingTop: spacing.xl,
+    borderTopWidth: 2,
+    borderTopColor: colors.border,
+  },
+  materialInputSection: {
+    marginBottom: spacing.lg,
+  },
+  materialTypeCards: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.sm,
+  },
+  materialTypeCard: {
+    flex: 1,
+    padding: spacing.lg,
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.card,
+    minHeight: 100,
+    justifyContent: 'center',
+  },
+  materialTypeCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}10`,
+  },
+  materialTypeCardTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.xs,
+  },
+  materialTypeCardTitleSelected: {
+    color: colors.primary,
+  },
+  materialTypeCardDescription: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  materialTypeCardDescriptionSelected: {
+    color: colors.primary,
+    fontWeight: '500',
+  },
+  // Equipment & PPE Styles
+  equipmentList: {
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+  },
+  equipmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: spacing.md,
+  },
+  equipmentInfo: {
+    flex: 1,
+  },
+  equipmentName: {
+    ...typography.base,
+    fontWeight: '500',
+    color: colors.foreground,
+  },
+  equipmentCountContainer: {
+    minWidth: 60,
+    alignItems: 'center',
+  },
+  equipmentCount: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  deleteEquipmentButton: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  deleteEquipmentButtonText: {
+    ...typography.sm,
+    color: colors.destructive,
+    fontWeight: '600',
+  },
+  equipmentCatalogGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    marginTop: spacing.md,
+  },
+  equipmentCatalogItem: {
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.card,
+    minWidth: 120,
+  },
+  equipmentCatalogItemText: {
+    ...typography.base,
+    color: colors.foreground,
+    textAlign: 'center',
+  },
+  // Print Summary Styles
+  printSummaryCard: {
+    backgroundColor: colors.background,
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
+  printSummarySection: {
+    marginBottom: spacing.lg,
+  },
+  printSummarySectionTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.md,
+  },
+  printSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.xs,
+  },
+  printSummaryLabel: {
+    ...typography.base,
+    fontWeight: '500',
+    color: colors.mutedForeground,
+  },
+  printSummaryValue: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  printSummaryDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.lg,
+  },
+  printSummaryItem: {
+    marginBottom: spacing.sm,
+    paddingLeft: spacing.md,
+  },
+  printSummaryItemText: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '500',
+  },
+  printSummaryItemSubtext: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: spacing.xs / 2,
+    paddingLeft: spacing.md,
+  },
+  customerInput: {
+    marginBottom: spacing.md,
   },
   // Master-Detail Layout Styles
   masterDetailContainer: {
@@ -2842,6 +4805,77 @@ const styles = StyleSheet.create({
     width: 500,
     maxWidth: 600,
     maxHeight: 300,
+  },
+  bottomSheetContentLarge: {
+    maxHeight: '80%',
+  },
+  // Manifest styles
+  trackingNumber: {
+    fontFamily: 'monospace',
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  manifestActionsFooter: {
+    backgroundColor: colors.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    // @ts-ignore - web-specific style
+    boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.1)',
+    elevation: 8,
+  },
+  manifestActionsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    flexWrap: 'wrap',
+  },
+  manifestActionButton: {
+    flex: 1,
+    minWidth: 120,
+  },
+  scannedImageIndicator: {
+    backgroundColor: '#10b98120',
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    marginTop: spacing.md,
+    borderWidth: 1,
+    borderColor: '#10b981',
+  },
+  scannedImageText: {
+    ...typography.sm,
+    color: '#059669',
+    textAlign: 'center',
+  },
+  printOptionButton: {
+    marginBottom: spacing.md,
+  },
+  // Print preview styles
+  previewLabel: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  previewValue: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '500',
+    marginBottom: spacing.sm,
+  },
+  previewSubValue: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginLeft: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  previewContainerItem: {
+    marginBottom: spacing.sm,
+    paddingLeft: spacing.md,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.border,
   },
 });
 
