@@ -13,11 +13,12 @@ interface ButtonProps {
   title: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive';
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   disabled?: boolean;
   loading?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
+  fullWidth?: boolean;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -29,12 +30,14 @@ export const Button: React.FC<ButtonProps> = ({
   loading = false,
   style,
   textStyle,
+  fullWidth = false,
 }) => {
   const buttonStyle = [
     styles.button,
     styles[`button_${variant}`],
     styles[`button_${size}`],
     disabled && styles.buttonDisabled,
+    fullWidth && styles.buttonFullWidth,
     style,
   ];
 
@@ -50,7 +53,9 @@ export const Button: React.FC<ButtonProps> = ({
       style={buttonStyle}
       onPress={onPress}
       disabled={disabled || loading}
-      activeOpacity={0.7}>
+      activeOpacity={0.7}
+      // Larger hit slop for easier touch on rugged tablets
+      hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
       {loading ? (
         <ActivityIndicator
           color={variant === 'primary' ? colors.primaryForeground : colors.primary}
@@ -70,15 +75,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: touchTargets.comfortable,
   },
+  buttonFullWidth: {
+    width: '100%',
+  },
   button_primary: {
     backgroundColor: colors.primary,
+    // Subtle shadow for depth perception
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   button_secondary: {
     backgroundColor: colors.secondary,
   },
   button_outline: {
     backgroundColor: 'transparent',
-    borderWidth: 1,
+    borderWidth: 2, // Thicker border for visibility
     borderColor: colors.border,
   },
   button_ghost: {
@@ -86,7 +100,13 @@ const styles = StyleSheet.create({
   },
   button_destructive: {
     backgroundColor: colors.destructive,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
+  // Sized for gloved hands / industrial use
   button_sm: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
@@ -102,11 +122,16 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
     minHeight: touchTargets.large,
   },
+  button_xl: {
+    paddingHorizontal: spacing.xxl,
+    paddingVertical: spacing.xl,
+    minHeight: touchTargets.xlarge,
+  },
   buttonDisabled: {
     opacity: 0.5,
   },
   text: {
-    fontWeight: '500',
+    fontWeight: '600', // Slightly bolder for readability
     textAlign: 'center',
   },
   text_primary: {
@@ -126,12 +151,18 @@ const styles = StyleSheet.create({
   },
   text_sm: {
     ...typography.sm,
+    fontWeight: '600',
   },
   text_md: {
     ...typography.base,
+    fontWeight: '600',
   },
   text_lg: {
     ...typography.lg,
+    fontWeight: '600',
+  },
+  text_xl: {
+    ...typography.xl,
+    fontWeight: '700',
   },
 });
-

@@ -19,6 +19,7 @@ import {
   Platform,
   TextInput,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {Swipeable} from 'react-native-gesture-handler';
@@ -158,23 +159,46 @@ const MOCK_ORDERS: OrderData[] = [
   },
 ];
 
-// Pre-determined materials and supplies catalog
+// Pre-determined materials and supplies catalog (from legacy system)
 const MATERIALS_CATALOG = [
-  {itemNumber: 'MAT-001', description: 'Personal Protective Equipment (PPE)'},
-  {itemNumber: 'MAT-002', description: 'Safety Glasses'},
-  {itemNumber: 'MAT-003', description: 'Nitrile Gloves'},
-  {itemNumber: 'MAT-004', description: 'Protective Suit'},
-  {itemNumber: 'MAT-005', description: 'Respirator'},
-  {itemNumber: 'MAT-006', description: 'Cleaning Supplies'},
-  {itemNumber: 'MAT-007', description: 'Container Labels'},
-  {itemNumber: 'MAT-008', description: 'Documentation Forms'},
-  {itemNumber: 'MAT-009', description: 'Absorbent Pads'},
-  {itemNumber: 'MAT-010', description: 'Spill Kit'},
-  {itemNumber: 'MAT-011', description: 'Hazardous Waste Bags'},
-  {itemNumber: 'MAT-012', description: 'Drum Liners'},
-  {itemNumber: 'MAT-013', description: 'Seal Tape'},
-  {itemNumber: 'MAT-014', description: 'Barcode Labels'},
-  {itemNumber: 'MAT-015', description: 'Manifest Forms'},
+  // Absorbents & Supplies
+  {itemNumber: '604STK00', description: 'ABSORBENT PADS, 100/CS'},
+  
+  // Administrative Fees
+  {itemNumber: 'ADMCOST-092', description: 'Third Party Cost Plus %'},
+  {itemNumber: 'ADMPROF-002', description: 'Profile Administration Fee'},
+  {itemNumber: 'ADMSETUP-002', description: 'Set up fee for Healthcare/retail'},
+  {itemNumber: 'ADMSUP48-001', description: 'Priority Supply drop 24-48 hours'},
+  
+  // Cylinders
+  {itemNumber: 'F000X303-027', description: 'Argon, Cylinder'},
+  {itemNumber: 'F000X303-038', description: 'Carbon Dioxide, Cylinder'},
+  
+  // Labor
+  {itemNumber: 'LBCHEMDT-003', description: 'Chemist, Double Time'},
+  {itemNumber: 'LBCHEMOT-003', description: 'Chemist, Overtime'},
+  
+  // Drums - Metal
+  {itemNumber: 'SPDM55NC-002', description: 'Drum, Metal, 55 gallon, New, Closed Top'},
+  {itemNumber: 'SPDM55NO-002', description: 'Drum, Metal, 55 gallon, New, Open Top'},
+  {itemNumber: 'SPDM30NC-001', description: 'Drum, Metal, 30 gallon, New, Closed Top'},
+  {itemNumber: 'SPDM30NO-001', description: 'Drum, Metal, 30 gallon, New, Open Top'},
+  
+  // Drums - Poly
+  {itemNumber: 'SPDP55NC-002', description: 'Drum, Poly, 55 gallon, New, Closed Top'},
+  {itemNumber: 'SPDP55NO-002', description: 'Drum, Poly, 55 gallon, New, Open Top'},
+  {itemNumber: 'SPDP30NC-001', description: 'Drum, Poly, 30 gallon, New, Closed Top'},
+  {itemNumber: 'SPDP30NO-001', description: 'Drum, Poly, 30 gallon, New, Open Top'},
+  
+  // Containers & Packaging
+  {itemNumber: 'SPBOX01-001', description: 'Box, Fiber, 1 cubic foot'},
+  {itemNumber: 'SPBOX04-001', description: 'Box, Fiber, 4 cubic foot'},
+  {itemNumber: 'SPPAIL5G-001', description: 'Pail, 5 gallon, Plastic'},
+  
+  // Liners & Bags
+  {itemNumber: 'SPLINER55-001', description: 'Drum Liner, 55 gallon'},
+  {itemNumber: 'SPLINER30-001', description: 'Drum Liner, 30 gallon'},
+  {itemNumber: 'SPBAG-001', description: 'Hazardous Waste Bag, Large'},
 ];
 
 interface WasteCollectionScreenProps {
@@ -253,14 +277,45 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     'used',
   );
   const [showAddMaterialSuccess, setShowAddMaterialSuccess] = useState(false);
+  
+  // Handler for adding materials - moved to parent to prevent modal remounting
+  const handleAddMaterial = useCallback(() => {
+    if (!selectedMaterialItem) return;
+    const newMaterial = {
+      id: `mat-${Date.now()}`,
+      itemNumber: selectedMaterialItem.itemNumber,
+      description: selectedMaterialItem.description,
+      quantity: parseInt(materialQuantity) || 1,
+      type: materialType,
+    };
+
+    // Update materials list and reset form in the same batch
+    setMaterialsSupplies(prev => [...prev, newMaterial]);
+    setSelectedMaterialItem(null);
+    setMaterialQuantity('1');
+    setMaterialType('used');
+
+    // Show success indicator
+    setShowAddMaterialSuccess(true);
+    setTimeout(() => setShowAddMaterialSuccess(false), 2000);
+  }, [selectedMaterialItem, materialQuantity, materialType]);
+
+  const [showLabelPrinting, setShowLabelPrinting] = useState(false);
+  const [printingLabelBarcode, setPrintingLabelBarcode] = useState('');
   const [scannedDocuments, setScannedDocuments] = useState<
     Array<{
       id: string;
       uri: string;
       timestamp: string;
       orderNumber: string;
+      documentType: 'manifest' | 'ldr' | 'bol';
     }>
   >([]);
+  const [showDocumentTypeSelector, setShowDocumentTypeSelector] = useState(false);
+  const [pendingDocumentType, setPendingDocumentType] = useState<'manifest' | 'ldr' | 'bol' | null>(null);
+  const [showScannedDocumentsViewer, setShowScannedDocumentsViewer] = useState(false);
+  const [selectedDocumentPreview, setSelectedDocumentPreview] = useState<string | null>(null);
+  const [showDocumentOptionsMenu, setShowDocumentOptionsMenu] = useState(false);
   const [equipmentPPE, setEquipmentPPE] = useState<
     Array<{
       id: string;
@@ -1026,8 +1081,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const DashboardScreen = () => {
     // Use MOCK_ORDERS directly to ensure it's accessible
     const allOrders = MOCK_ORDERS || orders || [];
-    // Show all orders, including completed ones
-    const filteredOrders = allOrders;
+    // Split orders into active and completed
+    const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
+    const completedOrdersList = allOrders.filter(order => isOrderCompleted(order.orderNumber));
 
     return (
       <View style={styles.container}>
@@ -1062,11 +1118,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 size="sm"
                 onPress={() => {
                   const allOrders = MOCK_ORDERS || orders || [];
-                  // Show all orders, including completed ones
-                  const filteredOrders = allOrders;
-                  // Auto-select first order when switching to master-detail
-                  if (filteredOrders.length > 0 && !dashboardSelectedOrder) {
-                    setDashboardSelectedOrder(filteredOrders[0]);
+                  const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
+                  // Auto-select first active order when switching to master-detail
+                  if (activeOrders.length > 0 && !dashboardSelectedOrder) {
+                    setDashboardSelectedOrder(activeOrders[0]);
                   }
                   setUseMasterDetail(true);
                 }}
@@ -1100,19 +1155,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             showsVerticalScrollIndicator={true}
             nestedScrollEnabled={true}
             bounces={false}>
+            
+            {/* Active Orders Section */}
             <Text style={styles.ordersCount}>
-              {filteredOrders.length} order
-              {filteredOrders.length !== 1 ? 's' : ''} scheduled for today
-              {completedOrders.length > 0 && (
-                <Text style={styles.completedOrdersCount}>
-                  {' '}
-                  ({completedOrders.length} completed)
-                </Text>
-              )}
+              {activeOrders.length} order
+              {activeOrders.length !== 1 ? 's' : ''} remaining
             </Text>
 
-            {filteredOrders.length > 0 ? (
-              filteredOrders.map((order, index) => (
+            {activeOrders.length > 0 ? (
+              activeOrders.map((order, index) => (
                 <TouchableOpacity
                   key={index}
                   style={[
@@ -1120,13 +1171,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     isTablet() && styles.orderCardTablet,
                   ]}
                   onPress={() => {
-                    if (!isOrderCompleted(order.orderNumber)) {
-                      setSelectedOrderData(order);
-                      setCurrentStep('stream-selection');
-                    }
+                    setSelectedOrderData(order);
+                    setCurrentStep('stream-selection');
                   }}
-                  disabled={isOrderCompleted(order.orderNumber)}
-                  activeOpacity={isOrderCompleted(order.orderNumber) ? 1 : 0.7}>
+                  activeOpacity={0.7}>
                   <View style={styles.orderCardHeader}>
                     <View style={styles.orderCardHeaderLeft}>
                       <Text style={styles.orderNumber}>
@@ -1145,9 +1193,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           ? 'secondary'
                           : getOrderStatus(order) === 'In Progress'
                             ? 'default'
-                            : getOrderStatus(order) === 'Completed'
-                              ? 'default'
-                              : 'destructive'
+                            : 'destructive'
                       }>
                       {getOrderStatus(order)}
                     </Badge>
@@ -1173,10 +1219,40 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               ))
             ) : (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyStateTitle}>No Orders Scheduled</Text>
+                <Text style={styles.emptyStateTitle}>All Orders Complete!</Text>
                 <Text style={styles.emptyStateText}>
-                  You have no orders scheduled for today.
+                  You have completed all orders for today.
                 </Text>
+              </View>
+            )}
+
+            {/* Completed Orders Section */}
+            {completedOrdersList.length > 0 && (
+              <View style={styles.completedOrdersSection}>
+                <View style={styles.completedOrdersHeader}>
+                  <Text style={styles.completedOrdersTitle}>
+                    ✓ Completed ({completedOrdersList.length})
+                  </Text>
+                </View>
+                {completedOrdersList.map((order, index) => (
+                  <View
+                    key={index}
+                    style={styles.completedOrderCard}>
+                    <View style={styles.completedOrderContent}>
+                      <View style={styles.completedOrderLeft}>
+                        <Text style={styles.completedOrderNumber}>
+                          {order.orderNumber}
+                        </Text>
+                        <Text style={styles.completedOrderCustomer}>
+                          {order.customer}
+                        </Text>
+                      </View>
+                      <View style={styles.completedOrderRight}>
+                        <Text style={styles.completedOrderCheck}>✓</Text>
+                      </View>
+                    </View>
+                  </View>
+                ))}
               </View>
             )}
           </ScrollView>
@@ -1235,12 +1311,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               {selectedOrderData?.site || 'Site Location'}
             </Text>
           </View>
-          <Button
+          {/* <Button
             title="Back"
             variant="outline"
             size="md"
             onPress={() => setCurrentStep('dashboard')}
-          />
+          /> */}
         </View>
 
         <ScrollView
@@ -1333,7 +1409,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
         <ScrollView
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}>
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          removeClippedSubviews={false}>
           {filteredContainers.length > 0 ? (
             <View style={styles.containersGrid}>
               {filteredContainers.map((container, i) => (
@@ -1417,29 +1495,20 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       ? isOrderCompleted(selectedOrderData.orderNumber)
       : false;
 
-    // Simulate Bluetooth scale reading
+    // Capture scale reading once when scale connects
     useEffect(() => {
-      if (!isScaleConnected) {
+      if (isScaleConnected) {
+        // Simulate capturing a single scale reading when connected
+        const capturedWeight = 285; // Simulated captured weight from scale
+        setScaleReading(capturedWeight);
+        setScaleWeight(capturedWeight.toString());
+      } else {
         setScaleReading(null);
         setScaleWeight('');
-        return;
       }
-
-      // Simulate scale reading updates every 500ms when connected
-      const interval = setInterval(() => {
-        // Simulate a weight reading between 200-350 lbs with small variations
-        const baseWeight = 280;
-        const variation = Math.random() * 2 - 1; // -1 to +1 lbs variation
-        const reading = Math.round(baseWeight + variation);
-        setScaleReading(reading);
-        setScaleWeight(reading.toString());
-      }, 500);
-
-      return () => clearInterval(interval);
     }, [isScaleConnected]);
 
-    // Scale weight IS the gross weight (total reading)
-    // Auto-update gross weight when scale weight changes
+    // When scale weight changes, update gross weight
     useEffect(() => {
       if (scaleWeight && !isNaN(parseFloat(scaleWeight))) {
         setGrossWeight(scaleWeight);
@@ -1481,7 +1550,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
         <ScrollView
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}>
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={true}
+          removeClippedSubviews={false}
+          scrollEventThrottle={16}>
           <Card>
             <CardHeader>
               <CardTitle>
@@ -1649,8 +1723,18 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   newContainer,
                 );
 
+                // Show label printing notification
+                setPrintingLabelBarcode(shippingLabelBarcode);
+                setShowLabelPrinting(true);
+
                 // Auto-print shipping label
                 await printShippingLabel(newContainer);
+
+                // Hide notification after 3 seconds
+                setTimeout(() => {
+                  setShowLabelPrinting(false);
+                  setPrintingLabelBarcode('');
+                }, 3000);
 
                 // Reset form
                 setBarcode('');
@@ -1754,17 +1838,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             </Text>
             <Text style={styles.screenHeaderSubtitle}>Container Summary</Text>
           </View>
-          <Button
-            title="Add Container"
-            variant="primary"
-            size="md"
-            disabled={isCurrentOrderCompleted}
-            onPress={() => {
-              if (!isCurrentOrderCompleted) {
-                setCurrentStep('stream-selection');
-              }
-            }}
-          />
         </View>
 
         <View style={styles.scrollViewContainer}>
@@ -1872,7 +1945,17 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         </View>
 
         <View style={styles.footer}>
-          <View />
+          <Button
+            title="+ Add Container"
+            variant="outline"
+            size="md"
+            disabled={isCurrentOrderCompleted}
+            onPress={() => {
+              if (!isCurrentOrderCompleted) {
+                setCurrentStep('stream-selection');
+              }
+            }}
+          />
           <Button
             title="Continue to Manifest"
             variant="primary"
@@ -2135,103 +2218,457 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           />
         </View>
 
-        {/* Print Preview Modal */}
+        {/* Print Preview Modal - EPA Uniform Hazardous Waste Manifest */}
         <Modal
           visible={showPrintPreview}
-          transparent
+          transparent={false}
           animationType="slide"
           onRequestClose={() => setShowPrintPreview(false)}>
-          <TouchableOpacity
-            style={styles.bottomSheetOverlay}
-            activeOpacity={1}
-            onPress={() => setShowPrintPreview(false)}>
-            <TouchableOpacity
-              style={[
-                styles.bottomSheetContent,
-                styles.bottomSheetContentLarge,
-              ]}
-              activeOpacity={1}
-              onPress={e => e.stopPropagation()}>
-              {/* Bottom Sheet Handle */}
-              <View style={styles.bottomSheetHandle} />
+          <SafeAreaView style={styles.manifestPreviewContainer}>
+            {/* Header Bar */}
+            <View style={styles.manifestPreviewHeader}>
+              <Text style={styles.manifestPreviewHeaderTitle}>
+                Manifest Print Preview
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowPrintPreview(false)}
+                style={styles.manifestPreviewCloseBtn}>
+                <Text style={styles.manifestPreviewCloseBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
 
-              <View style={styles.bottomSheetHeader}>
-                <Text style={styles.bottomSheetTitle}>
-                  Manifest Print Preview
-                </Text>
-              </View>
+            <ScrollView style={styles.manifestPreviewScroll}>
+              {/* EPA Form Container */}
+              <View style={styles.epaFormContainer}>
+                {/* Form Header */}
+                <View style={styles.epaFormHeader}>
+                  <View style={styles.epaFormHeaderLeft}>
+                    <Text style={styles.epaFormSmallText}>Please print or type.</Text>
+                    <View style={styles.epaFormTitleBox}>
+                      <Text style={styles.epaFormTitle}>UNIFORM HAZARDOUS</Text>
+                      <Text style={styles.epaFormTitle}>WASTE MANIFEST</Text>
+                    </View>
+                  </View>
+                  <View style={styles.epaFormHeaderCenter}>
+                    <View style={styles.epaFormBarcodeBox}>
+                      <Text style={styles.epaFormBarcodeText}>201286074XXX</Text>
+                      <Text style={styles.epaFormManifestNum}>43343836</Text>
+                    </View>
+                    <Text style={styles.epaFormProviderText}>ERI Provider: Clean Earth</Text>
+                  </View>
+                  <View style={styles.epaFormHeaderRight}>
+                    <View style={styles.epaFormPageBox}>
+                      <Text style={styles.epaFormPageNum}>1</Text>
+                    </View>
+                    <Text style={styles.epaFormSmallText}>Form Approved, OMB No. 2050-0039</Text>
+                  </View>
+                </View>
 
-              <ScrollView style={styles.bottomSheetBody}>
-                <Card>
-                  <CardContent>
-                    <Text style={styles.previewLabel}>Order Number:</Text>
-                    <Text style={styles.previewValue}>
-                      {selectedOrderData?.orderNumber || 'N/A'}
+                {/* Section 1-4: Generator ID, Page, Emergency Phone, Manifest Tracking */}
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>1. Generator ID Number</Text>
+                    <Text style={styles.epaFormCellValue}>CAL000483809</Text>
+                  </View>
+                  <View style={[styles.epaFormCell, {width: 60}]}>
+                    <Text style={styles.epaFormCellLabel}>2. Page 1 of</Text>
+                    <Text style={styles.epaFormCellValue}>1</Text>
+                  </View>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>3. Emergency Response Phone</Text>
+                    <Text style={styles.epaFormCellValue}>(877) 577-2669</Text>
+                  </View>
+                  <View style={[styles.epaFormCell, {flex: 1.5}]}>
+                    <Text style={styles.epaFormCellLabel}>4. Manifest Tracking Number</Text>
+                    <Text style={styles.epaFormCellValueLarge}>201286074XXX</Text>
+                  </View>
+                </View>
+
+                {/* Section 5: Generator Info */}
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>5. Generator's Name and Mailing Address</Text>
+                    <Text style={styles.epaFormCellValue}>Attn: William Quila</Text>
+                    <Text style={styles.epaFormCellValueBold}>Soleo Health</Text>
+                    <Text style={styles.epaFormCellValue}>1324 W Winton Ave</Text>
+                    <Text style={styles.epaFormCellValue}>Hayward, CA 94545-1408 Ph: (510) 362-7360</Text>
+                    <Text style={styles.epaFormCellLabelSmall}>Generator's Phone:</Text>
+                  </View>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>Generator's Site Address (if different than mailing address)</Text>
+                    <Text style={styles.epaFormCellValueBold}>Soleo Health</Text>
+                    <Text style={styles.epaFormCellValue}>1324 W Winton Ave</Text>
+                    <Text style={styles.epaFormCellValue}>Hayward, CA 94545-1408 Ph: (510) 362-7360</Text>
+                  </View>
+                </View>
+
+                {/* Section 6: Transporter 1 */}
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 2}]}>
+                    <Text style={styles.epaFormCellLabel}>6. Transporter 1 Company Name</Text>
+                    <Text style={styles.epaFormCellValueBold}>Clean Earth Specialty Waste Solutions, Inc.</Text>
+                  </View>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>U.S. EPA ID Number</Text>
+                    <Text style={styles.epaFormCellValue}>MNS000110924</Text>
+                  </View>
+                </View>
+
+                {/* Section 7: Transporter 2 */}
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 2}]}>
+                    <Text style={styles.epaFormCellLabel}>7. Transporter 2 Company Name</Text>
+                    <Text style={styles.epaFormCellValue}></Text>
+                  </View>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>U.S. EPA ID Number</Text>
+                    <Text style={styles.epaFormCellValue}></Text>
+                  </View>
+                </View>
+
+                {/* Section 8: Designated Facility */}
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 2}]}>
+                    <Text style={styles.epaFormCellLabel}>8. Designated Facility Name and Site Address</Text>
+                    <Text style={styles.epaFormCellValueBold}>Clean Earth of Alabama, Inc.</Text>
+                    <Text style={styles.epaFormCellValue}>402 Webster Chapel Road</Text>
+                    <Text style={styles.epaFormCellValue}>Glencoe, AL 35905</Text>
+                    <Text style={styles.epaFormCellLabelSmall}>Facility's Phone: 8007399156</Text>
+                  </View>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>U.S. EPA ID Number</Text>
+                    <Text style={styles.epaFormCellValueBold}>ALD981020894</Text>
+                  </View>
+                </View>
+
+                {/* Section 9: Waste Description Table Header */}
+                <View style={styles.epaFormSectionHeader}>
+                  <Text style={styles.epaFormSectionHeaderText}>GENERATOR</Text>
+                </View>
+                <View style={styles.epaWasteTableHeader}>
+                  <View style={[styles.epaWasteTableCell, {width: 30}]}>
+                    <Text style={styles.epaFormCellLabelSmall}>9a.</Text>
+                    <Text style={styles.epaFormCellLabelSmall}>HM</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {flex: 3}]}>
+                    <Text style={styles.epaFormCellLabelSmall}>9b. U.S. DOT Description (including Proper Shipping Name, Hazard Class, ID Number,</Text>
+                    <Text style={styles.epaFormCellLabelSmall}>and Packing Group (if any))</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 80}]}>
+                    <Text style={styles.epaFormCellLabelSmall}>10. Containers</Text>
+                    <View style={{flexDirection: 'row'}}>
+                      <Text style={[styles.epaFormCellLabelSmall, {flex: 1}]}>No.</Text>
+                      <Text style={[styles.epaFormCellLabelSmall, {flex: 1}]}>Type</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 60}]}>
+                    <Text style={styles.epaFormCellLabelSmall}>11. Total</Text>
+                    <Text style={styles.epaFormCellLabelSmall}>Quantity</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 40}]}>
+                    <Text style={styles.epaFormCellLabelSmall}>12. Unit</Text>
+                    <Text style={styles.epaFormCellLabelSmall}>Wt/Vol</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 100}]}>
+                    <Text style={styles.epaFormCellLabelSmall}>13. Waste Codes</Text>
+                  </View>
+                </View>
+
+                {/* Waste Row 1 */}
+                <View style={styles.epaWasteTableRow}>
+                  <View style={[styles.epaWasteTableCell, {width: 30, justifyContent: 'center'}]}>
+                    <Text style={styles.epaFormCellValueBold}>X</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {flex: 3}]}>
+                    <Text style={styles.epaFormCellLabelSmall}>1</Text>
+                    <Text style={styles.epaFormCellValue}>UN1950, Waste Aerosols, flammable 2.1</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 80}]}>
+                    <View style={{flexDirection: 'row'}}>
+                      <Text style={[styles.epaFormCellValue, {flex: 1, textAlign: 'center'}]}>1</Text>
+                      <Text style={[styles.epaFormCellValue, {flex: 1, textAlign: 'center'}]}>CF</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 60}]}>
+                    <Text style={[styles.epaFormCellValue, {textAlign: 'center'}]}>00001</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 40}]}>
+                    <Text style={[styles.epaFormCellValue, {textAlign: 'center'}]}>P</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 100}]}>
+                    <Text style={styles.epaFormCellValue}>311</Text>
+                    <Text style={styles.epaFormCellValue}>D001</Text>
+                  </View>
+                </View>
+
+                {/* Waste Row 2 */}
+                <View style={styles.epaWasteTableRow}>
+                  <View style={[styles.epaWasteTableCell, {width: 30, justifyContent: 'center'}]}>
+                    <Text style={styles.epaFormCellValueBold}>X</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {flex: 3}]}>
+                    <Text style={styles.epaFormCellLabelSmall}>2</Text>
+                    <Text style={styles.epaFormCellValue}>UN2924, Waste Flammable liquids, corrosive, n.o.s. (ISOPROPYL ALCOHOL, AMMONIA), 3 (8), PG II</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 80}]}>
+                    <View style={{flexDirection: 'row'}}>
+                      <Text style={[styles.epaFormCellValue, {flex: 1, textAlign: 'center'}]}>1</Text>
+                      <Text style={[styles.epaFormCellValue, {flex: 1, textAlign: 'center'}]}>CF</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 60}]}>
+                    <Text style={[styles.epaFormCellValue, {textAlign: 'center'}]}>00002</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 40}]}>
+                    <Text style={[styles.epaFormCellValue, {textAlign: 'center'}]}>P</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 100}]}>
+                    <Text style={styles.epaFormCellValue}>311</Text>
+                    <Text style={styles.epaFormCellValue}>D001</Text>
+                    <Text style={styles.epaFormCellValue}>D002</Text>
+                  </View>
+                </View>
+
+                {/* Empty Waste Rows */}
+                <View style={styles.epaWasteTableRow}>
+                  <View style={[styles.epaWasteTableCell, {width: 30}]} />
+                  <View style={[styles.epaWasteTableCell, {flex: 3}]}>
+                    <Text style={styles.epaFormCellLabelSmall}>3</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 80}]} />
+                  <View style={[styles.epaWasteTableCell, {width: 60}]} />
+                  <View style={[styles.epaWasteTableCell, {width: 40}]} />
+                  <View style={[styles.epaWasteTableCell, {width: 100}]} />
+                </View>
+
+                <View style={styles.epaWasteTableRow}>
+                  <View style={[styles.epaWasteTableCell, {width: 30}]} />
+                  <View style={[styles.epaWasteTableCell, {flex: 3}]}>
+                    <Text style={styles.epaFormCellLabelSmall}>4</Text>
+                  </View>
+                  <View style={[styles.epaWasteTableCell, {width: 80}]} />
+                  <View style={[styles.epaWasteTableCell, {width: 60}]} />
+                  <View style={[styles.epaWasteTableCell, {width: 40}]} />
+                  <View style={[styles.epaWasteTableCell, {width: 100}]} />
+                </View>
+
+                {/* Section 14: Special Handling */}
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>14. Special Handling Instructions and Additional Information</Text>
+                    <Text style={styles.epaFormCellValue}>1.ERG#126: 114898SPW PHARMACEUTICAL AEROSOLS( INHALERS) LTD QTY</Text>
+                    <Text style={styles.epaFormCellValue}>2.ERG#132: 114888SP(FLAMMABLE/CORROSIVE PHARMACEUTICALS (AMMONIA INHAL) LTD QTY</Text>
+                  </View>
+                </View>
+
+                {/* Section 15: Generator Certification */}
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>15. GENERATOR'S/OFFEROR'S CERTIFICATION:</Text>
+                    <Text style={styles.epaFormCellValueSmall}>
+                      I hereby declare that the contents of this consignment are fully and accurately described above by the proper shipping name, and are classified, packaged, marked and labeled/placarded, and are in all respects in proper condition for transport according to applicable international and national governmental regulations. If export shipment and I am the Primary Exporter, I certify that the contents of this consignment conform to the terms of the attached EPA Acknowledgment of Consent.
                     </Text>
-
-                    <Text style={styles.previewLabel}>Tracking Number:</Text>
-                    <Text style={styles.previewValue}>
-                      {manifestTrackingNumber || 'Not assigned yet'}
+                    <Text style={styles.epaFormCellValueSmall}>
+                      I certify that the waste minimization statement identified in 40 CFR 262.27(a) (if I am a large quantity generator) or (b) (if I am a small quantity generator) is true.
                     </Text>
-
-                    <Text style={styles.previewLabel}>Date:</Text>
-                    <Text style={styles.previewValue}>
-                      {new Date().toLocaleDateString()}
-                    </Text>
-
-                    <Text style={styles.previewLabel}>Total Containers:</Text>
-                    <Text style={styles.previewValue}>
-                      {addedContainers.length}
-                    </Text>
-
-                    <Text style={styles.previewLabel}>Programs:</Text>
-                    {orderPrograms.map(program => (
-                      <Text key={program} style={styles.previewValue}>
-                        • {program}:{' '}
-                        {selectedPrograms[program] || 'Not selected'}
-                      </Text>
-                    ))}
-
-                    <Text style={styles.previewLabel}>Containers:</Text>
-                    {addedContainers.map((container, index) => (
-                      <View
-                        key={container.id}
-                        style={styles.previewContainerItem}>
-                        <Text style={styles.previewValue}>
-                          {index + 1}. {container.containerSize} -{' '}
-                          {container.streamName}
-                        </Text>
-                        <Text style={styles.previewSubValue}>
-                          Net Weight: {container.netWeight} lbs | Label:{' '}
-                          {container.shippingLabelBarcode}
-                        </Text>
+                    <View style={styles.epaSignatureRow}>
+                      <View style={{flex: 2}}>
+                        <Text style={styles.epaFormCellLabelSmall}>Generator's/Offeror's Printed/Typed Name</Text>
+                        <View style={styles.epaSignatureLine} />
                       </View>
-                    ))}
-                  </CardContent>
-                </Card>
-              </ScrollView>
+                      <View style={{flex: 2}}>
+                        <Text style={styles.epaFormCellLabelSmall}>Signature</Text>
+                        <View style={styles.epaSignatureLine} />
+                      </View>
+                      <View style={styles.epaDateBox}>
+                        <Text style={styles.epaFormCellLabelSmall}>Month Day Year</Text>
+                        <View style={styles.epaDateRow}>
+                          <Text style={styles.epaDateValue}>11</Text>
+                          <Text style={styles.epaDateValue}>14</Text>
+                          <Text style={styles.epaDateValue}>2025</Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </View>
 
-              <View style={styles.bottomSheetFooter}>
-                <Button
-                  title="Close"
-                  variant="outline"
-                  size="lg"
-                  onPress={() => setShowPrintPreview(false)}
-                  style={styles.bottomSheetCancelButton}
-                />
-                <Button
-                  title="Print"
-                  variant="primary"
-                  size="lg"
-                  onPress={async () => {
-                    setShowPrintPreview(false);
-                    await printManifest();
-                  }}
-                  style={styles.bottomSheetDeleteButton}
-                />
+                {/* Transporter Section */}
+                <View style={styles.epaFormSectionHeader}>
+                  <Text style={styles.epaFormSectionHeaderText}>TRANSPORTER</Text>
+                </View>
+
+                {/* Section 16: International Shipments */}
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>16. International Shipments</Text>
+                    <View style={{flexDirection: 'row', gap: 16}}>
+                      <Text style={styles.epaFormCellValue}>☐ Import to U.S.</Text>
+                      <Text style={styles.epaFormCellValue}>☐ Export from U.S.</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabelSmall}>Port of entry/exit:</Text>
+                    <Text style={styles.epaFormCellLabelSmall}>Date leaving U.S.:</Text>
+                  </View>
+                </View>
+
+                {/* Section 17: Transporter Acknowledgment */}
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>17. Transporter Acknowledgment of Receipt of Materials</Text>
+                    <View style={styles.epaSignatureRow}>
+                      <View style={{flex: 2}}>
+                        <Text style={styles.epaFormCellLabelSmall}>Transporter 1 Printed/Typed Name</Text>
+                        <Text style={styles.epaFormCellValueBold}>Aaron Cayson</Text>
+                      </View>
+                      <View style={{flex: 2}}>
+                        <Text style={styles.epaFormCellLabelSmall}>Signature</Text>
+                        <View style={styles.epaSignatureLine} />
+                      </View>
+                      <View style={styles.epaDateBox}>
+                        <Text style={styles.epaFormCellLabelSmall}>Month Day Year</Text>
+                        <View style={styles.epaDateRow}>
+                          <Text style={styles.epaDateValue}>11</Text>
+                          <Text style={styles.epaDateValue}>14</Text>
+                          <Text style={styles.epaDateValue}>2025</Text>
+                        </View>
+                      </View>
+                    </View>
+                    <View style={[styles.epaSignatureRow, {marginTop: 8}]}>
+                      <View style={{flex: 2}}>
+                        <Text style={styles.epaFormCellLabelSmall}>Transporter 2 Printed/Typed Name</Text>
+                        <View style={styles.epaSignatureLine} />
+                      </View>
+                      <View style={{flex: 2}}>
+                        <Text style={styles.epaFormCellLabelSmall}>Signature</Text>
+                        <View style={styles.epaSignatureLine} />
+                      </View>
+                      <View style={styles.epaDateBox}>
+                        <Text style={styles.epaFormCellLabelSmall}>Month Day Year</Text>
+                        <View style={styles.epaDateRow}>
+                          <Text style={styles.epaDateValue}></Text>
+                          <Text style={styles.epaDateValue}></Text>
+                          <Text style={styles.epaDateValue}></Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Designated Facility Section */}
+                <View style={styles.epaFormSectionHeader}>
+                  <Text style={styles.epaFormSectionHeaderText}>DESIGNATED FACILITY</Text>
+                </View>
+
+                {/* Section 18: Discrepancy */}
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>18. Discrepancy</Text>
+                  </View>
+                </View>
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>18a. Discrepancy Indication Space</Text>
+                    <View style={{flexDirection: 'row', gap: 16}}>
+                      <Text style={styles.epaFormCellValue}>☐ Quantity</Text>
+                      <Text style={styles.epaFormCellValue}>☐ Type</Text>
+                      <Text style={styles.epaFormCellValue}>☐ Residue</Text>
+                      <Text style={styles.epaFormCellValue}>☐ Partial Rejection</Text>
+                      <Text style={styles.epaFormCellValue}>☐ Full Rejection</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabelSmall}>Manifest Reference Number:</Text>
+                  </View>
+                </View>
+
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>18b. Alternate Facility (or Generator)</Text>
+                  </View>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>U.S. EPA ID Number</Text>
+                  </View>
+                </View>
+
+                {/* Section 19: Hazardous Waste Report */}
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>19. Hazardous Waste Report Management Method Codes (i.e., codes for hazardous waste treatment, disposal, and recycling systems)</Text>
+                    <View style={{flexDirection: 'row'}}>
+                      <View style={{flex: 1}}>
+                        <Text style={styles.epaFormCellLabelSmall}>1.</Text>
+                      </View>
+                      <View style={{flex: 1}}>
+                        <Text style={styles.epaFormCellLabelSmall}>2.</Text>
+                      </View>
+                      <View style={{flex: 1}}>
+                        <Text style={styles.epaFormCellLabelSmall}>3.</Text>
+                      </View>
+                      <View style={{flex: 1}}>
+                        <Text style={styles.epaFormCellLabelSmall}>4.</Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Section 20: Designated Facility Certification */}
+                <View style={styles.epaFormRow}>
+                  <View style={[styles.epaFormCell, {flex: 1}]}>
+                    <Text style={styles.epaFormCellLabel}>20. Designated Facility Owner or Operator: Certification of receipt of hazardous materials covered by the manifest except as noted in Item 18a</Text>
+                    <View style={styles.epaSignatureRow}>
+                      <View style={{flex: 2}}>
+                        <Text style={styles.epaFormCellLabelSmall}>Printed/Typed Name</Text>
+                        <View style={styles.epaSignatureLine} />
+                      </View>
+                      <View style={{flex: 2}}>
+                        <Text style={styles.epaFormCellLabelSmall}>Signature</Text>
+                        <View style={styles.epaSignatureLine} />
+                      </View>
+                      <View style={styles.epaDateBox}>
+                        <Text style={styles.epaFormCellLabelSmall}>Month Day Year</Text>
+                        <View style={styles.epaDateRow}>
+                          <Text style={styles.epaDateValue}></Text>
+                          <Text style={styles.epaDateValue}></Text>
+                          <Text style={styles.epaDateValue}></Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Footer */}
+                <View style={styles.epaFormFooter}>
+                  <Text style={styles.epaFormFooterText}>EPA Form 8700-22 (Rev. 12-17) Previous editions are obsolete.</Text>
+                  <Text style={styles.epaFormFooterHighlight}>DESIGNATED FACILITY TO EPA's e-MANIFEST SYSTEM</Text>
+                </View>
               </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
+            </ScrollView>
+
+            {/* Footer Buttons */}
+            <View style={styles.manifestPreviewFooter}>
+              <Button
+                title="Close"
+                variant="outline"
+                size="lg"
+                onPress={() => setShowPrintPreview(false)}
+                style={{flex: 1}}
+              />
+              <Button
+                title="Print Manifest"
+                variant="primary"
+                size="lg"
+                onPress={async () => {
+                  setShowPrintPreview(false);
+                  await printManifest();
+                }}
+                style={{flex: 1}}
+              />
+            </View>
+          </SafeAreaView>
         </Modal>
 
         {/* Print Options Modal */}
@@ -2313,27 +2750,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     );
     const [editQuantityValue, setEditQuantityValue] = useState('');
 
-    const handleAddMaterial = useCallback(() => {
-      if (!selectedMaterialItem) return;
-      const newMaterial = {
-        id: `mat-${Date.now()}`,
-        itemNumber: selectedMaterialItem.itemNumber,
-        description: selectedMaterialItem.description,
-        quantity: parseInt(materialQuantity) || 1,
-        type: materialType,
-      };
-
-      // Update materials list and reset form in the same batch
-      setMaterialsSupplies(prev => [...prev, newMaterial]);
-      setSelectedMaterialItem(null);
-      setMaterialQuantity('1');
-      setMaterialType('used');
-
-      // Show success indicator
-      setShowAddMaterialSuccess(true);
-      setTimeout(() => setShowAddMaterialSuccess(false), 2000);
-    }, [selectedMaterialItem, materialQuantity, materialType]);
-
     const handleDeleteMaterial = (id: string) => {
       setMaterialsSupplies(prev => prev.filter(m => m.id !== id));
     };
@@ -2374,7 +2790,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         <View style={styles.scrollViewContainer}>
           <ScrollView
             style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}>
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            removeClippedSubviews={false}>
             <Card>
               <CardHeader>
                 <CardTitle>
@@ -2513,213 +2931,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             }}
           />
         </View>
-
-        {/* Add Material Modal - Full Screen for Tablets */}
-        <Modal
-          visible={showAddMaterialModal}
-          animationType="slide"
-          onRequestClose={() => setShowAddMaterialModal(false)}>
-          <View style={styles.fullScreenModalContainer}>
-            <View style={styles.fullScreenModalHeader}>
-              <Text style={styles.fullScreenModalTitle}>
-                Add Material & Supply
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowAddMaterialModal(false);
-                  setSelectedMaterialItem(null);
-                  setMaterialQuantity('1');
-                  setMaterialType('used');
-                }}
-                hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
-                style={styles.fullScreenModalCloseButton}>
-                <Text style={styles.fullScreenModalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.fullScreenModalBody}>
-              <View
-                style={[
-                  styles.modalSplitContainer,
-                  isTablet()
-                    ? styles.modalSplitContainerRow
-                    : styles.modalSplitContainerColumn,
-                ]}>
-                {/* Left: Catalog Selection */}
-                <View
-                  style={[
-                    styles.modalCatalogPane,
-                    isTablet() && styles.modalCatalogPaneTablet,
-                  ]}>
-                  <Text style={styles.sectionTitle}>Select Item</Text>
-                  <Text style={styles.sectionDescription}>
-                    Choose a material or supply from the catalog
-                  </Text>
-                  <ScrollView
-                    style={styles.modalCatalogScroll}
-                    contentContainerStyle={styles.modalCatalogContent}>
-                    {MATERIALS_CATALOG.map(item => (
-                      <TouchableOpacity
-                        key={item.itemNumber}
-                        style={[
-                          styles.materialCatalogItemVertical,
-                          selectedMaterialItem?.itemNumber ===
-                            item.itemNumber &&
-                            styles.materialCatalogItemSelected,
-                        ]}
-                        onPress={() => setSelectedMaterialItem(item)}>
-                        <Text
-                          style={[
-                            styles.materialCatalogItemNumber,
-                            selectedMaterialItem?.itemNumber ===
-                              item.itemNumber &&
-                              styles.materialCatalogItemNumberSelected,
-                          ]}>
-                          {item.itemNumber}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.materialCatalogItemDescription,
-                            selectedMaterialItem?.itemNumber ===
-                              item.itemNumber &&
-                              styles.materialCatalogItemDescriptionSelected,
-                          ]}>
-                          {item.description}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-
-                {/* Right: Details Section (Always Visible) */}
-                <View
-                  style={[
-                    styles.modalDetailsPane,
-                    isTablet() && styles.modalDetailsPaneTablet,
-                  ]}>
-                  <Text style={styles.sectionTitle}>Item Details</Text>
-                  {showAddMaterialSuccess && (
-                    <View style={styles.addSuccessIndicator}>
-                      <Text style={styles.addSuccessText}>
-                        ✓ Material added successfully!
-                      </Text>
-                    </View>
-                  )}
-                  {selectedMaterialItem ? (
-                    <>
-                      <View style={styles.selectedItemInfo}>
-                        <Text style={styles.selectedItemNumber}>
-                          {selectedMaterialItem.itemNumber}
-                        </Text>
-                        <Text style={styles.selectedItemDescription}>
-                          {selectedMaterialItem.description}
-                        </Text>
-                      </View>
-
-                      <View style={styles.materialInputSection}>
-                        <Text style={styles.inputLabel}>Quantity</Text>
-                        <Input
-                          label="Quantity"
-                          value={materialQuantity}
-                          onChangeText={setMaterialQuantity}
-                          keyboardType="numeric"
-                          placeholder="1"
-                        />
-                      </View>
-
-                      <View style={styles.materialInputSection}>
-                        <Text style={styles.inputLabel}>Type</Text>
-                        <Text style={styles.sectionDescription}>
-                          Select whether this item was used or left behind
-                        </Text>
-                        <View style={styles.materialTypeCards}>
-                          <TouchableOpacity
-                            style={[
-                              styles.materialTypeCard,
-                              materialType === 'used' &&
-                                styles.materialTypeCardSelected,
-                            ]}
-                            onPress={() => setMaterialType('used')}>
-                            <Text
-                              style={[
-                                styles.materialTypeCardTitle,
-                                materialType === 'used' &&
-                                  styles.materialTypeCardTitleSelected,
-                              ]}>
-                              Used
-                            </Text>
-                            <Text
-                              style={[
-                                styles.materialTypeCardDescription,
-                                materialType === 'used' &&
-                                  styles.materialTypeCardDescriptionSelected,
-                              ]}>
-                              Material was used during service
-                            </Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[
-                              styles.materialTypeCard,
-                              materialType === 'left_behind' &&
-                                styles.materialTypeCardSelected,
-                            ]}
-                            onPress={() => setMaterialType('left_behind')}>
-                            <Text
-                              style={[
-                                styles.materialTypeCardTitle,
-                                materialType === 'left_behind' &&
-                                  styles.materialTypeCardTitleSelected,
-                              ]}>
-                              Left Behind
-                            </Text>
-                            <Text
-                              style={[
-                                styles.materialTypeCardDescription,
-                                materialType === 'left_behind' &&
-                                  styles.materialTypeCardDescriptionSelected,
-                              ]}>
-                              Material was left at customer site
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    </>
-                  ) : (
-                    <View style={styles.noSelectionPlaceholder}>
-                      <Text style={styles.noSelectionText}>
-                        Select an item from the catalog to configure quantity
-                        and type
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.fullScreenModalFooter}>
-              <Button
-                title="Done"
-                variant="outline"
-                size="lg"
-                onPress={() => {
-                  setShowAddMaterialModal(false);
-                  setSelectedMaterialItem(null);
-                  setMaterialQuantity('1');
-                  setMaterialType('used');
-                }}
-                style={styles.fullScreenModalCancelButton}
-              />
-              <Button
-                title="Add Material"
-                variant="primary"
-                size="lg"
-                disabled={!selectedMaterialItem}
-                onPress={handleAddMaterial}
-                style={styles.fullScreenModalAddButton}
-              />
-            </View>
-          </View>
-        </Modal>
       </View>
     );
   };
@@ -3011,7 +3222,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       </View>
 
                       <View style={styles.materialInputSection}>
-                        <Text style={styles.inputLabel}>Quantity</Text>
                         <Input
                           label="Quantity"
                           value={equipmentQuantity}
@@ -3070,12 +3280,64 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const [customerFirstName, setCustomerFirstName] = useState('');
     const [customerLastName, setCustomerLastName] = useState('');
     const [customerEmail, setCustomerEmail] = useState('');
+    const [acknowledgeIncomplete, setAcknowledgeIncomplete] = useState(false);
+
+    // Compute incomplete reasons for this order
+    const incompleteReasons = useMemo(() => {
+      const reasons: Array<{id: string; reason: string; severity: 'warning' | 'error'}> = [];
+      
+      // Check for scanned manifest - simulate missing for WO-2024-1234
+      const hasScannedManifest = scannedDocuments.some(
+        doc => doc.orderNumber === selectedOrderData?.orderNumber && doc.documentType === 'manifest'
+      );
+      if (!hasScannedManifest || selectedOrderData?.orderNumber === 'WO-2024-1234') {
+        reasons.push({
+          id: 'missing-manifest',
+          reason: 'Scanned manifest document is missing',
+          severity: 'error',
+        });
+      }
+
+      // Check if no containers were added
+      if (addedContainers.length === 0) {
+        reasons.push({
+          id: 'no-containers',
+          reason: 'No containers have been added to this order',
+          severity: 'warning',
+        });
+      }
+
+      // Check if programs are not all selected
+      const allProgramsSelected = selectedOrderData?.programs.every(
+        program => selectedPrograms[program]
+      );
+      if (!allProgramsSelected && selectedOrderData?.programs && selectedOrderData.programs.length > 0) {
+        reasons.push({
+          id: 'incomplete-programs',
+          reason: 'Not all programs have been selected',
+          severity: 'warning',
+        });
+      }
+
+      return reasons;
+    }, [scannedDocuments, selectedOrderData, addedContainers, selectedPrograms]);
+
+    const hasBlockingErrors = incompleteReasons.some(r => r.severity === 'error');
 
     const handleCompleteOrder = async () => {
       if (!customerFirstName.trim() || !customerLastName.trim()) {
         Alert.alert(
           'Required Fields',
           'Please enter customer first name and last name.',
+        );
+        return;
+      }
+
+      // Check for blocking errors that haven't been acknowledged
+      if (hasBlockingErrors && !acknowledgeIncomplete) {
+        Alert.alert(
+          'Incomplete Order',
+          'This order has incomplete items that must be acknowledged before completing. Please review the warnings above and check the acknowledgment box.',
         );
         return;
       }
@@ -3144,138 +3406,397 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         <View style={styles.scrollViewContainer}>
           <ScrollView
             style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}>
-            {/* Print-Friendly Order Summary */}
-            <Card style={styles.printSummaryCard}>
-              <CardHeader>
-                <CardTitle>
-                  <CardTitleText>Order Summary</CardTitleText>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <View style={styles.printSummarySection}>
-                  <View style={styles.printSummaryRow}>
-                    <Text style={styles.printSummaryLabel}>Order Number:</Text>
-                    <Text style={styles.printSummaryValue}>
-                      {selectedOrderData?.orderNumber || 'N/A'}
-                    </Text>
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            removeClippedSubviews={false}>
+            {/* Service Summary - Matching Print Layout */}
+            <View style={styles.serviceSummaryContainer}>
+              {/* Header */}
+              <View style={styles.serviceSummaryHeader}>
+                <Text style={styles.serviceSummaryTitle}>Service Summary</Text>
+                <View style={styles.serviceSummaryLogo}>
+                  <Text style={styles.serviceSummaryLogoText}>CleanEarth</Text>
+                  <View style={styles.serviceSummaryLogoDot} />
+                </View>
+              </View>
+
+              {/* Work Order # and Date Row */}
+              <View style={styles.serviceSummaryTopRow}>
+                <View style={styles.serviceSummaryTopItem}>
+                  <Text style={styles.serviceSummaryFieldLabel}>Work Order #:</Text>
+                  <Text style={styles.serviceSummaryFieldValue}>{selectedOrderData?.orderNumber || 'N/A'}</Text>
+                </View>
+                <View style={styles.serviceSummaryTopItem}>
+                  <Text style={styles.serviceSummaryFieldLabel}>Date:</Text>
+                  <Text style={styles.serviceSummaryFieldValue}>{new Date().toLocaleDateString()}</Text>
+                </View>
+              </View>
+
+              {/* Customer and Generator Section */}
+              <View style={styles.serviceSummaryTwoColumn}>
+                {/* CUSTOMER Section */}
+                <View style={styles.serviceSummaryColumnBox}>
+                  <View style={styles.serviceSummarySectionHeader}>
+                    <Text style={styles.serviceSummarySectionHeaderText}>CUSTOMER:</Text>
                   </View>
-                  <View style={styles.printSummaryRow}>
-                    <Text style={styles.printSummaryLabel}>Customer:</Text>
-                    <Text style={styles.printSummaryValue}>
-                      {selectedOrderData?.customer || 'N/A'}
-                    </Text>
-                  </View>
-                  <View style={styles.printSummaryRow}>
-                    <Text style={styles.printSummaryLabel}>Site:</Text>
-                    <Text style={styles.printSummaryValue}>
-                      {selectedOrderData?.site || 'N/A'}
-                    </Text>
-                  </View>
-                  <View style={styles.printSummaryRow}>
-                    <Text style={styles.printSummaryLabel}>Date:</Text>
-                    <Text style={styles.printSummaryValue}>
-                      {new Date().toLocaleDateString()}
-                    </Text>
+                  <View style={styles.serviceSummarySectionBody}>
+                    <Text style={styles.serviceSummaryText}>HDDS</Text>
+                    <Text style={styles.serviceSummaryText}>HDDS</Text>
+                    <Text style={styles.serviceSummaryText}>5250 Triangle Parkway Suite 200</Text>
+                    <Text style={styles.serviceSummaryText}>Peachtree Corners, GA 30092</Text>
+                    <View style={styles.serviceSummaryFieldRow}>
+                      <Text style={styles.serviceSummaryFieldLabel}>Phone:</Text>
+                      <Text style={styles.serviceSummaryText}></Text>
+                    </View>
+                    <View style={styles.serviceSummaryFieldRow}>
+                      <Text style={styles.serviceSummaryFieldLabel}>Billing:</Text>
+                      <Text style={styles.serviceSummaryText}>A40000167</Text>
+                    </View>
                   </View>
                 </View>
 
-                <View style={styles.printSummaryDivider} />
+                {/* GENERATOR Section */}
+                <View style={styles.serviceSummaryColumnBox}>
+                  <View style={styles.serviceSummarySectionHeader}>
+                    <Text style={styles.serviceSummarySectionHeaderText}>GENERATOR:</Text>
+                  </View>
+                  <View style={styles.serviceSummarySectionBody}>
+                    <Text style={styles.serviceSummaryText}>HDDS</Text>
+                    <Text style={styles.serviceSummaryText}>Soleo Health#</Text>
+                    <Text style={styles.serviceSummaryText}>1324 W Winton Ave</Text>
+                    <Text style={styles.serviceSummaryText}>Hayward, CA 94545-1408</Text>
+                    <View style={styles.serviceSummaryFieldRow}>
+                      <Text style={styles.serviceSummaryFieldLabel}>Generator:</Text>
+                      <Text style={styles.serviceSummaryText}>(510) 362-7360</Text>
+                    </View>
+                    <View style={styles.serviceSummaryFieldRow}>
+                      <Text style={styles.serviceSummaryFieldLabel}>EPA ID:</Text>
+                      <Text style={styles.serviceSummaryText}>CAL000483809</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
 
-                <View style={styles.printSummarySection}>
-                  <Text style={styles.printSummarySectionTitle}>
-                    Containers
+              {/* WORK ORDER DETAILS Section */}
+              <View style={styles.serviceSummarySection}>
+                <View style={styles.serviceSummarySectionHeader}>
+                  <Text style={styles.serviceSummarySectionHeaderText}>WORK ORDER DETAILS</Text>
+                </View>
+                <View style={styles.serviceSummaryTableRow}>
+                  <View style={[styles.serviceSummaryTableCell, {flex: 1}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>Account Rep</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {flex: 1}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>Terms</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {flex: 1}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>Purchase Order</Text>
+                  </View>
+                </View>
+                <View style={styles.serviceSummaryTableRow}>
+                  <View style={[styles.serviceSummaryTableCell, {flex: 1}]}>
+                    <Text style={styles.serviceSummaryTableValue}>House Account</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {flex: 1}]}>
+                    <Text style={styles.serviceSummaryTableValue}>ON RECEIPT(4)</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {flex: 1}]}>
+                    <Text style={styles.serviceSummaryTableValue}>West</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* WORK PERFORMED Section */}
+              <View style={styles.serviceSummarySection}>
+                <View style={styles.serviceSummarySectionHeader}>
+                  <Text style={styles.serviceSummarySectionHeaderText}>WORK PERFORMED</Text>
+                </View>
+                <View style={styles.serviceSummaryTableRow}>
+                  <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>Profile #</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>Profile Name</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>Size</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {width: 60}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>VOL</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {width: 40}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>UOM</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>Number of Containers</Text>
+                  </View>
+                </View>
+                {addedContainers.length > 0 ? (
+                  addedContainers.map((container, index) => (
+                    <View key={container.id} style={styles.serviceSummaryTableRow}>
+                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                        <Text style={styles.serviceSummaryTableValue}>5014883{index + 3}</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
+                        <Text style={styles.serviceSummaryTableValue}>{container.streamName}</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                        <Text style={styles.serviceSummaryTableValue}>{container.containerSize}</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {width: 60}]}>
+                        <Text style={styles.serviceSummaryTableValue}>{String(container.netWeight).padStart(5, '0')}</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {width: 40}]}>
+                        <Text style={styles.serviceSummaryTableValue}>P</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                        <Text style={styles.serviceSummaryTableValue}>1</Text>
+                      </View>
+                    </View>
+                  ))
+                ) : (
+                  <>
+                    <View style={styles.serviceSummaryTableRow}>
+                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                        <Text style={styles.serviceSummaryTableValue}>50148833</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
+                        <Text style={styles.serviceSummaryTableValue}>W PHARMACEUTICAL AEROSOLS/ INHALERS</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                        <Text style={styles.serviceSummaryTableValue}>Box 2.5 Ga</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {width: 60}]}>
+                        <Text style={styles.serviceSummaryTableValue}>00001</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {width: 40}]}>
+                        <Text style={styles.serviceSummaryTableValue}>P</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                        <Text style={styles.serviceSummaryTableValue}>1</Text>
+                      </View>
+                    </View>
+                    <View style={styles.serviceSummaryTableRow}>
+                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                        <Text style={styles.serviceSummaryTableValue}>50148851</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
+                        <Text style={styles.serviceSummaryTableValue}>FLAMMABLE/CORROSIVE PHARMACEUTICALS (AMMONIA INHAL</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                        <Text style={styles.serviceSummaryTableValue}>Box 2.5 Ga</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {width: 60}]}>
+                        <Text style={styles.serviceSummaryTableValue}>00002</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {width: 40}]}>
+                        <Text style={styles.serviceSummaryTableValue}>P</Text>
+                      </View>
+                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                        <Text style={styles.serviceSummaryTableValue}>1</Text>
+                      </View>
+                    </View>
+                  </>
+                )}
+              </View>
+
+              {/* LABOR, MATERIAL AND SUPPLIES USED Section */}
+              <View style={styles.serviceSummarySection}>
+                <View style={styles.serviceSummarySectionHeader}>
+                  <Text style={styles.serviceSummarySectionHeaderText}>LABOR, MATERIAL AND SUPPLIES USED</Text>
+                </View>
+                <View style={styles.serviceSummaryTableRow}>
+                  <View style={[styles.serviceSummaryTableCell, {width: 100}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>Product</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>Description</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                    <Text style={styles.serviceSummaryTableHeader}># Delivered</Text>
+                  </View>
+                </View>
+                {materialsSupplies.filter(m => m.type === 'used').length > 0 ? (
+                  materialsSupplies
+                    .filter(m => m.type === 'used')
+                    .map(material => (
+                      <View key={material.id} style={styles.serviceSummaryTableRow}>
+                        <View style={[styles.serviceSummaryTableCell, {width: 100}]}>
+                          <Text style={styles.serviceSummaryTableValue}>{material.itemNumber}</Text>
+                        </View>
+                        <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
+                          <Text style={styles.serviceSummaryTableValue}>{material.description}</Text>
+                        </View>
+                        <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                          <Text style={styles.serviceSummaryTableValue}>{material.quantity}</Text>
+                        </View>
+                      </View>
+                    ))
+                ) : (
+                  <View style={[styles.serviceSummaryTableRow, {minHeight: 30}]}>
+                    <View style={[styles.serviceSummaryTableCell, {width: 100}]} />
+                    <View style={[styles.serviceSummaryTableCell, {flex: 2}]} />
+                    <View style={[styles.serviceSummaryTableCell, {width: 80}]} />
+                  </View>
+                )}
+              </View>
+
+              {/* LABOR, MATERIAL AND SUPPLIES LEFT BEHIND Section */}
+              <View style={styles.serviceSummarySection}>
+                <View style={styles.serviceSummarySectionHeader}>
+                  <Text style={styles.serviceSummarySectionHeaderText}>LABOR, MATERIAL AND SUPPLIES LEFT BEHIND</Text>
+                </View>
+                <View style={styles.serviceSummaryTableRow}>
+                  <View style={[styles.serviceSummaryTableCell, {width: 100}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>Product</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
+                    <Text style={styles.serviceSummaryTableHeader}>Description</Text>
+                  </View>
+                  <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                    <Text style={styles.serviceSummaryTableHeader}># Delivered</Text>
+                  </View>
+                </View>
+                {materialsSupplies.filter(m => m.type === 'left_behind').length > 0 ? (
+                  materialsSupplies
+                    .filter(m => m.type === 'left_behind')
+                    .map(material => (
+                      <View key={material.id} style={styles.serviceSummaryTableRow}>
+                        <View style={[styles.serviceSummaryTableCell, {width: 100}]}>
+                          <Text style={styles.serviceSummaryTableValue}>{material.itemNumber}</Text>
+                        </View>
+                        <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
+                          <Text style={styles.serviceSummaryTableValue}>{material.description}</Text>
+                        </View>
+                        <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
+                          <Text style={styles.serviceSummaryTableValue}>{material.quantity}</Text>
+                        </View>
+                      </View>
+                    ))
+                ) : (
+                  <View style={[styles.serviceSummaryTableRow, {minHeight: 30}]}>
+                    <View style={[styles.serviceSummaryTableCell, {width: 100}]} />
+                    <View style={[styles.serviceSummaryTableCell, {flex: 2}]} />
+                    <View style={[styles.serviceSummaryTableCell, {width: 80}]} />
+                  </View>
+                )}
+              </View>
+
+              {/* Customer Acknowledgement Section */}
+              <View style={styles.serviceSummaryAcknowledgement}>
+                <View style={styles.serviceSummaryAckLeft}>
+                  <Text style={styles.serviceSummaryAckTitle}>Customer{'\n'}Acknowledgement:</Text>
+                </View>
+                <View style={styles.serviceSummaryAckMiddle}>
+                  <View style={styles.serviceSummaryAckField}>
+                    <Text style={styles.serviceSummaryAckLabel}>Last Name:</Text>
+                    <View style={styles.serviceSummaryAckInputLine} />
+                  </View>
+                  <View style={styles.serviceSummaryAckField}>
+                    <Text style={styles.serviceSummaryAckLabel}>First Name:</Text>
+                    <View style={styles.serviceSummaryAckInputLine} />
+                  </View>
+                  <View style={styles.serviceSummaryAckField}>
+                    <Text style={styles.serviceSummaryAckLabel}>Email:</Text>
+                    <View style={styles.serviceSummaryAckInputLine} />
+                  </View>
+                </View>
+                <View style={styles.serviceSummaryAckRight}>
+                  <View style={styles.serviceSummaryAckField}>
+                    <Text style={styles.serviceSummaryAckLabel}>Technician:</Text>
+                    <Text style={styles.serviceSummaryAckValue}>Rashad Sayles</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Footer */}
+              <View style={styles.serviceSummaryFooter}>
+                <View style={styles.serviceSummaryFooterItem}>
+                  <Text style={styles.serviceSummaryFooterLabel}>Work Order #:</Text>
+                  <Text style={styles.serviceSummaryFooterValue}>{selectedOrderData?.orderNumber || 'N/A'}</Text>
+                </View>
+                <View style={styles.serviceSummaryFooterItem}>
+                  <Text style={styles.serviceSummaryFooterLabel}>On Site Time:</Text>
+                  <Text style={styles.serviceSummaryFooterValueMuted}>Not Available - Offline</Text>
+                </View>
+                <View style={styles.serviceSummaryFooterItem}>
+                  <Text style={styles.serviceSummaryFooterLabel}>Departure Time:</Text>
+                  <Text style={styles.serviceSummaryFooterValue}>11/14/2025 9:36:24 AM</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Incomplete Reasons Warning */}
+            {incompleteReasons.length > 0 && (
+              <Card style={styles.incompleteWarningCard}>
+                <CardHeader>
+                  <CardTitle>
+                    <View style={styles.incompleteWarningHeader}>
+                      <Text style={styles.incompleteWarningIcon}>⚠️</Text>
+                      <Text style={styles.incompleteWarningTitleText}>
+                        Incomplete Order - Action Required
+                      </Text>
+                    </View>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Text style={styles.incompleteWarningDescription}>
+                    The following items are incomplete and must be addressed or acknowledged before completing this order:
                   </Text>
-                  {addedContainers.map((container, index) => (
-                    <View key={container.id} style={styles.printSummaryItem}>
-                      <Text style={styles.printSummaryItemText}>
-                        {index + 1}. {container.containerSize} -{' '}
-                        {container.streamName}
-                      </Text>
-                      <Text style={styles.printSummaryItemSubtext}>
-                        Net Weight: {container.netWeight} lbs | Label:{' '}
-                        {container.shippingLabelBarcode}
-                      </Text>
-                    </View>
-                  ))}
-                  <View style={styles.printSummaryRow}>
-                    <Text style={styles.printSummaryLabel}>
-                      Total Containers:
-                    </Text>
-                    <Text style={styles.printSummaryValue}>
-                      {addedContainers.length}
-                    </Text>
+                  
+                  <View style={styles.incompleteReasonsList}>
+                    {incompleteReasons.map(item => (
+                      <View 
+                        key={item.id} 
+                        style={[
+                          styles.incompleteReasonItem,
+                          item.severity === 'error' 
+                            ? styles.incompleteReasonError 
+                            : styles.incompleteReasonWarning
+                        ]}
+                      >
+                        <Text style={styles.incompleteReasonBullet}>
+                          {item.severity === 'error' ? '❌' : '⚠️'}
+                        </Text>
+                        <View style={styles.incompleteReasonContent}>
+                          <Text style={[
+                            styles.incompleteReasonText,
+                            item.severity === 'error' && styles.incompleteReasonTextError
+                          ]}>
+                            {item.reason}
+                          </Text>
+                          {item.id === 'missing-manifest' && (
+                            <Text style={styles.incompleteReasonHint}>
+                              Use the "Scan Documents" quick action to capture the signed manifest
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    ))}
                   </View>
-                  <View style={styles.printSummaryRow}>
-                    <Text style={styles.printSummaryLabel}>
-                      Total Net Weight:
-                    </Text>
-                    <Text
-                      style={[
-                        styles.printSummaryValue,
-                        styles.netWeightHighlight,
+
+                  {hasBlockingErrors && (
+                    <TouchableOpacity 
+                      style={styles.acknowledgeCheckboxRow}
+                      onPress={() => setAcknowledgeIncomplete(!acknowledgeIncomplete)}
+                    >
+                      <View style={[
+                        styles.acknowledgeCheckbox,
+                        acknowledgeIncomplete && styles.acknowledgeCheckboxChecked
                       ]}>
-                      {totalNetWeight} lbs
-                    </Text>
-                  </View>
-                </View>
-
-                {materialsSupplies.length > 0 && (
-                  <>
-                    <View style={styles.printSummaryDivider} />
-                    <View style={styles.printSummarySection}>
-                      <Text style={styles.printSummarySectionTitle}>
-                        Materials & Supplies
+                        {acknowledgeIncomplete && (
+                          <Text style={styles.acknowledgeCheckmark}>✓</Text>
+                        )}
+                      </View>
+                      <Text style={styles.acknowledgeCheckboxLabel}>
+                        I acknowledge that this order is incomplete and want to proceed anyway
                       </Text>
-                      {materialsSupplies.map(material => (
-                        <View key={material.id} style={styles.printSummaryItem}>
-                          <Text style={styles.printSummaryItemText}>
-                            {material.itemNumber} - {material.description}
-                          </Text>
-                          <Text style={styles.printSummaryItemSubtext}>
-                            Qty: {material.quantity} | Type:{' '}
-                            {material.type === 'used' ? 'Used' : 'Left Behind'}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                  </>
-                )}
-
-                {equipmentPPE.length > 0 && (
-                  <>
-                    <View style={styles.printSummaryDivider} />
-                    <View style={styles.printSummarySection}>
-                      <Text style={styles.printSummarySectionTitle}>
-                        Equipment & PPE
-                      </Text>
-                      {equipmentPPE.map(equipment => (
-                        <View
-                          key={equipment.id}
-                          style={styles.printSummaryItem}>
-                          <Text style={styles.printSummaryItemText}>
-                            {equipment.name} - {equipment.count}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                  </>
-                )}
-
-                <View style={styles.printSummaryDivider} />
-
-                <View style={styles.printSummarySection}>
-                  <Text style={styles.printSummarySectionTitle}>Programs</Text>
-                  {selectedOrderData?.programs.map(program => (
-                    <View key={program} style={styles.printSummaryItem}>
-                      <Text style={styles.printSummaryItemText}>
-                        {program}: {selectedPrograms[program] || 'Not selected'}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              </CardContent>
-            </Card>
+                    </TouchableOpacity>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Customer Information Form */}
             <Card>
@@ -3343,38 +3864,192 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       return null;
     }
 
-    const handleScanDocuments = async () => {
+    // Show the document type selector modal
+    const handleScanDocuments = () => {
+      setShowDocumentTypeSelector(true);
+    };
+
+    // Capture document after type is selected
+    const captureDocument = async (documentType: 'manifest' | 'ldr' | 'bol') => {
+      setShowDocumentTypeSelector(false);
+      const typeLabels = {manifest: 'Manifest', ldr: 'LDR', bol: 'BOL'};
+      
       try {
         // Check if we're on web or native
         if (Platform.OS === 'web') {
-          // Web platform - use file input as fallback
-          // @ts-ignore - document is available on web
-          const input = document.createElement('input');
-          input.type = 'file';
-          input.accept = 'image/*';
-          input.capture = 'environment'; // Use back camera if available
-          input.onchange = (e: any) => {
-            const file = e.target.files?.[0];
-            if (file) {
-              const reader = new FileReader();
-              reader.onload = event => {
-                const imageUri = event.target?.result as string;
-                // Store scanned document
-                setScannedDocuments(prev => [
-                  ...prev,
-                  {
-                    id: `doc-${Date.now()}`,
-                    uri: imageUri,
-                    timestamp: new Date().toISOString(),
-                    orderNumber: selectedOrderData?.orderNumber || '',
-                  },
-                ]);
-                Alert.alert('Success', 'Document captured successfully');
+          // Web platform - use MediaDevices API for camera access
+          try {
+            // @ts-ignore - navigator.mediaDevices is available on web
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+              // Create a modal overlay for camera preview
+              // @ts-ignore
+              const overlay = document.createElement('div');
+              overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.9);
+                z-index: 10000;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+              `;
+
+              // Create video element for camera preview
+              // @ts-ignore
+              const video = document.createElement('video');
+              video.style.cssText = `
+                max-width: 90%;
+                max-height: 70%;
+                border-radius: 12px;
+                background: #000;
+              `;
+              video.autoplay = true;
+              video.playsInline = true;
+
+              // Create canvas for capturing
+              // @ts-ignore
+              const canvas = document.createElement('canvas');
+              canvas.style.display = 'none';
+
+              // Create header with document type
+              // @ts-ignore
+              const header = document.createElement('div');
+              header.style.cssText = `
+                color: white;
+                font-size: 20px;
+                font-weight: 600;
+                margin-bottom: 20px;
+                text-align: center;
+              `;
+              header.textContent = `Scanning ${typeLabels[documentType]}`;
+
+              // Create capture button
+              // @ts-ignore
+              const captureBtn = document.createElement('button');
+              captureBtn.style.cssText = `
+                margin-top: 24px;
+                padding: 16px 48px;
+                font-size: 18px;
+                font-weight: 600;
+                background: #65B230;
+                color: white;
+                border: none;
+                border-radius: 12px;
+                cursor: pointer;
+                min-height: 56px;
+              `;
+              captureBtn.textContent = '📸 Capture Photo';
+
+              // Create cancel button
+              // @ts-ignore
+              const cancelBtn = document.createElement('button');
+              cancelBtn.style.cssText = `
+                margin-top: 12px;
+                padding: 12px 32px;
+                font-size: 16px;
+                background: transparent;
+                color: white;
+                border: 2px solid white;
+                border-radius: 8px;
+                cursor: pointer;
+              `;
+              cancelBtn.textContent = 'Cancel';
+
+              overlay.appendChild(header);
+              overlay.appendChild(video);
+              overlay.appendChild(canvas);
+              overlay.appendChild(captureBtn);
+              overlay.appendChild(cancelBtn);
+              // @ts-ignore
+              document.body.appendChild(overlay);
+
+              // Get camera stream - prefer back camera for document scanning
+              // @ts-ignore - mediaDevices is available in modern browsers
+              const stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                  facingMode: 'environment', // Use back camera
+                  width: {ideal: 1920},
+                  height: {ideal: 1080},
+                },
+              });
+
+              video.srcObject = stream;
+
+              // Capture photo on button click
+              captureBtn.onclick = () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(video, 0, 0);
+                  const imageUri = canvas.toDataURL('image/jpeg', 0.8);
+                  
+                  // Stop camera stream
+                  // @ts-ignore
+                  stream.getTracks().forEach((track: any) => track.stop());
+                  // @ts-ignore
+                  document.body.removeChild(overlay);
+
+                  // Store scanned document with type
+                  setScannedDocuments(prev => [
+                    ...prev,
+                    {
+                      id: `doc-${Date.now()}`,
+                      uri: imageUri,
+                      timestamp: new Date().toISOString(),
+                      orderNumber: selectedOrderData?.orderNumber || '',
+                      documentType: documentType,
+                    },
+                  ]);
+                  Alert.alert('Success', `${typeLabels[documentType]} captured successfully`);
+                }
               };
-              reader.readAsDataURL(file);
+
+              // Cancel on button click
+              cancelBtn.onclick = () => {
+                // @ts-ignore
+                stream.getTracks().forEach((track: any) => track.stop());
+                // @ts-ignore
+                document.body.removeChild(overlay);
+              };
+            } else {
+              throw new Error('Camera not supported');
             }
-          };
-          input.click();
+          } catch (cameraError) {
+            // Fallback to file input if camera access fails
+            console.log('Camera access failed, falling back to file picker:', cameraError);
+            // @ts-ignore - document is available on web
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.capture = 'environment';
+            input.onchange = (e: any) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                const reader = new FileReader();
+                reader.onload = event => {
+                  const imageUri = event.target?.result as string;
+                  setScannedDocuments(prev => [
+                    ...prev,
+                    {
+                      id: `doc-${Date.now()}`,
+                      uri: imageUri,
+                      timestamp: new Date().toISOString(),
+                      orderNumber: selectedOrderData?.orderNumber || '',
+                      documentType: documentType,
+                    },
+                  ]);
+                  Alert.alert('Success', `${typeLabels[documentType]} captured successfully`);
+                };
+                reader.readAsDataURL(file);
+              }
+            };
+            input.click();
+          }
         } else {
           // Native platform - use expo-image-picker
           try {
@@ -3401,7 +4076,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
             if (!result.canceled && result.assets[0]) {
               const imageUri = result.assets[0].uri;
-              // Store scanned document
+              // Store scanned document with type
               setScannedDocuments(prev => [
                 ...prev,
                 {
@@ -3409,9 +4084,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   uri: imageUri,
                   timestamp: new Date().toISOString(),
                   orderNumber: selectedOrderData?.orderNumber || '',
+                  documentType: documentType,
                 },
               ]);
-              Alert.alert('Success', 'Document captured successfully');
+              const typeLabels = {manifest: 'Manifest', ldr: 'LDR', bol: 'BOL'};
+              Alert.alert('Success', `${typeLabels[documentType]} captured successfully`);
             }
           } catch (importError) {
             // Fallback if expo-image-picker is not available
@@ -3437,9 +4114,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   uri: imageUri,
                   timestamp: new Date().toISOString(),
                   orderNumber: selectedOrderData?.orderNumber || '',
+                  documentType: documentType,
                 },
               ]);
-              Alert.alert('Success', 'Document selected successfully');
+              const typeLabels = {manifest: 'Manifest', ldr: 'LDR', bol: 'BOL'};
+              Alert.alert('Success', `${typeLabels[documentType]} selected successfully`);
             }
           }
         }
@@ -3461,6 +4140,31 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
     return (
       <View style={styles.quickActionsBar}>
+        {/* Home Button */}
+        <TouchableOpacity
+          style={styles.quickActionHomeButton}
+          onPress={() => {
+            // Confirm before leaving if there's work in progress
+            if (addedContainers.length > 0 || materialsSupplies.length > 0) {
+              Alert.alert(
+                'Return to Dashboard?',
+                'You have unsaved work for this order. Your progress will be saved.',
+                [
+                  {text: 'Cancel', style: 'cancel'},
+                  {
+                    text: 'Go to Dashboard',
+                    onPress: () => setCurrentStep('dashboard'),
+                  },
+                ]
+              );
+            } else {
+              setCurrentStep('dashboard');
+            }
+          }}
+          activeOpacity={0.7}>
+          <Text style={styles.quickActionHomeIcon}>🏠</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={[
             styles.quickActionButton,
@@ -3534,11 +4238,20 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             styles.quickActionButton,
             isTablet() && styles.quickActionButtonTablet,
           ]}
-          onPress={handleScanDocuments}
+          onPress={() => {
+            // If documents exist, show options menu; otherwise go straight to scan
+            if (scannedDocsCount > 0) {
+              setShowDocumentOptionsMenu(true);
+            } else {
+              handleScanDocuments();
+            }
+          }}
           activeOpacity={0.7}>
           <View style={styles.quickActionContent}>
             <Text style={styles.quickActionIcon}>📷</Text>
-            <Text style={styles.quickActionLabel}>Scan Documents</Text>
+            <Text style={styles.quickActionLabel}>
+              {scannedDocsCount > 0 ? 'Documents' : 'Scan Documents'}
+            </Text>
             {scannedDocsCount > 0 && (
               <View style={styles.quickActionBadge}>
                 <Text style={styles.quickActionBadgeText}>
@@ -3548,6 +4261,300 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             )}
           </View>
         </TouchableOpacity>
+
+        {/* Document Options Menu - Bottom Sheet */}
+        <Modal
+          visible={showDocumentOptionsMenu}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowDocumentOptionsMenu(false)}>
+          <TouchableOpacity
+            style={styles.bottomSheetOverlay}
+            activeOpacity={1}
+            onPress={() => setShowDocumentOptionsMenu(false)}>
+            <TouchableOpacity
+              style={styles.bottomSheetContainer}
+              activeOpacity={1}
+              onPress={e => e.stopPropagation()}>
+              {/* Drag Handle */}
+              <View style={styles.bottomSheetHandle} />
+              
+              <View style={styles.bottomSheetHeader}>
+                <Text style={styles.bottomSheetTitle}>📷 Documents</Text>
+                <Text style={styles.bottomSheetSubtitle}>
+                  {scannedDocsCount} document{scannedDocsCount !== 1 ? 's' : ''} scanned for this order
+                </Text>
+              </View>
+              
+              <View style={styles.bottomSheetContent}>
+                <TouchableOpacity
+                  style={styles.bottomSheetOptionButton}
+                  onPress={() => {
+                    setShowDocumentOptionsMenu(false);
+                    setShowScannedDocumentsViewer(true);
+                  }}
+                  activeOpacity={0.7}>
+                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
+                    <Text style={styles.bottomSheetOptionIconText}>📋</Text>
+                  </View>
+                  <View style={styles.bottomSheetOptionInfo}>
+                    <Text style={styles.bottomSheetOptionLabel}>View Documents</Text>
+                    <Text style={styles.bottomSheetOptionDesc}>See all scanned documents</Text>
+                  </View>
+                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.bottomSheetOptionButton}
+                  onPress={() => {
+                    setShowDocumentOptionsMenu(false);
+                    handleScanDocuments();
+                  }}
+                  activeOpacity={0.7}>
+                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#D1FAE5'}]}>
+                    <Text style={styles.bottomSheetOptionIconText}>📷</Text>
+                  </View>
+                  <View style={styles.bottomSheetOptionInfo}>
+                    <Text style={styles.bottomSheetOptionLabel}>Scan New Document</Text>
+                    <Text style={styles.bottomSheetOptionDesc}>Capture manifest, LDR, or BOL</Text>
+                  </View>
+                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.bottomSheetFooter}>
+                <TouchableOpacity
+                  style={styles.bottomSheetCancelButton}
+                  onPress={() => setShowDocumentOptionsMenu(false)}>
+                  <Text style={styles.bottomSheetCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Document Type Selector - Bottom Sheet */}
+        <Modal
+          visible={showDocumentTypeSelector}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowDocumentTypeSelector(false)}>
+          <TouchableOpacity
+            style={styles.bottomSheetOverlay}
+            activeOpacity={1}
+            onPress={() => setShowDocumentTypeSelector(false)}>
+            <TouchableOpacity
+              style={styles.bottomSheetContainer}
+              activeOpacity={1}
+              onPress={e => e.stopPropagation()}>
+              {/* Drag Handle */}
+              <View style={styles.bottomSheetHandle} />
+              
+              <View style={styles.bottomSheetHeader}>
+                <Text style={styles.bottomSheetTitle}>Select Document Type</Text>
+                <Text style={styles.bottomSheetSubtitle}>
+                  Choose the type of document you want to scan
+                </Text>
+              </View>
+              
+              <View style={styles.bottomSheetContent}>
+                <TouchableOpacity
+                  style={styles.bottomSheetOptionButton}
+                  onPress={() => captureDocument('manifest')}
+                  activeOpacity={0.7}>
+                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
+                    <Text style={styles.bottomSheetOptionIconText}>📋</Text>
+                  </View>
+                  <View style={styles.bottomSheetOptionInfo}>
+                    <Text style={styles.bottomSheetOptionLabel}>Manifest</Text>
+                    <Text style={styles.bottomSheetOptionDesc}>
+                      Hazardous waste manifest (EPA Form 8700-22)
+                    </Text>
+                  </View>
+                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.bottomSheetOptionButton}
+                  onPress={() => captureDocument('ldr')}
+                  activeOpacity={0.7}>
+                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEF3C7'}]}>
+                    <Text style={styles.bottomSheetOptionIconText}>📄</Text>
+                  </View>
+                  <View style={styles.bottomSheetOptionInfo}>
+                    <Text style={styles.bottomSheetOptionLabel}>LDR</Text>
+                    <Text style={styles.bottomSheetOptionDesc}>
+                      Land Disposal Restrictions notification
+                    </Text>
+                  </View>
+                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.bottomSheetOptionButton}
+                  onPress={() => captureDocument('bol')}
+                  activeOpacity={0.7}>
+                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#D1FAE5'}]}>
+                    <Text style={styles.bottomSheetOptionIconText}>🚚</Text>
+                  </View>
+                  <View style={styles.bottomSheetOptionInfo}>
+                    <Text style={styles.bottomSheetOptionLabel}>BOL</Text>
+                    <Text style={styles.bottomSheetOptionDesc}>
+                      Bill of Lading for shipment
+                    </Text>
+                  </View>
+                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.bottomSheetFooter}>
+                <TouchableOpacity
+                  style={styles.bottomSheetCancelButton}
+                  onPress={() => setShowDocumentTypeSelector(false)}>
+                  <Text style={styles.bottomSheetCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Scanned Documents Viewer Modal */}
+        <Modal
+          visible={showScannedDocumentsViewer}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowScannedDocumentsViewer(false)}>
+          <View style={styles.scannedDocsViewerContainer}>
+            <View style={styles.scannedDocsViewerHeader}>
+              <View>
+                <Text style={styles.scannedDocsViewerTitle}>Scanned Documents</Text>
+                <Text style={styles.scannedDocsViewerSubtitle}>
+                  {selectedOrderData?.orderNumber || 'Order'} • {scannedDocsCount} document{scannedDocsCount !== 1 ? 's' : ''}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.scannedDocsViewerCloseBtn}
+                onPress={() => setShowScannedDocumentsViewer(false)}>
+                <Text style={styles.scannedDocsViewerCloseBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView 
+              style={styles.scannedDocsViewerScroll}
+              contentContainerStyle={styles.scannedDocsViewerScrollContent}>
+              {scannedDocuments
+                .filter(doc => doc.orderNumber === selectedOrderData?.orderNumber)
+                .map(doc => {
+                  const typeLabels = {manifest: 'Manifest', ldr: 'LDR', bol: 'BOL'};
+                  const typeColors = {manifest: '#DBEAFE', ldr: '#FEF3C7', bol: '#D1FAE5'};
+                  const typeIcons = {manifest: '📋', ldr: '📄', bol: '🚚'};
+                  
+                  return (
+                    <View key={doc.id} style={styles.scannedDocCard}>
+                      <TouchableOpacity
+                        style={styles.scannedDocThumbnailContainer}
+                        onPress={() => setSelectedDocumentPreview(doc.uri)}>
+                        <Image
+                          source={{uri: doc.uri}}
+                          style={styles.scannedDocThumbnail as any}
+                          resizeMode="cover"
+                        />
+                        <View style={styles.scannedDocThumbnailOverlay}>
+                          <Text style={styles.scannedDocThumbnailIcon}>🔍</Text>
+                        </View>
+                      </TouchableOpacity>
+                      <View style={styles.scannedDocInfo}>
+                        <View style={[styles.scannedDocTypeBadge, {backgroundColor: typeColors[doc.documentType]}]}>
+                          <Text style={styles.scannedDocTypeIcon}>{typeIcons[doc.documentType]}</Text>
+                          <Text style={styles.scannedDocTypeLabel}>{typeLabels[doc.documentType]}</Text>
+                        </View>
+                        <Text style={styles.scannedDocTimestamp}>
+                          {new Date(doc.timestamp).toLocaleString()}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.scannedDocDeleteBtn}
+                        onPress={() => {
+                          Alert.alert(
+                            'Delete Document',
+                            `Are you sure you want to delete this ${typeLabels[doc.documentType]}?`,
+                            [
+                              {text: 'Cancel', style: 'cancel'},
+                              {
+                                text: 'Delete',
+                                style: 'destructive',
+                                onPress: () => {
+                                  setScannedDocuments(prev => prev.filter(d => d.id !== doc.id));
+                                },
+                              },
+                            ]
+                          );
+                        }}>
+                        <Text style={styles.scannedDocDeleteBtnText}>🗑️</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+
+              {scannedDocsCount === 0 && (
+                <View style={styles.scannedDocsEmptyState}>
+                  <Text style={styles.scannedDocsEmptyIcon}>📷</Text>
+                  <Text style={styles.scannedDocsEmptyTitle}>No Documents Scanned</Text>
+                  <Text style={styles.scannedDocsEmptySubtitle}>
+                    Tap "Scan Documents" to capture manifests, LDRs, or BOLs
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.scannedDocsViewerFooter}>
+              <Button
+                title="Add New Document"
+                variant="primary"
+                size="lg"
+                onPress={() => {
+                  setShowScannedDocumentsViewer(false);
+                  handleScanDocuments();
+                }}
+                style={{flex: 1}}
+              />
+              <Button
+                title="Close"
+                variant="outline"
+                size="lg"
+                onPress={() => setShowScannedDocumentsViewer(false)}
+                style={{flex: 1}}
+              />
+            </View>
+          </View>
+        </Modal>
+
+        {/* Document Preview Modal */}
+        <Modal
+          visible={selectedDocumentPreview !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setSelectedDocumentPreview(null)}>
+          <TouchableOpacity
+            style={styles.documentPreviewOverlay}
+            activeOpacity={1}
+            onPress={() => setSelectedDocumentPreview(null)}>
+            <View style={styles.documentPreviewContainer}>
+              <TouchableOpacity
+                style={styles.documentPreviewCloseBtn}
+                onPress={() => setSelectedDocumentPreview(null)}>
+                <Text style={styles.documentPreviewCloseBtnText}>✕</Text>
+              </TouchableOpacity>
+              {selectedDocumentPreview && (
+                <Image
+                  source={{uri: selectedDocumentPreview}}
+                  style={styles.documentPreviewImage as any}
+                  resizeMode="contain"
+                />
+              )}
+            </View>
+          </TouchableOpacity>
+        </Modal>
       </View>
     );
   };
@@ -3585,9 +4592,237 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <QuickActionsBar />
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       {renderScreen()}
+      <QuickActionsBar />
+      
+      {/* Add Material Modal - Full Screen for Tablets - At root level to prevent remounting */}
+      <Modal
+        visible={showAddMaterialModal}
+        animationType="slide"
+        onRequestClose={() => setShowAddMaterialModal(false)}>
+        <View style={styles.fullScreenModalContainer}>
+          <View style={styles.fullScreenModalHeader}>
+            <Text style={styles.fullScreenModalTitle}>
+              Add Material & Supply
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                setShowAddMaterialModal(false);
+                setSelectedMaterialItem(null);
+                setMaterialQuantity('1');
+                setMaterialType('used');
+              }}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+              style={styles.fullScreenModalCloseButton}>
+              <Text style={styles.fullScreenModalCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.fullScreenModalBody}>
+            <View
+              style={[
+                styles.modalSplitContainer,
+                isTablet()
+                  ? styles.modalSplitContainerRow
+                  : styles.modalSplitContainerColumn,
+              ]}>
+              {/* Left: Catalog Selection */}
+              <View
+                style={[
+                  styles.modalCatalogPane,
+                  isTablet() && styles.modalCatalogPaneTablet,
+                ]}>
+                <Text style={styles.sectionTitle}>Select Item</Text>
+                <Text style={styles.sectionDescription}>
+                  Choose a material or supply from the catalog
+                </Text>
+                <FlatList
+                  style={styles.modalCatalogScroll}
+                  contentContainerStyle={styles.modalCatalogContent}
+                  data={MATERIALS_CATALOG}
+                  keyExtractor={(item) => item.itemNumber}
+                  keyboardShouldPersistTaps="handled"
+                  removeClippedSubviews={false}
+                  extraData={selectedMaterialItem?.itemNumber}
+                  renderItem={({item}) => {
+                    const isSelected = selectedMaterialItem?.itemNumber === item.itemNumber;
+                    return (
+                      <TouchableOpacity
+                        style={[
+                          styles.materialCatalogItemVertical,
+                          isSelected && styles.materialCatalogItemSelected,
+                        ]}
+                        onPress={() => setSelectedMaterialItem(item)}>
+                        <Text
+                          style={[
+                            styles.materialCatalogItemNumber,
+                            isSelected && styles.materialCatalogItemNumberSelected,
+                          ]}>
+                          {item.itemNumber}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.materialCatalogItemDescription,
+                            isSelected && styles.materialCatalogItemDescriptionSelected,
+                          ]}>
+                          {item.description}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              </View>
+
+              {/* Right: Details Section (Always Visible) */}
+              <View
+                style={[
+                  styles.modalDetailsPane,
+                  isTablet() && styles.modalDetailsPaneTablet,
+                ]}>
+                <Text style={styles.sectionTitle}>Item Details</Text>
+                {showAddMaterialSuccess && (
+                  <View style={styles.addSuccessIndicator}>
+                    <Text style={styles.addSuccessText}>
+                      ✓ Material added successfully!
+                    </Text>
+                  </View>
+                )}
+                {selectedMaterialItem ? (
+                  <>
+                    <View style={styles.selectedItemInfo}>
+                      <Text style={styles.selectedItemNumber}>
+                        {selectedMaterialItem.itemNumber}
+                      </Text>
+                      <Text style={styles.selectedItemDescription}>
+                        {selectedMaterialItem.description}
+                      </Text>
+                    </View>
+
+                    <View style={styles.materialInputSection}>
+                      <Input
+                        label="Quantity"
+                        value={materialQuantity}
+                        onChangeText={setMaterialQuantity}
+                        keyboardType="numeric"
+                        placeholder="1"
+                      />
+                    </View>
+
+                    <View style={styles.materialInputSection}>
+                      <Text style={styles.inputLabel}>Type</Text>
+                      <Text style={styles.sectionDescription}>
+                        Select whether this item was used or left behind
+                      </Text>
+                      <View style={styles.materialTypeCards}>
+                        <TouchableOpacity
+                          style={[
+                            styles.materialTypeCard,
+                            materialType === 'used' &&
+                              styles.materialTypeCardSelected,
+                          ]}
+                          onPress={() => setMaterialType('used')}>
+                          <Text
+                            style={[
+                              styles.materialTypeCardTitle,
+                              materialType === 'used' &&
+                                styles.materialTypeCardTitleSelected,
+                            ]}>
+                            Used
+                          </Text>
+                          <Text
+                            style={[
+                              styles.materialTypeCardDescription,
+                              materialType === 'used' &&
+                                styles.materialTypeCardDescriptionSelected,
+                            ]}>
+                            Material was used during service
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.materialTypeCard,
+                            materialType === 'left_behind' &&
+                              styles.materialTypeCardSelected,
+                          ]}
+                          onPress={() => setMaterialType('left_behind')}>
+                          <Text
+                            style={[
+                              styles.materialTypeCardTitle,
+                              materialType === 'left_behind' &&
+                                styles.materialTypeCardTitleSelected,
+                            ]}>
+                            Left Behind
+                          </Text>
+                          <Text
+                            style={[
+                              styles.materialTypeCardDescription,
+                              materialType === 'left_behind' &&
+                                styles.materialTypeCardDescriptionSelected,
+                            ]}>
+                            Material was left at customer site
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.noSelectionPlaceholder}>
+                    <Text style={styles.noSelectionText}>
+                      Select an item from the catalog to configure quantity
+                      and type
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.fullScreenModalFooter}>
+            <Button
+              title="Done"
+              variant="outline"
+              size="lg"
+              onPress={() => {
+                setShowAddMaterialModal(false);
+                setSelectedMaterialItem(null);
+                setMaterialQuantity('1');
+                setMaterialType('used');
+              }}
+              style={styles.fullScreenModalCancelButton}
+            />
+            <Button
+              title="Add Material"
+              variant="primary"
+              size="lg"
+              disabled={!selectedMaterialItem}
+              onPress={handleAddMaterial}
+              style={styles.fullScreenModalAddButton}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Label Printing Notification */}
+      {showLabelPrinting && (
+        <View style={styles.labelPrintingOverlay}>
+          <View style={styles.labelPrintingCard}>
+            <View style={styles.labelPrintingIconContainer}>
+              <Text style={styles.labelPrintingIcon}>🖨️</Text>
+              <View style={styles.labelPrintingSpinner} />
+            </View>
+            <View style={styles.labelPrintingContent}>
+              <Text style={styles.labelPrintingTitle}>Printing Waste Label</Text>
+              <Text style={styles.labelPrintingSubtitle}>
+                Label: {printingLabelBarcode}
+              </Text>
+              <View style={styles.labelPrintingProgress}>
+                <View style={styles.labelPrintingProgressBar} />
+              </View>
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -3811,6 +5046,61 @@ const styles = StyleSheet.create({
     ...typography.base,
     color: colors.success,
     fontWeight: '500',
+  },
+  // Completed Orders Section Styles
+  completedOrdersSection: {
+    marginTop: spacing.xl,
+    paddingTop: spacing.lg,
+    borderTopWidth: 2,
+    borderTopColor: colors.border,
+  },
+  completedOrdersHeader: {
+    marginBottom: spacing.md,
+  },
+  completedOrdersTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.success,
+  },
+  completedOrderCard: {
+    backgroundColor: colors.muted,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.success,
+    opacity: 0.8,
+  },
+  completedOrderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  completedOrderLeft: {
+    flex: 1,
+  },
+  completedOrderNumber: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  completedOrderCustomer: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: 2,
+  },
+  completedOrderRight: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.success,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completedOrderCheck: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
   orderCard: {
     backgroundColor: colors.card,
@@ -4298,7 +5588,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    fontSize: 10,
+    fontSize: 13,
   },
   containerSummaryNetWeightValue: {
     ...typography.base,
@@ -4328,7 +5618,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     fontWeight: '600',
-    fontSize: 10,
+    fontSize: 13,
   },
   containerSummaryInfoValue: {
     ...typography.sm,
@@ -4384,7 +5674,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     fontWeight: '600',
-    fontSize: 10,
+    fontSize: 13,
   },
   containerSummaryWeightLabelNet: {
     color: colors.primary,
@@ -5137,12 +6427,23 @@ const styles = StyleSheet.create({
     color: colors.destructiveForeground,
     fontWeight: '600',
   },
-  // Bottom Sheet Delete Confirmation (Tablet-Optimized Material Design)
+  // Bottom Sheet Styles (Tablet-Optimized for ergonomic reach)
   bottomSheetOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'flex-end',
     alignItems: 'stretch',
+  },
+  bottomSheetContainer: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
+    paddingBottom: spacing.xl,
+    // @ts-ignore - web-specific style
+    boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.15)',
+    elevation: 16,
+    maxHeight: '70%',
+    width: '100%',
   },
   bottomSheetContent: {
     backgroundColor: colors.card,
@@ -5157,13 +6458,13 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   bottomSheetHandle: {
-    width: 40,
-    height: 4,
+    width: 48,
+    height: 5,
     backgroundColor: colors.border,
-    borderRadius: 2,
+    borderRadius: 3,
     alignSelf: 'center',
     marginTop: spacing.md,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   bottomSheetHeader: {
     paddingHorizontal: spacing.lg,
@@ -5173,8 +6474,13 @@ const styles = StyleSheet.create({
   },
   bottomSheetTitle: {
     ...typography.xl,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.foreground,
+  },
+  bottomSheetSubtitle: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    marginTop: spacing.xs,
   },
   bottomSheetBody: {
     paddingHorizontal: spacing.lg,
@@ -5191,7 +6497,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingVertical: spacing.md,
     gap: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.border,
@@ -5199,6 +6505,54 @@ const styles = StyleSheet.create({
   bottomSheetCancelButton: {
     flex: 1,
     minHeight: touchTargets.comfortable,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.secondary,
+  },
+  bottomSheetCancelText: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.secondaryForeground,
+  },
+  // Bottom Sheet Option Buttons (for action menus)
+  bottomSheetOptionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.background,
+    minHeight: touchTargets.large,
+    gap: spacing.md,
+  },
+  bottomSheetOptionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bottomSheetOptionIconText: {
+    fontSize: 28,
+  },
+  bottomSheetOptionInfo: {
+    flex: 1,
+  },
+  bottomSheetOptionLabel: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  bottomSheetOptionDesc: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: 2,
+  },
+  bottomSheetOptionArrow: {
+    fontSize: 24,
+    color: colors.mutedForeground,
   },
   bottomSheetDeleteButton: {
     flex: 1,
@@ -5245,23 +6599,36 @@ const styles = StyleSheet.create({
     backgroundColor: '#10b98120',
     borderRadius: borderRadius.md,
   },
-  // Quick Actions Bar Styles
+  // Quick Actions Bar Styles (Bottom Bar - optimized for tablet ergonomics)
   quickActionsBar: {
     flexDirection: 'row',
     backgroundColor: colors.card,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    gap: spacing.md,
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: touchTargets.comfortable + spacing.sm * 2,
+    minHeight: touchTargets.large + spacing.md * 2,
     shadowColor: '#000',
-    shadowOffset: {width: 0, height: 2},
+    shadowOffset: {width: 0, height: -2},
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 3,
+    elevation: 8,
+  },
+  quickActionHomeButton: {
+    width: touchTargets.large,
+    height: touchTargets.large,
+    backgroundColor: colors.background,
+        borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickActionHomeIcon: {
+    fontSize: 28,
   },
   quickActionButton: {
     flex: 1,
@@ -5351,6 +6718,787 @@ const styles = StyleSheet.create({
     paddingLeft: spacing.md,
     borderLeftWidth: 2,
     borderLeftColor: colors.border,
+  },
+  // EPA Manifest Form Preview Styles
+  manifestPreviewContainer: {
+    flex: 1,
+    backgroundColor: '#E5E5E5',
+  },
+  manifestPreviewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  manifestPreviewHeaderTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  manifestPreviewCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  manifestPreviewCloseBtnText: {
+    fontSize: 18,
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  manifestPreviewScroll: {
+    flex: 1,
+    padding: spacing.md,
+  },
+  manifestPreviewFooter: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    padding: spacing.lg,
+    backgroundColor: colors.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  epaFormContainer: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#000000',
+    marginBottom: spacing.lg,
+  },
+  epaFormHeader: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
+  },
+  epaFormHeaderLeft: {
+    flex: 1,
+    padding: 8,
+    borderRightWidth: 1,
+    borderRightColor: '#000000',
+  },
+  epaFormHeaderCenter: {
+    flex: 1.5,
+    padding: 8,
+    borderRightWidth: 1,
+    borderRightColor: '#000000',
+    alignItems: 'center',
+  },
+  epaFormHeaderRight: {
+    width: 100,
+    padding: 8,
+    alignItems: 'center',
+  },
+  epaFormSmallText: {
+    fontSize: 8,
+    color: '#000000',
+  },
+  epaFormTitleBox: {
+    marginTop: 4,
+  },
+  epaFormTitle: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  epaFormBarcodeBox: {
+    borderWidth: 1,
+    borderColor: '#000000',
+    padding: 4,
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  epaFormBarcodeText: {
+    fontSize: 10,
+    fontFamily: 'monospace',
+    color: '#000000',
+  },
+  epaFormManifestNum: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  epaFormProviderText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#000000',
+  },
+  epaFormPageBox: {
+    width: 30,
+    height: 30,
+    borderWidth: 2,
+    borderColor: '#000000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  epaFormPageNum: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  epaFormRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
+  },
+  epaFormCell: {
+    padding: 6,
+    borderRightWidth: 1,
+    borderRightColor: '#000000',
+  },
+  epaFormCellLabel: {
+    fontSize: 8,
+    color: '#000000',
+    marginBottom: 2,
+  },
+  epaFormCellLabelSmall: {
+    fontSize: 7,
+    color: '#000000',
+  },
+  epaFormCellValue: {
+    fontSize: 9,
+    color: '#000000',
+  },
+  epaFormCellValueBold: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  epaFormCellValueLarge: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  epaFormCellValueSmall: {
+    fontSize: 7,
+    color: '#000000',
+    lineHeight: 10,
+  },
+  epaFormSectionHeader: {
+    backgroundColor: '#FFD700',
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
+  },
+  epaFormSectionHeaderText: {
+    fontSize: 8,
+    fontWeight: '700',
+    color: '#000000',
+    transform: [{rotate: '-90deg'}],
+    width: 80,
+    position: 'absolute',
+    left: -30,
+    top: 35,
+  },
+  epaWasteTableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#F5F5F5',
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
+  },
+  epaWasteTableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
+    minHeight: 40,
+  },
+  epaWasteTableCell: {
+    padding: 4,
+    borderRightWidth: 1,
+    borderRightColor: '#000000',
+  },
+  epaSignatureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 12,
+    marginTop: 8,
+  },
+  epaSignatureLine: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
+    height: 20,
+  },
+  epaDateBox: {
+    width: 80,
+  },
+  epaDateRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  epaDateValue: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#000000',
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
+    paddingHorizontal: 4,
+    minWidth: 20,
+    textAlign: 'center',
+  },
+  epaFormFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#000000',
+  },
+  epaFormFooterText: {
+    fontSize: 7,
+    color: '#000000',
+  },
+  epaFormFooterHighlight: {
+    fontSize: 8,
+    fontWeight: '700',
+    color: '#FF6600',
+  },
+  // Service Summary Styles (matching print layout)
+  serviceSummaryContainer: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CCCCCC',
+    marginBottom: spacing.lg,
+  },
+  serviceSummaryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: '#CCCCCC',
+  },
+  serviceSummaryTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333333',
+  },
+  serviceSummaryLogo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  serviceSummaryLogoText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2E5339',
+  },
+  serviceSummaryLogoDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#7CB342',
+    marginLeft: 2,
+  },
+  serviceSummaryTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: '#CCCCCC',
+  },
+  serviceSummaryTopItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  serviceSummaryFieldLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666666',
+  },
+  serviceSummaryFieldValue: {
+    fontSize: 14,
+    color: '#333333',
+  },
+  serviceSummaryTwoColumn: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#CCCCCC',
+  },
+  serviceSummaryColumnBox: {
+    flex: 1,
+    borderRightWidth: 1,
+    borderRightColor: '#CCCCCC',
+  },
+  serviceSummarySectionHeader: {
+    backgroundColor: '#E8E8E8',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: '#CCCCCC',
+  },
+  serviceSummarySectionHeaderText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#333333',
+  },
+  serviceSummarySectionBody: {
+    padding: spacing.md,
+  },
+  serviceSummaryText: {
+    fontSize: 14,
+    color: '#333333',
+    lineHeight: 20,
+  },
+  serviceSummaryFieldRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  serviceSummarySection: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#CCCCCC',
+  },
+  serviceSummaryTableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  serviceSummaryTableCell: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRightWidth: 1,
+    borderRightColor: '#E0E0E0',
+    justifyContent: 'center',
+  },
+  serviceSummaryTableHeader: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666666',
+  },
+  serviceSummaryTableValue: {
+    fontSize: 13,
+    color: '#333333',
+  },
+  serviceSummaryAcknowledgement: {
+    flexDirection: 'row',
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: '#CCCCCC',
+    alignItems: 'flex-start',
+  },
+  serviceSummaryAckLeft: {
+    width: 100,
+  },
+  serviceSummaryAckTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333333',
+  },
+  serviceSummaryAckMiddle: {
+    flex: 1,
+    gap: spacing.sm,
+  },
+  serviceSummaryAckRight: {
+    flex: 1,
+    alignItems: 'flex-start',
+    paddingLeft: spacing.lg,
+  },
+  serviceSummaryAckField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  serviceSummaryAckLabel: {
+    fontSize: 14,
+    color: '#666666',
+    width: 85,
+  },
+  serviceSummaryAckInputLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#333333',
+    minWidth: 100,
+  },
+  serviceSummaryAckValue: {
+    fontSize: 14,
+    color: '#333333',
+  },
+  serviceSummaryFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: '#F5F5F5',
+  },
+  serviceSummaryFooterItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  serviceSummaryFooterLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666666',
+  },
+  serviceSummaryFooterValue: {
+    fontSize: 13,
+    color: '#333333',
+    backgroundColor: '#FFFFCC',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  serviceSummaryFooterValueMuted: {
+    fontSize: 13,
+    color: '#CC6600',
+    fontStyle: 'italic',
+  },
+  // Label Printing Notification Styles
+  labelPrintingOverlay: {
+    position: 'absolute',
+    top: 80,
+    right: spacing.lg,
+    zIndex: 1000,
+  },
+  labelPrintingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    paddingRight: spacing.lg,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    minWidth: 280,
+  },
+  labelPrintingIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: `${colors.primary}15`,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
+    position: 'relative',
+  },
+  labelPrintingIcon: {
+    fontSize: 24,
+  },
+  labelPrintingSpinner: {
+    position: 'absolute',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    borderTopColor: colors.primary,
+    // Note: Animation would need Animated API for rotation
+  },
+  labelPrintingContent: {
+    flex: 1,
+  },
+  labelPrintingTitle: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: 2,
+  },
+  labelPrintingSubtitle: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginBottom: spacing.sm,
+  },
+  labelPrintingProgress: {
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  labelPrintingProgressBar: {
+    height: '100%',
+    width: '70%',
+    backgroundColor: colors.primary,
+    borderRadius: 2,
+  },
+  // Incomplete Warning Card Styles
+  incompleteWarningCard: {
+    marginBottom: spacing.lg,
+    borderWidth: 2,
+    borderColor: '#F59E0B',
+    backgroundColor: '#FFFBEB',
+  },
+  incompleteWarningHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  incompleteWarningIcon: {
+    fontSize: 20,
+  },
+  incompleteWarningTitleText: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: '#B45309',
+  },
+  incompleteWarningDescription: {
+    ...typography.sm,
+    color: '#92400E',
+    marginBottom: spacing.md,
+    lineHeight: 20,
+  },
+  incompleteReasonsList: {
+    gap: spacing.sm,
+  },
+  incompleteReasonItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    gap: spacing.sm,
+  },
+  incompleteReasonError: {
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  incompleteReasonWarning: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  incompleteReasonBullet: {
+    fontSize: 16,
+    marginTop: 2,
+  },
+  incompleteReasonContent: {
+    flex: 1,
+  },
+  incompleteReasonText: {
+    ...typography.base,
+    color: '#92400E',
+    fontWeight: '500',
+  },
+  incompleteReasonTextError: {
+    color: '#991B1B',
+  },
+  incompleteReasonHint: {
+    ...typography.sm,
+    color: '#78716C',
+    marginTop: spacing.xs,
+    fontStyle: 'italic',
+  },
+  acknowledgeCheckboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: '#FDE68A',
+    gap: spacing.md,
+  },
+  acknowledgeCheckbox: {
+    width: 24,
+    height: 24,
+    borderWidth: 2,
+    borderColor: '#B45309',
+    borderRadius: borderRadius.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  acknowledgeCheckboxChecked: {
+    backgroundColor: '#B45309',
+    borderColor: '#B45309',
+  },
+  acknowledgeCheckmark: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  acknowledgeCheckboxLabel: {
+    ...typography.sm,
+    color: '#78350F',
+    flex: 1,
+    lineHeight: 20,
+  },
+  // Scanned Documents Viewer Styles
+  scannedDocsViewerContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  scannedDocsViewerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  scannedDocsViewerTitle: {
+    ...typography.xl,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  scannedDocsViewerSubtitle: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: 2,
+  },
+  scannedDocsViewerCloseBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.secondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scannedDocsViewerCloseBtnText: {
+    fontSize: 20,
+    color: colors.foreground,
+  },
+  scannedDocsViewerScroll: {
+    flex: 1,
+  },
+  scannedDocsViewerScrollContent: {
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  scannedDocCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  scannedDocThumbnailContainer: {
+    position: 'relative',
+    width: 80,
+    height: 80,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+  },
+  scannedDocThumbnail: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: colors.muted,
+  },
+  scannedDocThumbnailOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scannedDocThumbnailIcon: {
+    fontSize: 24,
+  },
+  scannedDocInfo: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  scannedDocTypeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.md,
+    gap: spacing.xs,
+  },
+  scannedDocTypeIcon: {
+    fontSize: 16,
+  },
+  scannedDocTypeLabel: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  scannedDocTimestamp: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  scannedDocDeleteBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: borderRadius.md,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scannedDocDeleteBtnText: {
+    fontSize: 20,
+  },
+  scannedDocsEmptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.xxl,
+    gap: spacing.md,
+  },
+  scannedDocsEmptyIcon: {
+    fontSize: 64,
+    opacity: 0.5,
+  },
+  scannedDocsEmptyTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  scannedDocsEmptySubtitle: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+    maxWidth: 300,
+  },
+  scannedDocsViewerFooter: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    padding: spacing.lg,
+    backgroundColor: colors.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  // Document Preview Modal Styles
+  documentPreviewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  documentPreviewContainer: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  documentPreviewCloseBtn: {
+    position: 'absolute',
+    top: spacing.xl,
+    right: spacing.lg,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  documentPreviewCloseBtnText: {
+    fontSize: 24,
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  documentPreviewImage: {
+    width: '100%',
+    height: '80%',
   },
 });
 
