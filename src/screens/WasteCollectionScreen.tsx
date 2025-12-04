@@ -2692,47 +2692,74 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 <Text style={styles.bottomSheetTitle}>Print Options</Text>
               </View>
 
-              <View style={styles.bottomSheetBody}>
-                <Button
-                  title="Print Manifest"
-                  variant="primary"
-                  size="lg"
+              <ScrollView 
+                style={styles.bottomSheetBodyScroll}
+                contentContainerStyle={styles.bottomSheetBodyContent}
+                showsVerticalScrollIndicator={true}>
+                <TouchableOpacity
+                  style={styles.bottomSheetOptionButton}
                   onPress={async () => {
                     setShowPrintOptions(false);
                     await printManifest();
                   }}
-                  style={styles.printOptionButton}
-                />
-                <Button
-                  title="Print LDR"
-                  variant="primary"
-                  size="lg"
+                  activeOpacity={0.7}>
+                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
+                    <Text style={styles.bottomSheetOptionIconText}>🖨️</Text>
+                  </View>
+                  <View style={styles.bottomSheetOptionInfo}>
+                    <Text style={styles.bottomSheetOptionLabel}>Print Manifest</Text>
+                    <Text style={styles.bottomSheetOptionDesc}>
+                      Print the hazardous waste manifest document
+                    </Text>
+                  </View>
+                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.bottomSheetOptionButton}
                   onPress={async () => {
                     setShowPrintOptions(false);
                     await printLDR();
                   }}
-                  style={styles.printOptionButton}
-                />
-                <Button
-                  title="Void Manifest"
-                  variant="destructive"
-                  size="lg"
+                  activeOpacity={0.7}>
+                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEF3C7'}]}>
+                    <Text style={styles.bottomSheetOptionIconText}>📄</Text>
+                  </View>
+                  <View style={styles.bottomSheetOptionInfo}>
+                    <Text style={styles.bottomSheetOptionLabel}>Print LDR</Text>
+                    <Text style={styles.bottomSheetOptionDesc}>
+                      Print the Land Disposal Restrictions notification
+                    </Text>
+                  </View>
+                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.bottomSheetOptionButton}
                   onPress={() => {
                     setShowPrintOptions(false);
                     voidManifest();
                   }}
-                  style={styles.printOptionButton}
-                />
-              </View>
+                  activeOpacity={0.7}>
+                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEE2E2'}]}>
+                    <Text style={styles.bottomSheetOptionIconText}>❌</Text>
+                  </View>
+                  <View style={styles.bottomSheetOptionInfo}>
+                    <Text style={styles.bottomSheetOptionLabel}>Void Manifest</Text>
+                    <Text style={styles.bottomSheetOptionDesc}>
+                      Void the current manifest document
+                    </Text>
+                  </View>
+                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                </TouchableOpacity>
+              </ScrollView>
 
               <View style={styles.bottomSheetFooter}>
-                <Button
-                  title="Cancel"
-                  variant="outline"
-                  size="lg"
-                  onPress={() => setShowPrintOptions(false)}
+                <TouchableOpacity
                   style={styles.bottomSheetCancelButton}
-                />
+                  onPress={() => setShowPrintOptions(false)}>
+                  <Text style={styles.bottomSheetCancelText}>Cancel</Text>
+                </TouchableOpacity>
               </View>
             </TouchableOpacity>
           </TouchableOpacity>
@@ -2782,7 +2809,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               {selectedOrderData?.orderNumber || 'Order'}
             </Text>
             <Text style={styles.screenHeaderSubtitle}>
-              Materials & Supplies
+              Supplies
             </Text>
           </View>
         </View>
@@ -3009,7 +3036,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             <Text style={styles.screenHeaderTitle}>
               {selectedOrderData?.orderNumber || 'Order'}
             </Text>
-            <Text style={styles.screenHeaderSubtitle}>Equipment & PPE</Text>
+            <Text style={styles.screenHeaderSubtitle}>Equipment</Text>
           </View>
         </View>
 
@@ -4198,7 +4225,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               style={styles.quickActionLabel}
               numberOfLines={1}
               adjustsFontSizeToFit>
-              Materials & Supplies
+              Materials
             </Text>
             {materialsCount > 0 && (
               <View style={styles.quickActionBadge}>
@@ -4222,7 +4249,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               style={styles.quickActionLabel}
               numberOfLines={1}
               adjustsFontSizeToFit>
-              Equipment & PPE
+              Equipment
             </Text>
             {equipmentCount > 0 && (
               <View style={styles.quickActionBadge}>
@@ -4357,7 +4384,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 </Text>
               </View>
               
-              <View style={styles.bottomSheetContent}>
+              <ScrollView 
+                style={styles.bottomSheetBodyScroll}
+                contentContainerStyle={styles.bottomSheetBodyContent}
+                showsVerticalScrollIndicator={true}>
                 <TouchableOpacity
                   style={styles.bottomSheetOptionButton}
                   onPress={() => captureDocument('manifest')}
@@ -4405,7 +4435,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   </View>
                   <Text style={styles.bottomSheetOptionArrow}>→</Text>
                 </TouchableOpacity>
-              </View>
+              </ScrollView>
 
               <View style={styles.bottomSheetFooter}>
                 <TouchableOpacity
@@ -4730,14 +4760,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                             ]}>
                             Used
                           </Text>
-                          <Text
-                            style={[
-                              styles.materialTypeCardDescription,
-                              materialType === 'used' &&
-                                styles.materialTypeCardDescriptionSelected,
-                            ]}>
-                            Material was used during service
-                          </Text>
+
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[
@@ -4754,14 +4777,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                             ]}>
                             Left Behind
                           </Text>
-                          <Text
-                            style={[
-                              styles.materialTypeCardDescription,
-                              materialType === 'left_behind' &&
-                                styles.materialTypeCardDescriptionSelected,
-                            ]}>
-                            Material was left at customer site
-                          </Text>
+
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -6091,7 +6107,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   materialInputSection: {
-    marginBottom: spacing.lg,
+    // marginBottom: spacing.lg,
   },
   materialTypeCards: {
     flexDirection: 'row',
@@ -6105,7 +6121,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: borderRadius.lg,
     backgroundColor: colors.card,
-    minHeight: 100,
+    minHeight: 70,
     justifyContent: 'center',
   },
   materialTypeCardSelected: {
@@ -6116,7 +6132,6 @@ const styles = StyleSheet.create({
     ...typography.lg,
     fontWeight: '600',
     color: colors.foreground,
-    marginBottom: spacing.xs,
   },
   materialTypeCardTitleSelected: {
     color: colors.primary,
@@ -6438,24 +6453,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderTopLeftRadius: borderRadius.xl,
     borderTopRightRadius: borderRadius.xl,
-    paddingBottom: spacing.xl,
     // @ts-ignore - web-specific style
     boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.15)',
     elevation: 16,
-    maxHeight: '70%',
+    maxHeight: '90%',
     width: '100%',
+    flexDirection: 'column',
   },
   bottomSheetContent: {
     backgroundColor: colors.card,
     borderTopLeftRadius: borderRadius.xl,
     borderTopRightRadius: borderRadius.xl,
-    paddingBottom: spacing.xl,
     // @ts-ignore - web-specific style
     boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.15)',
     elevation: 16,
-    maxHeight: '50%',
+    maxHeight: '90%',
     minHeight: 200,
     width: '100%',
+    flexDirection: 'column',
   },
   bottomSheetHandle: {
     width: 48,
@@ -6486,6 +6501,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.lg,
     flex: 1,
+    gap: spacing.md,
+  },
+  bottomSheetBodyScroll: {
+    flex: 1,
+  },
+  bottomSheetBodyContent: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    gap: spacing.md,
+    paddingBottom: spacing.xl,
   },
   bottomSheetMessage: {
     ...typography.base,
@@ -6661,25 +6686,24 @@ const styles = StyleSheet.create({
   },
   quickActionBadge: {
     position: 'absolute',
-    top: 4,
     right: 4,
     backgroundColor: colors.primary,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    paddingHorizontal: 6,
+    borderRadius: 16,
+    minWidth: 32,
+    height: 32,
+    paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
+    borderWidth: 3,
     borderColor: colors.background,
     zIndex: 1,
   },
   quickActionBadgeText: {
-    ...typography.sm,
-    fontWeight: '600',
+    ...typography.base,
+    fontWeight: '700',
     color: '#FFFFFF',
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 16,
+    lineHeight: 20,
   },
   quickActionButtonTablet: {
     // maxWidth: 200,
@@ -6690,7 +6714,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   printOptionButton: {
-    marginBottom: spacing.md,
+    width: '100%',
   },
   // Print preview styles
   previewLabel: {
