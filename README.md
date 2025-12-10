@@ -21,8 +21,8 @@ A React Native application for field service management, optimized for **Android
 
 - Node.js >= 18
 - React Native development environment set up
-- For iOS: Xcode and CocoaPods
-- For Android: Android Studio and Android SDK
+- For Android: Android Studio and Android SDK (API level 23+)
+- For Web: Modern web browser
 
 ### Installation
 
@@ -31,13 +31,6 @@ npm install
 ```
 
 ### Running the App
-
-#### iOS
-
-```bash
-cd ios && pod install && cd ..
-npm run ios
-```
 
 #### Android
 
@@ -116,11 +109,13 @@ For detailed setup and usage, see **[CURSOR_AGENT_CLI_SETUP.md](./CURSOR_AGENT_C
 
 ```
 src/
-  components/     # Reusable UI components
-  screens/        # Screen components
-  navigation/     # Navigation configuration
+  components/     # Reusable UI components (Button, Card, Input, etc.)
+  screens/        # Screen components (Login, WasteCollection, etc.)
+  services/       # Service layer (syncService, etc.)
   styles/         # Shared styles and theme
-  utils/          # Utility functions
+  utils/          # Utility functions (responsive helpers, etc.)
+
+App.tsx           # Main app component with navigation configuration
 ```
 
 ## Technology Stack
@@ -140,6 +135,8 @@ This application is specifically optimized for **Zebra Technologies** and **Hone
 - ✅ Hardware barcode scanner integration ready
 - ✅ Optimized for outdoor visibility
 - ✅ Field-tested UX patterns
+
+For step-by-step instructions on building and installing the app on tablets without an app store, see **[ANDROID_DEPLOYMENT_GUIDE.md](./ANDROID_DEPLOYMENT_GUIDE.md)**.
 
 For detailed deployment instructions, scanner integration, and device-specific configuration, see **[ANDROID_RUGGED_TABLET_GUIDE.md](./ANDROID_RUGGED_TABLET_GUIDE.md)**.
 
