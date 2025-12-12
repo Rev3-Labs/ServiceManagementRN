@@ -19,7 +19,7 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*", "*.ts", "*.tsx"],
+  "include": ["src/**/*", "*.ts", "*.tsx", "src/types/**/*"],
   "exclude": ["node_modules", "babel.config.js", "metro.config.js", "jest.config.js"]
 }
 

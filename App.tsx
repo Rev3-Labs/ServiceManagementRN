@@ -12,12 +12,14 @@ import WasteCollectionScreen from './src/screens/WasteCollectionScreen';
 import ManifestScreen from './src/screens/ManifestScreen';
 import MaterialsSuppliesScreen from './src/screens/MaterialsSuppliesScreen';
 import ServiceCloseoutScreen from './src/screens/ServiceCloseoutScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 
 const Stack = createNativeStackNavigator();
 
 function App(): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [username, setUsername] = useState<string>('');
 
   // Check if user is already logged in (e.g., from AsyncStorage)
   useEffect(() => {
@@ -35,10 +37,11 @@ function App(): React.JSX.Element {
     setIsLoading(false);
   };
 
-  const handleLogin = (username: string, password: string) => {
+  const handleLogin = (loginUsername: string, password: string) => {
     // In production, validate credentials with API
     // For demo, accept any credentials
     // Store auth token: await AsyncStorage.setItem('authToken', token);
+    setUsername(loginUsername);
     setIsAuthenticated(true);
   };
 
@@ -80,7 +83,11 @@ function App(): React.JSX.Element {
                 {props => (
                   <WasteCollectionScreen
                     {...props}
-                    onLogout={() => setIsAuthenticated(false)}
+                    username={username}
+                    onLogout={() => {
+                      setUsername('');
+                      setIsAuthenticated(false);
+                    }}
                   />
                 )}
               </Stack.Screen>
@@ -93,6 +100,15 @@ function App(): React.JSX.Element {
                 name="ServiceCloseout"
                 component={ServiceCloseoutScreen}
               />
+              <Stack.Screen name="Settings">
+                {props => (
+                  <SettingsScreen
+                    {...props}
+                    username={username}
+                    onBack={() => props.navigation.goBack()}
+                  />
+                )}
+              </Stack.Screen>
             </Stack.Navigator>
           </NavigationContainer>
         </PaperProvider>

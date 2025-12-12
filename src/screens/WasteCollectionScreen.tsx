@@ -20,9 +20,11 @@ import {
   TextInput,
   ActivityIndicator,
   Image,
+  ImageStyle,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {Swipeable} from 'react-native-gesture-handler';
+import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {Button} from '../components/Button';
 import {Input} from '../components/Input';
 import {
@@ -34,7 +36,23 @@ import {
 } from '../components/Card';
 import {Badge} from '../components/Badge';
 import {Switch} from '../components/Switch';
+import DropWasteModal from '../components/DropWasteModal';
 import {syncService, SyncStatus} from '../services/syncService';
+import {getUserTruckId} from '../services/userSettingsService';
+import {
+  startTimeTracking,
+  stopTimeTracking,
+  getActiveTimeTracking,
+  getTimeTrackingForOrder,
+  formatElapsedTime,
+  TimeTrackingRecord,
+} from '../services/timeTrackingService';
+import {
+  dropWaste,
+  getDroppedOrders,
+  isOrderDropped,
+  isContainerDropped,
+} from '../services/dropWasteService';
 import {
   colors,
   spacing,
@@ -47,6 +65,7 @@ import {
   getResponsiveValue,
   isTablet,
 } from '../utils/responsive';
+import SignatureCanvas from 'react-native-signature-canvas';
 
 const {width, height} = Dimensions.get('window');
 const gridColumns = getGridColumns();
@@ -202,12 +221,15 @@ const MATERIALS_CATALOG = [
 ];
 
 interface WasteCollectionScreenProps {
+  username?: string;
   onLogout?: () => void;
 }
 
 const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
+  username,
   onLogout,
 }) => {
+  const navigation = useNavigation();
   const [currentStep, setCurrentStep] = useState<FlowStep>('dashboard');
   const [selectedOrderData, setSelectedOrderData] = useState<OrderData | null>(
     null,
@@ -232,6 +254,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [addedContainers, setAddedContainers] = useState<
     Array<{
       id: string;
+      orderNumber: string;
       streamName: string;
       streamCode: string;
       containerType: string;
@@ -254,9 +277,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     trackingNumber?: string;
     createdAt?: Date;
     scannedImageUri?: string;
+    signatureImageUri?: string;
   } | null>(null);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [showPrintOptions, setShowPrintOptions] = useState(false);
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [showDropWasteModal, setShowDropWasteModal] = useState(false);
+  const [droppedOrders, setDroppedOrders] = useState<string[]>([]);
+  const [droppedContainers, setDroppedContainers] = useState<string[]>([]);
   const [materialsSupplies, setMaterialsSupplies] = useState<
     Array<{
       id: string;
@@ -323,14 +351,129 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       count: number;
     }>
   >([]);
-  const [useMasterDetail, setUseMasterDetail] = useState(false); // Toggle for master-detail view
+  const [useMasterDetail, setUseMasterDetail] = useState(true); // Toggle for master-detail view (default: true)
   const [dashboardSelectedOrder, setDashboardSelectedOrder] =
     useState<OrderData | null>(null); // Selected order in master-detail view
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [truckId, setTruckId] = useState<string>('');
+  const [activeTimeTracking, setActiveTimeTracking] = useState<TimeTrackingRecord | null>(null);
+  const [currentOrderTimeTracking, setCurrentOrderTimeTracking] = useState<TimeTrackingRecord | null>(null);
+  const [elapsedTimeDisplay, setElapsedTimeDisplay] = useState<string>('');
 
   // Use the mock orders
   const orders = MOCK_ORDERS;
+
+  // Load truck ID for the user
+  const loadTruckId = useCallback(async () => {
+    if (!username) return;
+    try {
+      const savedTruckId = await getUserTruckId(username);
+      if (savedTruckId) {
+        setTruckId(savedTruckId);
+      } else {
+        setTruckId('');
+      }
+    } catch (error) {
+      console.error('Error loading truck ID:', error);
+    }
+  }, [username]);
+
+  // Load truck ID on mount and when username changes
+  useEffect(() => {
+    loadTruckId();
+  }, [loadTruckId]);
+
+  // Load dropped orders and containers
+  const loadDroppedData = useCallback(async () => {
+    try {
+      const dropped = await getDroppedOrders();
+      setDroppedOrders(dropped);
+      // Note: We'll load dropped containers when needed
+    } catch (error) {
+      console.error('Error loading dropped data:', error);
+    }
+  }, []);
+
+  // Reload truck ID when screen comes into focus (e.g., returning from Settings)
+  useFocusEffect(
+    useCallback(() => {
+      loadTruckId();
+      loadActiveTimeTracking();
+      loadDroppedData();
+    }, [loadTruckId, loadDroppedData])
+  );
+
+  // Load active time tracking
+  const loadActiveTimeTracking = useCallback(async () => {
+    try {
+      const active = await getActiveTimeTracking();
+      setActiveTimeTracking(active);
+      if (active) {
+        setElapsedTimeDisplay(formatElapsedTime(active.startTime));
+      }
+    } catch (error) {
+      console.error('Error loading active time tracking:', error);
+    }
+  }, []);
+
+  // Load active time tracking on mount
+  useEffect(() => {
+    loadActiveTimeTracking();
+  }, [loadActiveTimeTracking]);
+
+  // Load time tracking for current order (selectedOrderData or dashboardSelectedOrder)
+  const loadCurrentOrderTimeTracking = useCallback(async () => {
+    // Priority: selectedOrderData (when in workflow) > dashboardSelectedOrder (master-detail view)
+    const currentOrder = selectedOrderData || dashboardSelectedOrder;
+    if (!currentOrder) {
+      setCurrentOrderTimeTracking(null);
+      setElapsedTimeDisplay('');
+      return;
+    }
+
+    try {
+      const tracking = await getTimeTrackingForOrder(currentOrder.orderNumber);
+      setCurrentOrderTimeTracking(tracking);
+      if (tracking && !tracking.endTime) {
+        // Only show if still active (no endTime means still in progress)
+        setElapsedTimeDisplay(formatElapsedTime(tracking.startTime));
+      } else {
+        setCurrentOrderTimeTracking(null);
+        setElapsedTimeDisplay('');
+      }
+    } catch (error) {
+      console.error('Error loading current order time tracking:', error);
+      setCurrentOrderTimeTracking(null);
+      setElapsedTimeDisplay('');
+    }
+  }, [selectedOrderData, dashboardSelectedOrder]);
+
+  // Load time tracking when order changes
+  useEffect(() => {
+    loadCurrentOrderTimeTracking();
+  }, [loadCurrentOrderTimeTracking]);
+
+  // Update elapsed time display every minute for current order
+  useEffect(() => {
+    if (!currentOrderTimeTracking || currentOrderTimeTracking.endTime) {
+      setElapsedTimeDisplay('');
+      return;
+    }
+
+    // Update immediately
+    setElapsedTimeDisplay(formatElapsedTime(currentOrderTimeTracking.startTime));
+
+    // Update every minute
+    const interval = setInterval(() => {
+      if (currentOrderTimeTracking && !currentOrderTimeTracking.endTime) {
+        setElapsedTimeDisplay(formatElapsedTime(currentOrderTimeTracking.startTime));
+      }
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, [currentOrderTimeTracking]);
+
 
   // Helper function to get order status (checks both original status and completed state)
   const getOrderStatus = useCallback(
@@ -350,6 +493,20 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     },
     [completedOrders],
   );
+
+  // Initialize master-detail view: auto-select first order if using master-detail and no order is selected
+  useEffect(() => {
+    if (useMasterDetail && isTablet() && !dashboardSelectedOrder && currentStep === 'dashboard') {
+      const allOrders = MOCK_ORDERS || orders || [];
+      const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
+      if (activeOrders.length > 0) {
+        setDashboardSelectedOrder(activeOrders[0]);
+      } else if (allOrders.length > 0) {
+        // If no active orders, select the first order anyway
+        setDashboardSelectedOrder(allOrders[0]);
+      }
+    }
+  }, [useMasterDetail, dashboardSelectedOrder, currentStep, isOrderCompleted]);
 
   // Sync service integration
   useEffect(() => {
@@ -377,6 +534,94 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       );
     }
   }, []);
+
+  // Handle drop waste
+  const handleDropWaste = useCallback(async (
+    transferLocation: string,
+    dropDate: string,
+    dropTime: string,
+  ) => {
+    if (!truckId) {
+      Alert.alert('Error', 'Truck ID is required to drop waste.');
+      return;
+    }
+
+    try {
+      // Get all completed orders for this truck
+      const completedOrderNumbers = completedOrders;
+      
+      if (completedOrderNumbers.length === 0) {
+        Alert.alert('No Completed Orders', 'There are no completed orders to drop.');
+        return;
+      }
+
+      // Get all containers for completed orders
+      const containersToDrop = addedContainers.filter(container =>
+        completedOrderNumbers.includes(container.orderNumber)
+      );
+      const containerIds = containersToDrop.map(c => c.id);
+
+      // Drop the waste
+      await dropWaste(
+        completedOrderNumbers,
+        containerIds,
+        transferLocation,
+        dropDate,
+        dropTime,
+        truckId,
+        username,
+      );
+
+      // Update local state
+      const dropped = await getDroppedOrders();
+      setDroppedOrders(dropped);
+      setDroppedContainers(containerIds);
+
+      Alert.alert(
+        'Success',
+        `Successfully dropped ${completedOrderNumbers.length} order(s) and ${containerIds.length} container(s) at ${transferLocation}.`,
+      );
+    } catch (error: any) {
+      console.error('Error dropping waste:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to drop waste. Please try again.',
+      );
+    }
+  }, [
+    truckId,
+    username,
+    completedOrders,
+    addedContainers,
+  ]);
+
+  // Handle starting service - starts time tracking
+  const handleStartService = useCallback(async (order: OrderData) => {
+    try {
+      // Start time tracking for this order
+      await startTimeTracking(order.orderNumber, truckId, username);
+      
+      // Load the active tracking to update UI
+      const active = await getActiveTimeTracking();
+      setActiveTimeTracking(active);
+      
+      // Load time tracking for this specific order
+      const orderTracking = await getTimeTrackingForOrder(order.orderNumber);
+      setCurrentOrderTimeTracking(orderTracking);
+      if (orderTracking && !orderTracking.endTime) {
+        setElapsedTimeDisplay(formatElapsedTime(orderTracking.startTime));
+      }
+      
+      // Set selected order and navigate to stream selection
+      setSelectedOrderData(order);
+      setCurrentStep('stream-selection');
+    } catch (error) {
+      console.error('Error starting time tracking:', error);
+      // Still allow navigation even if tracking fails
+      setSelectedOrderData(order);
+      setCurrentStep('stream-selection');
+    }
+  }, [truckId, username]);
 
   // Generate unique shipping label barcode
   // Format: I-8digitssalesorder-001 (e.g., I-20241234-001)
@@ -820,16 +1065,21 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <View style={styles.headerContent}>
-            <Text style={styles.headerTitle}>Welcome, John Smith</Text>
-            <Text style={styles.headerSubtitle}>
-              {new Date().toLocaleDateString('en-US', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
-            </Text>
+          <View style={styles.headerLeft}>
+            <TouchableOpacity
+              style={styles.headerContent}
+              onPress={() => navigation.navigate('Settings' as never)}
+              activeOpacity={0.7}>
+              <Text style={styles.headerTitle}>
+                {username ? `Welcome, ${username}` : 'Welcome'}
+              </Text>
+              {truckId ? (
+                <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
+              ) : (
+                <Text style={styles.headerSubtitle}>Set Truck ID</Text>
+              )}
+            </TouchableOpacity>
+
           </View>
           <View style={styles.headerActions}>
             <SyncStatusIndicator
@@ -843,12 +1093,19 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               onPress={handleManualSync}
               disabled={syncStatus === 'syncing' || syncStatus === 'offline'}
             />
-            <Button
+                        <Button
+              title="Drop Waste"
+              variant="ghost"
+              size="sm"
+              onPress={() => setShowDropWasteModal(true)}
+              disabled={completedOrders.length === 0}
+            />
+            {/* <Button
               title="Full Screen"
               variant="ghost"
               size="sm"
               onPress={() => setUseMasterDetail(false)}
-            />
+            /> */}
             {onLogout && (
               <Button
                 title="Logout"
@@ -1054,9 +1311,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     size="lg"
                     disabled={isSelectedOrderCompleted}
                     onPress={() => {
-                      if (!isSelectedOrderCompleted) {
-                        setSelectedOrderData(selectedOrder);
-                        setCurrentStep('stream-selection');
+                      if (!isSelectedOrderCompleted && selectedOrder) {
+                        handleStartService(selectedOrder);
                       }
                     }}
                   />
@@ -1088,16 +1344,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <View style={styles.headerContent}>
-            <Text style={styles.headerTitle}>Welcome, John Smith</Text>
-            <Text style={styles.headerSubtitle}>
-              {new Date().toLocaleDateString('en-US', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
-            </Text>
+          <View style={styles.headerLeft}>
+            <TouchableOpacity
+              style={styles.headerContent}
+              onPress={() => navigation.navigate('Settings' as never)}
+              activeOpacity={0.7}>
+              <Text style={styles.headerTitle}>
+                {username ? `Welcome, ${username}` : 'Welcome'}
+              </Text>
+              {truckId ? (
+                <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
+              ) : (
+                <Text style={styles.headerSubtitle}>Set Truck ID</Text>
+              )}
+            </TouchableOpacity>
+            <Button
+              title="Drop Waste"
+              variant="ghost"
+              size="sm"
+              onPress={() => setShowDropWasteModal(true)}
+              disabled={completedOrders.length === 0}
+            />
           </View>
           <View style={styles.headerActions}>
             <SyncStatusIndicator
@@ -1171,8 +1438,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     isTablet() && styles.orderCardTablet,
                   ]}
                   onPress={() => {
-                    setSelectedOrderData(order);
-                    setCurrentStep('stream-selection');
+                    handleStartService(order);
                   }}
                   activeOpacity={0.7}>
                   <View style={styles.orderCardHeader}>
@@ -1311,12 +1577,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               {selectedOrderData?.site || 'Site Location'}
             </Text>
           </View>
-          {/* <Button
-            title="Back"
-            variant="outline"
-            size="md"
-            onPress={() => setCurrentStep('dashboard')}
-          /> */}
+          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
+            <View style={styles.timeTrackingBadge}>
+              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+            </View>
+          )}
         </View>
 
         <ScrollView
@@ -1405,6 +1670,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             </Text>
             <Text style={styles.screenHeaderSubtitle}>{selectedStream}</Text>
           </View>
+          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
+            <View style={styles.timeTrackingBadge}>
+              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+            </View>
+          )}
         </View>
 
         <ScrollView
@@ -1546,6 +1816,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               {selectedStream} • {selectedContainerType?.size || 'Container'}
             </Text>
           </View>
+          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
+            <View style={styles.timeTrackingBadge}>
+              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+            </View>
+          )}
         </View>
 
         <ScrollView
@@ -1703,6 +1978,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
                 const newContainer = {
                   id: `container-${Date.now()}`,
+                  orderNumber: selectedOrderData?.orderNumber || '',
                   streamName: selectedStream,
                   streamCode: selectedStreamCode,
                   containerType: selectedContainerType.code,
@@ -1838,6 +2114,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             </Text>
             <Text style={styles.screenHeaderSubtitle}>Container Summary</Text>
           </View>
+          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
+            <View style={styles.timeTrackingBadge}>
+              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.scrollViewContainer}>
@@ -2044,6 +2325,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             </Text>
             <Text style={styles.screenHeaderSubtitle}>Manifest Management</Text>
           </View>
+          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
+            <View style={styles.timeTrackingBadge}>
+              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.scrollViewContainer}>
@@ -2178,6 +2464,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         <View style={styles.manifestActionsFooter}>
           <View style={styles.manifestActionsRow}>
             <Button
+              title="Sign Manifest"
+              variant="outline"
+              size="md"
+              disabled={isCurrentOrderCompleted}
+              onPress={() => setShowSignatureModal(true)}
+              style={styles.manifestActionButton}
+            />
+            <Button
               title="Print Preview"
               variant="outline"
               size="md"
@@ -2217,6 +2511,76 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             }}
           />
         </View>
+
+        {/* Signature Modal */}
+        <Modal
+          visible={showSignatureModal}
+          transparent={false}
+          animationType="slide"
+          onRequestClose={() => setShowSignatureModal(false)}>
+          <SafeAreaView style={styles.signatureModalContainer}>
+            <View style={styles.signatureModalHeader}>
+              <Text style={styles.signatureModalTitle}>Sign Manifest</Text>
+              <TouchableOpacity
+                onPress={() => setShowSignatureModal(false)}
+                style={styles.signatureModalCloseBtn}>
+                <Text style={styles.signatureModalCloseBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.signatureCanvasContainer}>
+              <SignatureCanvas
+                onOK={(signature: string) => {
+                  // signature is a base64 encoded image
+                  setManifestData(prev => ({
+                    ...prev,
+                    signatureImageUri: `data:image/png;base64,${signature}`,
+                  }));
+                  setShowSignatureModal(false);
+                }}
+                onEmpty={() => {
+                  Alert.alert('Empty Signature', 'Please draw your signature before saving.');
+                }}
+                descriptionText="Sign above"
+                clearText="Clear"
+                confirmText="Save"
+                webStyle={`
+                  .m-signature-pad {
+                    box-shadow: none;
+                    border: 2px solid ${colors.border};
+                    border-radius: ${borderRadius.md}px;
+                  }
+                  .m-signature-pad--body {
+                    border: none;
+                  }
+                  .m-signature-pad--body canvas {
+                    border-radius: ${borderRadius.md}px;
+                  }
+                  .m-signature-pad--footer {
+                    display: flex;
+                    justify-content: space-between;
+                    padding: ${spacing.md}px;
+                    background-color: ${colors.card};
+                  }
+                  .button {
+                    background-color: ${colors.primary};
+                    color: ${colors.primaryForeground};
+                    border: none;
+                    border-radius: ${borderRadius.md}px;
+                    padding: ${spacing.sm}px ${spacing.md}px;
+                    font-size: 16px;
+                    font-weight: 500;
+                  }
+                  .button.clear {
+                    background-color: ${colors.destructive};
+                    color: ${colors.destructiveForeground};
+                  }
+                `}
+                autoClear={false}
+                imageType="image/png"
+              />
+            </View>
+          </SafeAreaView>
+        </Modal>
 
         {/* Print Preview Modal - EPA Uniform Hazardous Waste Manifest */}
         <Modal
@@ -2478,7 +2842,21 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       </View>
                       <View style={{flex: 2}}>
                         <Text style={styles.epaFormCellLabelSmall}>Signature</Text>
-                        <View style={styles.epaSignatureLine} />
+                        {manifestData?.signatureImageUri ? (
+                          <Image
+                            source={{uri: manifestData.signatureImageUri}}
+                            style={{
+                              height: 40,
+                              width: '100%',
+                              borderWidth: 1,
+                              borderColor: '#000000',
+                              borderRadius: borderRadius.sm,
+                            }}
+                            resizeMode="contain"
+                          />
+                        ) : (
+                          <View style={styles.epaSignatureLine} />
+                        )}
                       </View>
                       <View style={styles.epaDateBox}>
                         <Text style={styles.epaFormCellLabelSmall}>Month Day Year</Text>
@@ -2812,6 +3190,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               Supplies
             </Text>
           </View>
+          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
+            <View style={styles.timeTrackingBadge}>
+              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.scrollViewContainer}>
@@ -3038,6 +3421,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             </Text>
             <Text style={styles.screenHeaderSubtitle}>Equipment</Text>
           </View>
+          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
+            <View style={styles.timeTrackingBadge}>
+              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.scrollViewContainer}>
@@ -3388,6 +3776,22 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           },
         });
 
+        // Stop time tracking for this order
+        try {
+          await stopTimeTracking(selectedOrderData.orderNumber);
+          // Clear active tracking if this was the active order
+          if (activeTimeTracking?.orderNumber === selectedOrderData.orderNumber) {
+            setActiveTimeTracking(null);
+          }
+          // Clear current order tracking
+          if (currentOrderTimeTracking?.orderNumber === selectedOrderData.orderNumber) {
+            setCurrentOrderTimeTracking(null);
+            setElapsedTimeDisplay('');
+          }
+        } catch (error) {
+          console.error('Error stopping time tracking:', error);
+        }
+
         // Mark order as completed
         setCompletedOrders(prev => [...prev, selectedOrderData.orderNumber]);
         // Update order status
@@ -3428,6 +3832,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               Customer Acknowledgment
             </Text>
           </View>
+          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
+            <View style={styles.timeTrackingBadge}>
+              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.scrollViewContainer}>
@@ -4170,24 +4579,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         {/* Home Button */}
         <TouchableOpacity
           style={styles.quickActionHomeButton}
-          onPress={() => {
-            // Confirm before leaving if there's work in progress
-            if (addedContainers.length > 0 || materialsSupplies.length > 0) {
-              Alert.alert(
-                'Return to Dashboard?',
-                'You have unsaved work for this order. Your progress will be saved.',
-                [
-                  {text: 'Cancel', style: 'cancel'},
-                  {
-                    text: 'Go to Dashboard',
-                    onPress: () => setCurrentStep('dashboard'),
-                  },
-                ]
-              );
-            } else {
-              setCurrentStep('dashboard');
-            }
-          }}
+          onPress={() => setCurrentStep('dashboard')}
           activeOpacity={0.7}>
           <Text style={styles.quickActionHomeIcon}>🏠</Text>
         </TouchableOpacity>
@@ -4819,6 +5211,20 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         </View>
       </Modal>
 
+      {/* Drop Waste Modal */}
+      <DropWasteModal
+        visible={showDropWasteModal}
+        onClose={() => setShowDropWasteModal(false)}
+        onDropWaste={handleDropWaste}
+        truckId={truckId}
+        completedOrdersCount={completedOrders.length}
+        containersToDropCount={
+          addedContainers.filter(c =>
+            completedOrders.includes(c.orderNumber),
+          ).length
+        }
+      />
+
       {/* Label Printing Notification */}
       {showLabelPrinting && (
         <View style={styles.labelPrintingOverlay}>
@@ -4899,6 +5305,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    flex: 1,
+  },
   headerContent: {
     flex: 1,
   },
@@ -4916,6 +5328,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+  },
+  timeTrackingBadge: {
+    backgroundColor: colors.muted,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  timeTrackingText: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontWeight: '500',
   },
   syncStatus: {
     flexDirection: 'row',
@@ -6945,6 +7370,50 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#000000',
     height: 20,
+  },
+  epaSignatureImage: {
+    height: 40,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#000000',
+    borderRadius: borderRadius.sm,
+  } as ImageStyle,
+  signatureModalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  signatureModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  signatureModalTitle: {
+    ...typography.xl,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  signatureModalCloseBtn: {
+    width: touchTargets.comfortable,
+    height: touchTargets.comfortable,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  signatureModalCloseBtnText: {
+    ...typography.xl,
+    color: colors.foreground,
+    fontWeight: '600',
+  },
+  signatureCanvasContainer: {
+    flex: 1,
+    margin: spacing.lg,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
   },
   epaDateBox: {
     width: 80,
