@@ -9,8 +9,8 @@ const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
 const config = {
   resolver: {
     sourceExts: process.env.RN_SRC_EXT
-      ? process.env.RN_SRC_EXT.split(',').concat(['web.tsx', 'web.ts', 'web.jsx', 'web.js', 'tsx', 'ts', 'jsx', 'js', 'json'])
-      : ['web.tsx', 'web.ts', 'web.jsx', 'web.js', 'tsx', 'ts', 'jsx', 'js', 'json'],
+      ? process.env.RN_SRC_EXT.split(',').concat(['tsx', 'ts', 'jsx', 'js', 'json', 'web.tsx', 'web.ts', 'web.jsx', 'web.js'])
+      : ['tsx', 'ts', 'jsx', 'js', 'json', 'web.tsx', 'web.ts', 'web.jsx', 'web.js'],
   },
 };
 

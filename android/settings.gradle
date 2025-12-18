@@ -1,0 +1,15 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+rootProject.name = 'ServiceMgmtRN'
+
+includeBuild("../node_modules/@react-native/gradle-plugin")
+
+include ':app'
+project(':app').projectDir = new File(rootProject.projectDir, './app')
+

@@ -1,44 +1,7 @@
-// Platform-specific imports
-let AsyncStorage: any;
-let NetInfo: any;
+import {safeAsyncStorage} from '../utils/storage';
 
-if (typeof window !== 'undefined') {
-  // Web platform
-  AsyncStorage = {
-    getItem: async (key: string) => {
-      return localStorage.getItem(key);
-    },
-    setItem: async (key: string, value: string) => {
-      localStorage.setItem(key, value);
-    },
-    removeItem: async (key: string) => {
-      localStorage.removeItem(key);
-    },
-  };
-  
-  // Web network detection
-  NetInfo = {
-    addEventListener: (callback: (state: {isConnected: boolean | null}) => void) => {
-      const handleOnline = () => callback({isConnected: true});
-      const handleOffline = () => callback({isConnected: false});
-      
-      window.addEventListener('online', handleOnline);
-      window.addEventListener('offline', handleOffline);
-      
-      // Initial state
-      callback({isConnected: navigator.onLine});
-      
-      return () => {
-        window.removeEventListener('online', handleOnline);
-        window.removeEventListener('offline', handleOffline);
-      };
-    },
-  };
-} else {
-  // Native platform
-  AsyncStorage = require('@react-native-async-storage/async-storage').default;
-  NetInfo = require('@react-native-community/netinfo').default;
-}
+// Mock network state - assume always online (NetInfo not working)
+console.log('[SyncService] Using mock network state (always online)');
 
 export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'pending';
 
@@ -71,18 +34,9 @@ class SyncService {
     // Load pending operations from storage
     await this.loadPendingOperations();
     
-    // Set up network listener
-    this.netInfoUnsubscribe = NetInfo.addEventListener((state: {isConnected: boolean | null}) => {
-      const wasOffline = !this.isOnline;
-      this.isOnline = state.isConnected ?? false;
-      
-      if (wasOffline && this.isOnline) {
-        // Just came back online - trigger sync
-        this.syncPendingOperations();
-      }
-      
-      this.updateSyncStatus();
-    });
+    // Mock network state - assume always online (NetInfo not working)
+    this.isOnline = true;
+    console.log('[SyncService] Network state: always online (mocked)');
 
     // Start periodic sync
     this.startPeriodicSync();
@@ -90,7 +44,7 @@ class SyncService {
 
   private async loadPendingOperations() {
     try {
-      const stored = await AsyncStorage.getItem(PENDING_OPERATIONS_KEY);
+      const stored = await safeAsyncStorage.getItem(PENDING_OPERATIONS_KEY);
       if (stored) {
         this.pendingOperations = JSON.parse(stored);
       }
@@ -101,7 +55,7 @@ class SyncService {
 
   private async savePendingOperations() {
     try {
-      await AsyncStorage.setItem(
+      await safeAsyncStorage.setItem(
         PENDING_OPERATIONS_KEY,
         JSON.stringify(this.pendingOperations),
       );

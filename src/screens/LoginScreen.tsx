@@ -2,23 +2,11 @@ import React, {useState} from 'react';
 import {
   View,
   Text,
+  TextInput,
+  TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
   Alert,
 } from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
-import {Button} from '../components/Button';
-import {Input} from '../components/Input';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardTitleText,
-} from '../components/Card';
-import {colors, spacing, typography, borderRadius} from '../styles/theme';
 
 interface LoginScreenProps {
   onLogin: (username: string, password: string) => void;
@@ -30,6 +18,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({onLogin}) => {
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
+    console.log('[LoginScreen] handleLogin called with username:', username);
     if (!username.trim()) {
       Alert.alert('Error', 'Please enter your username');
       return;
@@ -41,162 +30,129 @@ const LoginScreen: React.FC<LoginScreenProps> = ({onLogin}) => {
     }
 
     setLoading(true);
-
-    // Simulate login API call
     setTimeout(() => {
       setLoading(false);
-      // For demo purposes, accept any credentials
-      // In production, this would validate against an API
       onLogin(username.trim(), password);
     }, 1000);
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView
-        style={styles.keyboardView}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled">
-          <View style={styles.header}>
-            <Text style={styles.logoText}>Clean Earth Inc.</Text>
-            <Text style={styles.welcomeText}>Welcome Back</Text>
-            <Text style={styles.subtitleText}>
-              Sign in to access your service management dashboard
-            </Text>
-          </View>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Clean Earth Inc.</Text>
+        <Text style={styles.subtitle}>Service Management</Text>
+      </View>
 
-          <Card style={styles.loginCard}>
-            <CardHeader>
-              <CardTitle>
-                <CardTitleText>Technician Login</CardTitleText>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Input
-                label="Username"
-                placeholder="Enter your username"
-                value={username}
-                onChangeText={setUsername}
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!loading}
-                containerStyle={styles.inputContainer}
-              />
+      <View style={styles.form}>
+        <Text style={styles.label}>Username</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter username"
+          value={username}
+          onChangeText={setUsername}
+          editable={!loading}
+        />
 
-              <Input
-                label="Password"
-                placeholder="Enter your password"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!loading}
-                containerStyle={styles.inputContainer}
-                onSubmitEditing={handleLogin}
-              />
+        <Text style={styles.label}>Password</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter password"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          editable={!loading}
+        />
 
-              <Button
-                title="Sign In"
-                variant="primary"
-                size="lg"
-                onPress={handleLogin}
-                loading={loading}
-                disabled={loading}
-                style={styles.loginButton}
-              />
+        <TouchableOpacity
+          style={[
+            styles.button,
+            loading && styles.buttonDisabled,
+          ]}
+          onPress={handleLogin}
+          disabled={loading}
+          activeOpacity={0.7}>
+          <Text style={styles.buttonText}>
+            {loading ? 'Signing In...' : 'Sign In'}
+          </Text>
+        </TouchableOpacity>
 
-              <View style={styles.demoHint}>
-                <Text style={styles.demoHintText}>
-                  Demo: Enter any username and password to continue
-                </Text>
-              </View>
-            </CardContent>
-          </Card>
-
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>
-              Forgot your password? Contact your administrator
-            </Text>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        <Text style={styles.demo}>
+          Demo: Enter any username and password to continue
+        </Text>
+      </View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    padding: spacing.lg,
+    backgroundColor: '#f9fafb',
     justifyContent: 'center',
+    paddingHorizontal: 20,
   },
   header: {
     alignItems: 'center',
-    marginBottom: spacing.xxl,
+    marginBottom: 40,
   },
-  logoText: {
-    ...typography['3xl'],
+  title: {
+    fontSize: 32,
     fontWeight: '700',
-    color: colors.foreground,
-    marginBottom: spacing.md,
+    color: '#111827',
+    marginBottom: 8,
   },
-  logoDot: {
-    color: colors.primary,
+  subtitle: {
+    fontSize: 16,
+    color: '#6b7280',
   },
-  welcomeText: {
-    ...typography['2xl'],
+  form: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  label: {
+    fontSize: 14,
     fontWeight: '600',
-    color: colors.foreground,
-    marginBottom: spacing.sm,
+    color: '#111827',
+    marginBottom: 8,
   },
-  subtitleText: {
-    ...typography.base,
-    color: colors.mutedForeground,
-    textAlign: 'center',
-    paddingHorizontal: spacing.lg,
+  input: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    marginBottom: 20,
+    color: '#111827',
   },
-  loginCard: {
-    width: '100%',
-    maxWidth: 480,
-    alignSelf: 'center',
-  },
-  inputContainer: {
-    marginBottom: spacing.lg,
-  },
-  loginButton: {
-    marginTop: spacing.md,
-    marginBottom: spacing.md,
-  },
-  demoHint: {
-    marginTop: spacing.md,
-    padding: spacing.md,
-    backgroundColor: colors.muted,
-    borderRadius: borderRadius.md,
-  },
-  demoHintText: {
-    ...typography.sm,
-    color: colors.mutedForeground,
-    textAlign: 'center',
-  },
-  footer: {
-    marginTop: spacing.xl,
+  button: {
+    backgroundColor: '#65B230',
+    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
     alignItems: 'center',
+    minHeight: 56,
+    justifyContent: 'center',
   },
-  footerText: {
-    ...typography.sm,
-    color: colors.mutedForeground,
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  demo: {
+    fontSize: 12,
+    color: '#6b7280',
     textAlign: 'center',
+    marginTop: 16,
   },
 });
+
+export default LoginScreen;
 
 export default LoginScreen;

@@ -1,23 +1,5 @@
-// Platform-specific imports
-let AsyncStorage: any;
+import {safeAsyncStorage} from '../utils/storage';
 
-if (typeof window !== 'undefined') {
-  // Web platform
-  AsyncStorage = {
-    getItem: async (key: string) => {
-      return localStorage.getItem(key);
-    },
-    setItem: async (key: string, value: string) => {
-      localStorage.setItem(key, value);
-    },
-    removeItem: async (key: string) => {
-      localStorage.removeItem(key);
-    },
-  };
-} else {
-  // Native platform
-  AsyncStorage = require('@react-native-async-storage/async-storage').default;
-}
 
 export interface TimeTrackingRecord {
   orderNumber: string;
@@ -52,11 +34,11 @@ export const startTimeTracking = async (
     };
 
     // Store active tracking
-    await AsyncStorage.setItem(ACTIVE_TRACKING_KEY, JSON.stringify(record));
+    await safeAsyncStorage.setItem(ACTIVE_TRACKING_KEY, JSON.stringify(record));
 
     // Also store in order-specific key for persistence
     const orderKey = `${TIME_TRACKING_KEY_PREFIX}${orderNumber}`;
-    await AsyncStorage.setItem(orderKey, JSON.stringify(record));
+    await safeAsyncStorage.setItem(orderKey, JSON.stringify(record));
   } catch (error) {
     console.error('Error starting time tracking:', error);
     throw error;
@@ -73,7 +55,7 @@ export const stopTimeTracking = async (
 ): Promise<TimeTrackingRecord | null> => {
   try {
     const orderKey = `${TIME_TRACKING_KEY_PREFIX}${orderNumber}`;
-    const stored = await AsyncStorage.getItem(orderKey);
+    const stored = await safeAsyncStorage.getItem(orderKey);
 
     if (!stored) {
       console.warn(`No time tracking record found for order ${orderNumber}`);
@@ -91,14 +73,14 @@ export const stopTimeTracking = async (
     };
 
     // Update stored record
-    await AsyncStorage.setItem(orderKey, JSON.stringify(completedRecord));
+    await safeAsyncStorage.setItem(orderKey, JSON.stringify(completedRecord));
 
     // Clear active tracking if this was the active order
-    const activeTracking = await AsyncStorage.getItem(ACTIVE_TRACKING_KEY);
+    const activeTracking = await safeAsyncStorage.getItem(ACTIVE_TRACKING_KEY);
     if (activeTracking) {
       const active: TimeTrackingRecord = JSON.parse(activeTracking);
       if (active.orderNumber === orderNumber) {
-        await AsyncStorage.removeItem(ACTIVE_TRACKING_KEY);
+        await safeAsyncStorage.removeItem(ACTIVE_TRACKING_KEY);
       }
     }
 
@@ -115,7 +97,7 @@ export const stopTimeTracking = async (
  */
 export const getActiveTimeTracking = async (): Promise<TimeTrackingRecord | null> => {
   try {
-    const stored = await AsyncStorage.getItem(ACTIVE_TRACKING_KEY);
+    const stored = await safeAsyncStorage.getItem(ACTIVE_TRACKING_KEY);
     if (!stored) {
       return null;
     }
@@ -136,7 +118,7 @@ export const getTimeTrackingForOrder = async (
 ): Promise<TimeTrackingRecord | null> => {
   try {
     const orderKey = `${TIME_TRACKING_KEY_PREFIX}${orderNumber}`;
-    const stored = await AsyncStorage.getItem(orderKey);
+    const stored = await safeAsyncStorage.getItem(orderKey);
     if (!stored) {
       return null;
     }

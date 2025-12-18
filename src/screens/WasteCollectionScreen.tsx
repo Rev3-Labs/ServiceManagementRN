@@ -21,10 +21,10 @@ import {
   ActivityIndicator,
   Image,
   ImageStyle,
+  SafeAreaView,
 } from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
-import {Swipeable} from 'react-native-gesture-handler';
-import {useNavigation, useFocusEffect} from '@react-navigation/native';
+import SignatureCanvas from '../components/SignatureCanvas';
+import DropWasteModal from '../components/DropWasteModal';
 import {Button} from '../components/Button';
 import {Input} from '../components/Input';
 import {
@@ -36,7 +36,6 @@ import {
 } from '../components/Card';
 import {Badge} from '../components/Badge';
 import {Switch} from '../components/Switch';
-import DropWasteModal from '../components/DropWasteModal';
 import {syncService, SyncStatus} from '../services/syncService';
 import {getUserTruckId} from '../services/userSettingsService';
 import {
@@ -47,12 +46,6 @@ import {
   formatElapsedTime,
   TimeTrackingRecord,
 } from '../services/timeTrackingService';
-import {
-  dropWaste,
-  getDroppedOrders,
-  isOrderDropped,
-  isContainerDropped,
-} from '../services/dropWasteService';
 import {
   colors,
   spacing,
@@ -65,7 +58,6 @@ import {
   getResponsiveValue,
   isTablet,
 } from '../utils/responsive';
-import SignatureCanvas from 'react-native-signature-canvas';
 
 const {width, height} = Dimensions.get('window');
 const gridColumns = getGridColumns();
@@ -223,13 +215,18 @@ const MATERIALS_CATALOG = [
 interface WasteCollectionScreenProps {
   username?: string;
   onLogout?: () => void;
+  onNavigate?: (screen: Screen) => void;
+  onGoBack?: () => void;
 }
+
+type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings';
 
 const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   username,
   onLogout,
+  onNavigate,
+  onGoBack,
 }) => {
-  const navigation = useNavigation();
   const [currentStep, setCurrentStep] = useState<FlowStep>('dashboard');
   const [selectedOrderData, setSelectedOrderData] = useState<OrderData | null>(
     null,
@@ -254,7 +251,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [addedContainers, setAddedContainers] = useState<
     Array<{
       id: string;
-      orderNumber: string;
       streamName: string;
       streamCode: string;
       containerType: string;
@@ -282,9 +278,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [showPrintOptions, setShowPrintOptions] = useState(false);
   const [showSignatureModal, setShowSignatureModal] = useState(false);
-  const [showDropWasteModal, setShowDropWasteModal] = useState(false);
-  const [droppedOrders, setDroppedOrders] = useState<string[]>([]);
-  const [droppedContainers, setDroppedContainers] = useState<string[]>([]);
+  const signatureRef = useRef<any>(null);
   const [materialsSupplies, setMaterialsSupplies] = useState<
     Array<{
       id: string;
@@ -342,8 +336,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [showDocumentTypeSelector, setShowDocumentTypeSelector] = useState(false);
   const [pendingDocumentType, setPendingDocumentType] = useState<'manifest' | 'ldr' | 'bol' | null>(null);
   const [showScannedDocumentsViewer, setShowScannedDocumentsViewer] = useState(false);
-  const [selectedDocumentPreview, setSelectedDocumentPreview] = useState<string | null>(null);
+  const [showDropWasteModal, setShowDropWasteModal] = useState(false);
   const [showDocumentOptionsMenu, setShowDocumentOptionsMenu] = useState(false);
+  const [showCaptureMethodSelector, setShowCaptureMethodSelector] = useState(false);
   const [equipmentPPE, setEquipmentPPE] = useState<
     Array<{
       id: string;
@@ -368,41 +363,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const loadTruckId = useCallback(async () => {
     if (!username) return;
     try {
-      const savedTruckId = await getUserTruckId(username);
-      if (savedTruckId) {
-        setTruckId(savedTruckId);
-      } else {
-        setTruckId('');
+      const id = await getUserTruckId(username);
+      if (id) {
+        setTruckId(id);
       }
     } catch (error) {
       console.error('Error loading truck ID:', error);
     }
   }, [username]);
-
-  // Load truck ID on mount and when username changes
+  
+  // Load truck and time tracking on mount and when username changes
   useEffect(() => {
     loadTruckId();
-  }, [loadTruckId]);
+    loadActiveTimeTracking();
+  }, [username]);
 
-  // Load dropped orders and containers
-  const loadDroppedData = useCallback(async () => {
-    try {
-      const dropped = await getDroppedOrders();
-      setDroppedOrders(dropped);
-      // Note: We'll load dropped containers when needed
-    } catch (error) {
-      console.error('Error loading dropped data:', error);
-    }
-  }, []);
-
-  // Reload truck ID when screen comes into focus (e.g., returning from Settings)
-  useFocusEffect(
-    useCallback(() => {
+  // Reload truck ID when returning to dashboard (e.g., after saving in Settings)
+  useEffect(() => {
+    if (currentStep === 'dashboard') {
       loadTruckId();
-      loadActiveTimeTracking();
-      loadDroppedData();
-    }, [loadTruckId, loadDroppedData])
-  );
+    }
+  }, [currentStep, loadTruckId]);
 
   // Load active time tracking
   const loadActiveTimeTracking = useCallback(async () => {
@@ -534,66 +515,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       );
     }
   }, []);
-
-  // Handle drop waste
-  const handleDropWaste = useCallback(async (
-    transferLocation: string,
-    dropDate: string,
-    dropTime: string,
-  ) => {
-    if (!truckId) {
-      Alert.alert('Error', 'Truck ID is required to drop waste.');
-      return;
-    }
-
-    try {
-      // Get all completed orders for this truck
-      const completedOrderNumbers = completedOrders;
-      
-      if (completedOrderNumbers.length === 0) {
-        Alert.alert('No Completed Orders', 'There are no completed orders to drop.');
-        return;
-      }
-
-      // Get all containers for completed orders
-      const containersToDrop = addedContainers.filter(container =>
-        completedOrderNumbers.includes(container.orderNumber)
-      );
-      const containerIds = containersToDrop.map(c => c.id);
-
-      // Drop the waste
-      await dropWaste(
-        completedOrderNumbers,
-        containerIds,
-        transferLocation,
-        dropDate,
-        dropTime,
-        truckId,
-        username,
-      );
-
-      // Update local state
-      const dropped = await getDroppedOrders();
-      setDroppedOrders(dropped);
-      setDroppedContainers(containerIds);
-
-      Alert.alert(
-        'Success',
-        `Successfully dropped ${completedOrderNumbers.length} order(s) and ${containerIds.length} container(s) at ${transferLocation}.`,
-      );
-    } catch (error: any) {
-      console.error('Error dropping waste:', error);
-      Alert.alert(
-        'Error',
-        error.message || 'Failed to drop waste. Please try again.',
-      );
-    }
-  }, [
-    truckId,
-    username,
-    completedOrders,
-    addedContainers,
-  ]);
 
   // Handle starting service - starts time tracking
   const handleStartService = useCallback(async (order: OrderData) => {
@@ -1065,27 +986,32 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <TouchableOpacity
-              style={styles.headerContent}
-              onPress={() => navigation.navigate('Settings' as never)}
-              activeOpacity={0.7}>
-              <Text style={styles.headerTitle}>
-                {username ? `Welcome, ${username}` : 'Welcome'}
-              </Text>
-              {truckId ? (
-                <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
-              ) : (
-                <Text style={styles.headerSubtitle}>Set Truck ID</Text>
-              )}
-            </TouchableOpacity>
-
-          </View>
+          <TouchableOpacity
+            style={styles.headerContent}
+            onPress={() => onNavigate?.('Settings')}
+            activeOpacity={0.7}>
+            <Text style={styles.headerTitle}>
+              {username ? `Welcome, ${username}` : 'Welcome'}
+            </Text>
+            {truckId ? (
+              <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
+            ) : (
+              <Text style={styles.headerSubtitle}>Set Truck ID</Text>
+            )}
+          </TouchableOpacity>
           <View style={styles.headerActions}>
             <SyncStatusIndicator
               status={syncStatus}
               pendingCount={pendingSyncCount}
             />
+            {filteredOrders.filter(order => isOrderCompleted(order.orderNumber)).length > 0 && (
+              <Button
+                title="Drop Waste"
+                variant="primary"
+                size="md"
+                onPress={() => setShowDropWasteModal(true)}
+              />
+            )}
             <Button
               title="Sync"
               variant="outline"
@@ -1093,19 +1019,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               onPress={handleManualSync}
               disabled={syncStatus === 'syncing' || syncStatus === 'offline'}
             />
-                        <Button
-              title="Drop Waste"
-              variant="ghost"
-              size="sm"
-              onPress={() => setShowDropWasteModal(true)}
-              disabled={completedOrders.length === 0}
-            />
-            {/* <Button
+            <Button
               title="Full Screen"
               variant="ghost"
               size="sm"
               onPress={() => setUseMasterDetail(false)}
-            /> */}
+            />
             {onLogout && (
               <Button
                 title="Logout"
@@ -1344,33 +1263,32 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <TouchableOpacity
-              style={styles.headerContent}
-              onPress={() => navigation.navigate('Settings' as never)}
-              activeOpacity={0.7}>
-              <Text style={styles.headerTitle}>
-                {username ? `Welcome, ${username}` : 'Welcome'}
-              </Text>
-              {truckId ? (
-                <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
-              ) : (
-                <Text style={styles.headerSubtitle}>Set Truck ID</Text>
-              )}
-            </TouchableOpacity>
-            <Button
-              title="Drop Waste"
-              variant="ghost"
-              size="sm"
-              onPress={() => setShowDropWasteModal(true)}
-              disabled={completedOrders.length === 0}
-            />
-          </View>
+          <TouchableOpacity
+            style={styles.headerContent}
+            onPress={() => onNavigate?.('Settings')}
+            activeOpacity={0.7}>
+            <Text style={styles.headerTitle}>
+              {username ? `Welcome, ${username}` : 'Welcome'}
+            </Text>
+            {truckId ? (
+              <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
+            ) : (
+              <Text style={styles.headerSubtitle}>Set Truck ID</Text>
+            )}
+          </TouchableOpacity>
           <View style={styles.headerActions}>
             <SyncStatusIndicator
               status={syncStatus}
               pendingCount={pendingSyncCount}
             />
+            {completedOrdersList.length > 0 && (
+              <Button
+                title="Drop Waste"
+                variant="primary"
+                size="md"
+                onPress={() => setShowDropWasteModal(true)}
+              />
+            )}
             <Button
               title="Sync"
               variant="outline"
@@ -1394,12 +1312,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 }}
               />
             )}
-            {onLogout && (
+            {onGoBack && (
               <Button
-                title="Logout"
+                title="Back"
                 variant="ghost"
                 size="sm"
-                onPress={onLogout}
+                onPress={onGoBack}
               />
             )}
           </View>
@@ -1978,7 +1896,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
                 const newContainer = {
                   id: `container-${Date.now()}`,
-                  orderNumber: selectedOrderData?.orderNumber || '',
                   streamName: selectedStream,
                   streamCode: selectedStreamCode,
                   containerType: selectedContainerType.code,
@@ -2030,7 +1947,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const isCurrentOrderCompleted = selectedOrderData
       ? isOrderCompleted(selectedOrderData.orderNumber)
       : false;
-    const swipeableRefs = useRef<{[key: string]: Swipeable | null}>({});
     const [deleteConfirmation, setDeleteConfirmation] = useState<{
       visible: boolean;
       containerId: string | null;
@@ -2051,10 +1967,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         containerId,
         containerIndex,
       });
-      // Close the swipeable
-      setTimeout(() => {
-        swipeableRefs.current[containerId]?.close();
-      }, 100);
     };
 
     const handleConfirmDelete = () => {
@@ -2132,21 +2044,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
             {addedContainers.length > 0 ? (
               addedContainers.map((container, index) => (
-                <Swipeable
-                  key={container.id}
-                  ref={ref => {
-                    swipeableRefs.current[container.id] = ref;
-                  }}
-                  renderRightActions={
-                    isCurrentOrderCompleted
-                      ? undefined
-                      : () => renderRightActions(container.id, index)
-                  }
-                  rightThreshold={40}
-                  overshootRight={false}
-                  friction={2}
-                  enableTrackpadTwoFingerGesture={false}
-                  enabled={!isCurrentOrderCompleted}>
+                <View key={container.id}>
                   <Card style={styles.containerSummaryCard}>
                     <View style={styles.containerSummaryHeader}>
                       <View style={styles.containerSummaryHeaderLeft}>
@@ -2210,9 +2108,17 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           <View style={styles.containerSummaryInfoCard} />
                         )}
                       </View>
+                      {!isCurrentOrderCompleted && (
+                        <TouchableOpacity
+                          style={styles.deleteButton}
+                          onPress={() => handleDeleteContainer(container.id, index)}
+                          activeOpacity={0.7}>
+                          <Text style={styles.deleteButtonText}>Delete</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   </Card>
-                </Swipeable>
+                </View>
               ))
             ) : (
               <View style={styles.emptyState}>
@@ -2528,56 +2434,48 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               </TouchableOpacity>
             </View>
             <View style={styles.signatureCanvasContainer}>
-              <SignatureCanvas
-                onOK={(signature: string) => {
-                  // signature is a base64 encoded image
-                  setManifestData(prev => ({
-                    ...prev,
-                    signatureImageUri: `data:image/png;base64,${signature}`,
-                  }));
-                  setShowSignatureModal(false);
-                }}
-                onEmpty={() => {
-                  Alert.alert('Empty Signature', 'Please draw your signature before saving.');
-                }}
-                descriptionText="Sign above"
-                clearText="Clear"
-                confirmText="Save"
-                webStyle={`
-                  .m-signature-pad {
-                    box-shadow: none;
-                    border: 2px solid ${colors.border};
-                    border-radius: ${borderRadius.md}px;
-                  }
-                  .m-signature-pad--body {
-                    border: none;
-                  }
-                  .m-signature-pad--body canvas {
-                    border-radius: ${borderRadius.md}px;
-                  }
-                  .m-signature-pad--footer {
-                    display: flex;
-                    justify-content: space-between;
-                    padding: ${spacing.md}px;
-                    background-color: ${colors.card};
-                  }
-                  .button {
-                    background-color: ${colors.primary};
-                    color: ${colors.primaryForeground};
-                    border: none;
-                    border-radius: ${borderRadius.md}px;
-                    padding: ${spacing.sm}px ${spacing.md}px;
-                    font-size: 16px;
-                    font-weight: 500;
-                  }
-                  .button.clear {
-                    background-color: ${colors.destructive};
-                    color: ${colors.destructiveForeground};
-                  }
-                `}
-                autoClear={false}
-                imageType="image/png"
-              />
+              <Text style={styles.signatureModalTitle}>Signature Area</Text>
+              <View style={{
+                flex: 1,
+                borderWidth: 2,
+                borderColor: colors.border,
+                borderRadius: borderRadius.md,
+                marginBottom: spacing.md,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}>
+                <SignatureCanvas
+                  ref={signatureRef}
+                  onOK={(signature: string) => {
+                    setManifestData(prev => ({
+                      ...prev,
+                      signatureImageUri: signature,
+                    }));
+                    setShowSignatureModal(false);
+                  }}
+                  onEmpty={() => {
+                    Alert.alert('Please Sign', 'Please provide a signature before saving.');
+                  }}
+                  penColor="#000000"
+                  strokeWidth={3}
+                />
+              </View>
+              <View style={{ flexDirection: 'row', gap: spacing.md }}>
+                <Button
+                  title="Clear"
+                  onPress={() => signatureRef.current?.clearSignature()}
+                  variant="outline"
+                />
+                <Button
+                  title="Cancel"
+                  onPress={() => setShowSignatureModal(false)}
+                  variant="outline"
+                />
+                <Button
+                  title="Save"
+                  onPress={() => signatureRef.current?.readSignature()}
+                />
+              </View>
             </View>
           </SafeAreaView>
         </Modal>
@@ -3055,14 +2953,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           transparent
           animationType="slide"
           onRequestClose={() => setShowPrintOptions(false)}>
-          <TouchableOpacity
-            style={styles.bottomSheetOverlay}
-            activeOpacity={1}
-            onPress={() => setShowPrintOptions(false)}>
+          <View style={styles.bottomSheetOverlay}>
             <TouchableOpacity
-              style={styles.bottomSheetContent}
+              style={{flex: 1}}
               activeOpacity={1}
-              onPress={e => e.stopPropagation()}>
+              onPress={() => setShowPrintOptions(false)}
+            />
+            <View style={styles.bottomSheetContent}>
               {/* Bottom Sheet Handle */}
               <View style={styles.bottomSheetHandle} />
 
@@ -3071,7 +2968,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               </View>
 
               <ScrollView 
-                style={styles.bottomSheetBodyScroll}
                 contentContainerStyle={styles.bottomSheetBodyContent}
                 showsVerticalScrollIndicator={true}>
                 <TouchableOpacity
@@ -3139,8 +3035,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   <Text style={styles.bottomSheetCancelText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
+            </View>
+          </View>
         </Modal>
       </View>
     );
@@ -4305,9 +4201,46 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       setShowDocumentTypeSelector(true);
     };
 
-    // Capture document after type is selected
+    // After document type is selected, show capture method options
     const captureDocument = async (documentType: 'manifest' | 'ldr' | 'bol') => {
       setShowDocumentTypeSelector(false);
+      setPendingDocumentType(documentType);
+      setShowCaptureMethodSelector(true);
+    };
+
+    // Handle the actual capture based on method
+    const handleCaptureWithMethod = async (method: 'camera' | 'gallery') => {
+      setShowCaptureMethodSelector(false);
+      const documentType = pendingDocumentType;
+      if (!documentType) return;
+      
+      const typeLabels = {manifest: 'Manifest', ldr: 'LDR', bol: 'BOL'};
+      
+      try {
+        const methodLabel = method === 'camera' ? 'Camera' : 'Gallery';
+        
+        // Create document entry with metadata (no image URI needed for demo)
+        setScannedDocuments(prev => [
+          ...prev,
+          {
+            id: `doc-${Date.now()}`,
+            uri: `mock://${documentType}-${method}-${Date.now()}`, // Placeholder URI
+            timestamp: new Date().toISOString(),
+            orderNumber: selectedOrderData?.orderNumber || '',
+            documentType: documentType,
+            captureMethod: methodLabel, // Store capture method for display
+          },
+        ]);
+        
+        Alert.alert('Success', `${typeLabels[documentType]} captured via ${methodLabel}!`);
+      } catch (error: any) {
+        console.error('Document capture error:', error);
+        Alert.alert('Error', 'Failed to capture document');
+      }
+    };
+
+    // Legacy capture function (kept for web platform if needed)
+    const legacyCaptureDocument = async (documentType: 'manifest' | 'ldr' | 'bol') => {
       const typeLabels = {manifest: 'Manifest', ldr: 'LDR', bol: 'BOL'};
       
       try {
@@ -4487,75 +4420,40 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             input.click();
           }
         } else {
-          // Native platform - use expo-image-picker
+          // Native platform - Mock document capture (camera module not linked)
           try {
-            const ImagePicker = require('expo-image-picker');
+            // Create a mock document entry without requiring camera
+            const typeLabels = {manifest: 'Manifest', ldr: 'LDR', bol: 'BOL'};
+            const typeColors = {manifest: '#DBEAFE', ldr: '#FEF3C7', bol: '#D1FAE5'};
+            
+            // Generate a placeholder image URI
+            const mockImageUri = `data:image/svg+xml;base64,${btoa(`
+              <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+                <rect width="400" height="300" fill="${typeColors[documentType]}"/>
+                <text x="200" y="150" font-size="24" text-anchor="middle" fill="#333">
+                  ${typeLabels[documentType]} Document
+                </text>
+                <text x="200" y="180" font-size="16" text-anchor="middle" fill="#666">
+                  Captured: ${new Date().toLocaleString()}
+                </text>
+              </svg>
+            `)}`;
 
-            // Request camera permissions
-            const {status} = await ImagePicker.requestCameraPermissionsAsync();
-
-            if (status !== 'granted') {
-              Alert.alert(
-                'Permission Required',
-                'Camera permission is required to scan documents. Please enable it in your device settings.',
-              );
-              return;
-            }
-
-            // Launch camera
-            const result = await ImagePicker.launchCameraAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              aspect: [4, 3],
-              quality: 0.8,
-            });
-
-            if (!result.canceled && result.assets[0]) {
-              const imageUri = result.assets[0].uri;
-              // Store scanned document with type
-              setScannedDocuments(prev => [
-                ...prev,
-                {
-                  id: `doc-${Date.now()}`,
-                  uri: imageUri,
-                  timestamp: new Date().toISOString(),
-                  orderNumber: selectedOrderData?.orderNumber || '',
-                  documentType: documentType,
-                },
-              ]);
-              const typeLabels = {manifest: 'Manifest', ldr: 'LDR', bol: 'BOL'};
-              Alert.alert('Success', `${typeLabels[documentType]} captured successfully`);
-            }
-          } catch (importError) {
-            // Fallback if expo-image-picker is not available
-            Alert.alert(
-              'Camera Not Available',
-              'Please install expo-image-picker to enable camera functionality. For now, using file picker.',
-            );
-            // Fall back to file picker on native too
-            const ImagePicker = require('expo-image-picker');
-            const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              aspect: [4, 3],
-              quality: 0.8,
-            });
-
-            if (!result.canceled && result.assets[0]) {
-              const imageUri = result.assets[0].uri;
-              setScannedDocuments(prev => [
-                ...prev,
-                {
-                  id: `doc-${Date.now()}`,
-                  uri: imageUri,
-                  timestamp: new Date().toISOString(),
-                  orderNumber: selectedOrderData?.orderNumber || '',
-                  documentType: documentType,
-                },
-              ]);
-              const typeLabels = {manifest: 'Manifest', ldr: 'LDR', bol: 'BOL'};
-              Alert.alert('Success', `${typeLabels[documentType]} selected successfully`);
-            }
+            // Store scanned document with type
+            setScannedDocuments(prev => [
+              ...prev,
+              {
+                id: `doc-${Date.now()}`,
+                uri: mockImageUri,
+                timestamp: new Date().toISOString(),
+                orderNumber: selectedOrderData?.orderNumber || '',
+                documentType: documentType,
+              },
+            ]);
+            
+            Alert.alert('Success', `${typeLabels[documentType]} captured successfully (mock)`);
+          } catch (error) {
+            Alert.alert('Error', 'Failed to capture document');
           }
         }
       } catch (error: any) {
@@ -4758,14 +4656,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           transparent
           animationType="slide"
           onRequestClose={() => setShowDocumentTypeSelector(false)}>
-          <TouchableOpacity
-            style={styles.bottomSheetOverlay}
-            activeOpacity={1}
-            onPress={() => setShowDocumentTypeSelector(false)}>
+          <View style={styles.bottomSheetOverlay}>
             <TouchableOpacity
-              style={styles.bottomSheetContainer}
+              style={{flex: 1}}
               activeOpacity={1}
-              onPress={e => e.stopPropagation()}>
+              onPress={() => setShowDocumentTypeSelector(false)}
+            />
+            <View style={styles.bottomSheetContent}>
               {/* Drag Handle */}
               <View style={styles.bottomSheetHandle} />
               
@@ -4777,7 +4674,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               </View>
               
               <ScrollView 
-                style={styles.bottomSheetBodyScroll}
                 contentContainerStyle={styles.bottomSheetBodyContent}
                 showsVerticalScrollIndicator={true}>
                 <TouchableOpacity
@@ -4836,8 +4732,77 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   <Text style={styles.bottomSheetCancelText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Capture Method Selector - Camera or Gallery */}
+        <Modal
+          visible={showCaptureMethodSelector}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowCaptureMethodSelector(false)}>
+          <View style={styles.bottomSheetOverlay}>
+            <TouchableOpacity
+              style={{flex: 1}}
+              activeOpacity={1}
+              onPress={() => setShowCaptureMethodSelector(false)}
+            />
+            <View style={styles.bottomSheetContent}>
+              <View style={styles.bottomSheetHandle} />
+              
+              <View style={styles.bottomSheetHeader}>
+                <Text style={styles.bottomSheetTitle}>Capture Method</Text>
+                <Text style={styles.bottomSheetSubtitle}>
+                  Choose how to capture the document
+                </Text>
+              </View>
+              
+              <ScrollView 
+                contentContainerStyle={styles.bottomSheetBodyContent}
+                showsVerticalScrollIndicator={true}>
+                <TouchableOpacity
+                  style={styles.bottomSheetOptionButton}
+                  onPress={() => handleCaptureWithMethod('camera')}
+                  activeOpacity={0.7}>
+                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
+                    <Text style={styles.bottomSheetOptionIconText}>📷</Text>
+                  </View>
+                  <View style={styles.bottomSheetOptionInfo}>
+                    <Text style={styles.bottomSheetOptionLabel}>Take Photo</Text>
+                    <Text style={styles.bottomSheetOptionDesc}>
+                      Use camera to capture the document
+                    </Text>
+                  </View>
+                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.bottomSheetOptionButton}
+                  onPress={() => handleCaptureWithMethod('gallery')}
+                  activeOpacity={0.7}>
+                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEF3C7'}]}>
+                    <Text style={styles.bottomSheetOptionIconText}>📁</Text>
+                  </View>
+                  <View style={styles.bottomSheetOptionInfo}>
+                    <Text style={styles.bottomSheetOptionLabel}>Choose from Files</Text>
+                    <Text style={styles.bottomSheetOptionDesc}>
+                      Select an existing image file
+                    </Text>
+                  </View>
+                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                </TouchableOpacity>
+              </ScrollView>
+
+              <View style={styles.bottomSheetFooter}>
+                <TouchableOpacity
+                  style={styles.bottomSheetCancelButton}
+                  onPress={() => setShowCaptureMethodSelector(false)}>
+                  <Text style={styles.bottomSheetCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
         </Modal>
 
         {/* Scanned Documents Viewer Modal */}
@@ -4870,21 +4835,26 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   const typeLabels = {manifest: 'Manifest', ldr: 'LDR', bol: 'BOL'};
                   const typeColors = {manifest: '#DBEAFE', ldr: '#FEF3C7', bol: '#D1FAE5'};
                   const typeIcons = {manifest: '📋', ldr: '📄', bol: '🚚'};
+                  const captureMethod = (doc as any).captureMethod || 'Camera';
+                  const methodIcon = captureMethod === 'Camera' ? '📷' : '📁';
                   
                   return (
                     <View key={doc.id} style={styles.scannedDocCard}>
-                      <TouchableOpacity
-                        style={styles.scannedDocThumbnailContainer}
-                        onPress={() => setSelectedDocumentPreview(doc.uri)}>
-                        <Image
-                          source={{uri: doc.uri}}
-                          style={styles.scannedDocThumbnail as any}
-                          resizeMode="cover"
-                        />
-                        <View style={styles.scannedDocThumbnailOverlay}>
-                          <Text style={styles.scannedDocThumbnailIcon}>🔍</Text>
+                      {/* Document visual placeholder */}
+                      <View 
+                        style={[
+                          styles.scannedDocThumbnailContainer, 
+                          {backgroundColor: typeColors[doc.documentType]}
+                        ]}>
+                        <View style={styles.scannedDocPlaceholderContent}>
+                          <Text style={styles.scannedDocPlaceholderIcon}>
+                            {typeIcons[doc.documentType]}
+                          </Text>
+                          <Text style={styles.scannedDocPlaceholderMethod}>
+                            {methodIcon}
+                          </Text>
                         </View>
-                      </TouchableOpacity>
+                      </View>
                       <View style={styles.scannedDocInfo}>
                         <View style={[styles.scannedDocTypeBadge, {backgroundColor: typeColors[doc.documentType]}]}>
                           <Text style={styles.scannedDocTypeIcon}>{typeIcons[doc.documentType]}</Text>
@@ -4892,6 +4862,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         </View>
                         <Text style={styles.scannedDocTimestamp}>
                           {new Date(doc.timestamp).toLocaleString()}
+                        </Text>
+                        <Text style={styles.scannedDocMethod}>
+                          via {captureMethod}
                         </Text>
                       </View>
                       <TouchableOpacity
@@ -4950,33 +4923,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             </View>
           </View>
         </Modal>
-
-        {/* Document Preview Modal */}
-        <Modal
-          visible={selectedDocumentPreview !== null}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setSelectedDocumentPreview(null)}>
-          <TouchableOpacity
-            style={styles.documentPreviewOverlay}
-            activeOpacity={1}
-            onPress={() => setSelectedDocumentPreview(null)}>
-            <View style={styles.documentPreviewContainer}>
-              <TouchableOpacity
-                style={styles.documentPreviewCloseBtn}
-                onPress={() => setSelectedDocumentPreview(null)}>
-                <Text style={styles.documentPreviewCloseBtnText}>✕</Text>
-              </TouchableOpacity>
-              {selectedDocumentPreview && (
-                <Image
-                  source={{uri: selectedDocumentPreview}}
-                  style={styles.documentPreviewImage as any}
-                  resizeMode="contain"
-                />
-              )}
-            </View>
-          </TouchableOpacity>
-        </Modal>
       </View>
     );
   };
@@ -5013,10 +4959,49 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }
   };
 
+  // Handle drop waste submission
+  const handleDropWaste = (transferLocation: string, dropDate: string, dropTime: string) => {
+    // Here you would typically send this data to your backend
+    console.log('[Drop Waste]', {
+      truckId,
+      transferLocation,
+      dropDate,
+      dropTime,
+      completedOrders: completedOrders.length,
+      containers: addedContainers.length,
+    });
+    
+    Alert.alert(
+      'Waste Dropped',
+      `Successfully recorded waste drop at ${transferLocation} on ${dropDate} at ${dropTime}`,
+      [
+        {
+          text: 'OK',
+          onPress: () => {
+            setShowDropWasteModal(false);
+            // Optionally clear completed orders after successful drop
+            // setCompletedOrders([]);
+            // setContainers([]);
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       {renderScreen()}
       <QuickActionsBar />
+      
+      {/* Drop Waste Modal */}
+      <DropWasteModal
+        visible={showDropWasteModal}
+        onClose={() => setShowDropWasteModal(false)}
+        onDropWaste={handleDropWaste}
+        truckId={truckId}
+        completedOrdersCount={completedOrders.length}
+        containersToDropCount={addedContainers.length}
+      />
       
       {/* Add Material Modal - Full Screen for Tablets - At root level to prevent remounting */}
       <Modal
@@ -5211,20 +5196,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         </View>
       </Modal>
 
-      {/* Drop Waste Modal */}
-      <DropWasteModal
-        visible={showDropWasteModal}
-        onClose={() => setShowDropWasteModal(false)}
-        onDropWaste={handleDropWaste}
-        truckId={truckId}
-        completedOrdersCount={completedOrders.length}
-        containersToDropCount={
-          addedContainers.filter(c =>
-            completedOrders.includes(c.orderNumber),
-          ).length
-        }
-      />
-
       {/* Label Printing Notification */}
       {showLabelPrinting && (
         <View style={styles.labelPrintingOverlay}>
@@ -5304,12 +5275,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    flex: 1,
   },
   headerContent: {
     flex: 1,
@@ -6892,10 +6857,8 @@ const styles = StyleSheet.create({
     // @ts-ignore - web-specific style
     boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.15)',
     elevation: 16,
-    maxHeight: '90%',
-    minHeight: 200,
+    maxHeight: 500,
     width: '100%',
-    flexDirection: 'column',
   },
   bottomSheetHandle: {
     width: 48,
@@ -7874,24 +7837,19 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: borderRadius.md,
     overflow: 'hidden',
-  },
-  scannedDocThumbnail: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: colors.muted,
-  },
-  scannedDocThumbnailOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  scannedDocThumbnailIcon: {
-    fontSize: 24,
+  scannedDocPlaceholderContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  scannedDocPlaceholderIcon: {
+    fontSize: 32,
+  },
+  scannedDocPlaceholderMethod: {
+    fontSize: 20,
   },
   scannedDocInfo: {
     flex: 1,
@@ -7917,6 +7875,11 @@ const styles = StyleSheet.create({
   scannedDocTimestamp: {
     ...typography.sm,
     color: colors.mutedForeground,
+  },
+  scannedDocMethod: {
+    ...typography.xs,
+    color: colors.mutedForeground,
+    fontStyle: 'italic',
   },
   scannedDocDeleteBtn: {
     width: 48,

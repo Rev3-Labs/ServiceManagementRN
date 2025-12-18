@@ -9,15 +9,10 @@ import {
   StyleSheet,
   Platform,
   FlatList,
+  SafeAreaView,
+  TextInput,
 } from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
 import {Button} from './Button';
-
-// Conditionally import DateTimePicker only for native platforms
-let DateTimePicker: any = null;
-if (Platform.OS !== 'web') {
-  DateTimePicker = require('@react-native-community/datetimepicker').default;
-}
 import {
   colors,
   spacing,
@@ -75,47 +70,13 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
   const [dropDate, setDropDate] = useState<string>('');
   const [dropTime, setDropTime] = useState<string>('');
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
-  const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
-  const [showTimePicker, setShowTimePicker] = useState<boolean>(false);
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedTime, setSelectedTime] = useState<Date>(new Date());
 
   const handleClose = () => {
     setTransferLocation('');
     setDropDate('');
     setDropTime('');
     setShowLocationPicker(false);
-    setShowDatePicker(false);
-    setShowTimePicker(false);
     onClose();
-  };
-
-  const handleDateChange = (event: any, date?: Date) => {
-    if (Platform.OS === 'android') {
-      setShowDatePicker(false);
-    }
-    if (date) {
-      setSelectedDate(date);
-      setDropDate(date.toISOString().split('T')[0]);
-      if (Platform.OS === 'ios') {
-        setShowDatePicker(false);
-      }
-    }
-  };
-
-  const handleTimeChange = (event: any, time?: Date) => {
-    if (Platform.OS === 'android') {
-      setShowTimePicker(false);
-    }
-    if (time) {
-      setSelectedTime(time);
-      const hours = time.getHours().toString().padStart(2, '0');
-      const minutes = time.getMinutes().toString().padStart(2, '0');
-      setDropTime(`${hours}:${minutes}`);
-      if (Platform.OS === 'ios') {
-        setShowTimePicker(false);
-      }
-    }
   };
 
   const handleLocationSelect = (location: string) => {
@@ -140,6 +101,17 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
     onDropWaste(transferLocation, dropDate, dropTime);
     handleClose();
   };
+
+  // Auto-populate current date and time on mount
+  React.useEffect(() => {
+    if (visible && !dropDate) {
+      const now = new Date();
+      setDropDate(now.toISOString().split('T')[0]);
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+      setDropTime(`${hours}:${minutes}`);
+    }
+  }, [visible]);
 
   return (
     <Modal
@@ -185,120 +157,25 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
           {/* Drop Date */}
           <View style={styles.formField}>
             <Text style={styles.formLabel}>Drop Date *</Text>
-            {Platform.OS === 'web' ? (
-              <input
-                type="date"
-                value={dropDate}
-                onChange={(e: any) => {
-                  const value = e.target?.value || '';
-                  setDropDate(value);
-                  if (value) {
-                    setSelectedDate(new Date(value));
-                  }
-                }}
-                min={new Date().toISOString().split('T')[0]}
-                style={{
-                  width: '100%',
-                  minHeight: `${touchTargets.comfortable}px`,
-                  paddingLeft: `${spacing.md}px`,
-                  paddingRight: `${spacing.md}px`,
-                  paddingTop: `${spacing.sm}px`,
-                  paddingBottom: `${spacing.sm}px`,
-                  backgroundColor: colors.card,
-                  borderWidth: '1px',
-                  borderStyle: 'solid',
-                  borderColor: colors.border,
-                  borderRadius: `${borderRadius.md}px`,
-                  color: colors.foreground,
-                  fontSize: `${typography.base.fontSize}px`,
-                }}
-              />
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={styles.input}
-                  onPress={() => setShowDatePicker(true)}>
-                  <Text
-                    style={[
-                      styles.inputText,
-                      !dropDate && styles.inputPlaceholder,
-                    ]}>
-                    {dropDate
-                      ? new Date(dropDate).toLocaleDateString()
-                      : 'Select drop date'}
-                  </Text>
-                </TouchableOpacity>
-                {showDatePicker && DateTimePicker && (
-                  <DateTimePicker
-                    value={selectedDate}
-                    mode="date"
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                    onChange={handleDateChange}
-                    minimumDate={new Date()}
-                  />
-                )}
-              </>
-            )}
+            <TextInput
+              style={styles.input}
+              value={dropDate}
+              onChangeText={setDropDate}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={colors.mutedForeground}
+            />
           </View>
 
           {/* Drop Time */}
           <View style={styles.formField}>
             <Text style={styles.formLabel}>Drop Time *</Text>
-            {Platform.OS === 'web' ? (
-              <input
-                type="time"
-                value={dropTime}
-                onChange={(e: any) => {
-                  const value = e.target?.value || '';
-                  setDropTime(value);
-                  if (value) {
-                    const [hours, minutes] = value.split(':');
-                    const time = new Date();
-                    time.setHours(parseInt(hours, 10));
-                    time.setMinutes(parseInt(minutes, 10));
-                    setSelectedTime(time);
-                  }
-                }}
-                style={{
-                  width: '100%',
-                  minHeight: `${touchTargets.comfortable}px`,
-                  paddingLeft: `${spacing.md}px`,
-                  paddingRight: `${spacing.md}px`,
-                  paddingTop: `${spacing.sm}px`,
-                  paddingBottom: `${spacing.sm}px`,
-                  backgroundColor: colors.card,
-                  borderWidth: '1px',
-                  borderStyle: 'solid',
-                  borderColor: colors.border,
-                  borderRadius: `${borderRadius.md}px`,
-                  color: colors.foreground,
-                  fontSize: `${typography.base.fontSize}px`,
-                }}
-              />
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={styles.input}
-                  onPress={() => setShowTimePicker(true)}>
-                  <Text
-                    style={[
-                      styles.inputText,
-                      !dropTime && styles.inputPlaceholder,
-                    ]}>
-                    {dropTime || 'Select drop time'}
-                  </Text>
-                </TouchableOpacity>
-                {showTimePicker && DateTimePicker && (
-                  <DateTimePicker
-                    value={selectedTime}
-                    mode="time"
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                    onChange={handleTimeChange}
-                    is24Hour={false}
-                  />
-                )}
-              </>
-            )}
+            <TextInput
+              style={styles.input}
+              value={dropTime}
+              onChangeText={setDropTime}
+              placeholder="HH:MM (24-hour)"
+              placeholderTextColor={colors.mutedForeground}
+            />
           </View>
 
           {/* Summary */}

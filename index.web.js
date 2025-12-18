@@ -27,6 +27,11 @@ AppRegistry.registerComponent(appName, () => App);
 
 // Run the app when DOM is ready
 function runApp() {
+  if (typeof document === 'undefined') {
+    console.warn('index.web.js loaded on non-web platform - skipping');
+    return;
+  }
+  
   const rootTag = document.getElementById('root');
   if (!rootTag) {
     console.error('Root element not found!');
@@ -44,9 +49,11 @@ function runApp() {
   }
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', runApp);
-} else {
-  runApp();
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', runApp);
+  } else {
+    runApp();
+  }
 }
 

@@ -9,8 +9,8 @@ import {
   TouchableOpacity,
   Modal,
   FlatList,
+  SafeAreaView,
 } from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
 import {Button} from '../components/Button';
 import {
   Card,
@@ -44,14 +44,17 @@ const TRUCK_IDS = [
   'TRK-010',
 ];
 
+type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings';
+
 interface SettingsScreenProps {
   username?: string;
-  onBack?: () => void;
+  onNavigate?: (screen: Screen) => void;
+  onGoBack?: () => void;
 }
 
 const SettingsScreen: React.FC<SettingsScreenProps> = ({
   username,
-  onBack,
+  onGoBack,
 }) => {
   const [truckId, setTruckId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -105,8 +108,8 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
       // Auto-dismiss notification after 3 seconds and navigate back
       setTimeout(() => {
         setShowSuccessNotification(false);
-        if (onBack) {
-          onBack();
+        if (onGoBack) {
+          onGoBack();
         }
       }, 3000);
     } catch (error) {
@@ -162,12 +165,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <Text style={styles.headerSubtitle}>Profile: {username}</Text>
           )}
         </View>
-        {onBack && (
+        {onGoBack && (
           <Button
             title="Back"
             variant="ghost"
             size="sm"
-            onPress={onBack}
+            onPress={onGoBack}
           />
         )}
       </View>

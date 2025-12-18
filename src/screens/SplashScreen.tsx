@@ -1,6 +1,5 @@
 import React, {useEffect} from 'react';
-import {View, Text, StyleSheet, ActivityIndicator} from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
+import {View, Text, StyleSheet, ActivityIndicator, SafeAreaView} from 'react-native';
 import {colors, spacing, typography} from '../styles/theme';
 
 interface SplashScreenProps {
@@ -18,7 +17,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({onFinish}) => {
   }, [onFinish]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.logoContainer}>
           <Text style={styles.logoText}>Clean Earth Inc.</Text>

@@ -1,23 +1,4 @@
-// Platform-specific imports
-let AsyncStorage: any;
-
-if (typeof window !== 'undefined') {
-  // Web platform
-  AsyncStorage = {
-    getItem: async (key: string) => {
-      return localStorage.getItem(key);
-    },
-    setItem: async (key: string, value: string) => {
-      localStorage.setItem(key, value);
-    },
-    removeItem: async (key: string) => {
-      localStorage.removeItem(key);
-    },
-  };
-} else {
-  // Native platform
-  AsyncStorage = require('@react-native-async-storage/async-storage').default;
-}
+import {safeAsyncStorage} from '../utils/storage';
 
 export interface DropWasteRecord {
   orderNumber: string;
@@ -75,18 +56,18 @@ export const dropWaste = async (
       
       // Store individual drop record
       const dropKey = `${DROP_WASTE_KEY_PREFIX}${orderNumber}`;
-      await AsyncStorage.setItem(dropKey, JSON.stringify(record));
+      await safeAsyncStorage.setItem(dropKey, JSON.stringify(record));
     }
 
     // Update dropped orders list
     const existingDroppedOrders = await getDroppedOrders();
     const updatedDroppedOrders = [...new Set([...existingDroppedOrders, ...orderNumbers])];
-    await AsyncStorage.setItem(DROPPED_ORDERS_KEY, JSON.stringify(updatedDroppedOrders));
+    await safeAsyncStorage.setItem(DROPPED_ORDERS_KEY, JSON.stringify(updatedDroppedOrders));
 
     // Update dropped containers list
     const existingDroppedContainers = await getDroppedContainers();
     const updatedDroppedContainers = [...new Set([...existingDroppedContainers, ...containerIds])];
-    await AsyncStorage.setItem(DROPPED_CONTAINERS_KEY, JSON.stringify(updatedDroppedContainers));
+    await safeAsyncStorage.setItem(DROPPED_CONTAINERS_KEY, JSON.stringify(updatedDroppedContainers));
   } catch (error) {
     console.error('Error dropping waste:', error);
     throw error;
@@ -99,7 +80,7 @@ export const dropWaste = async (
  */
 export const getDroppedOrders = async (): Promise<string[]> => {
   try {
-    const stored = await AsyncStorage.getItem(DROPPED_ORDERS_KEY);
+    const stored = await safeAsyncStorage.getItem(DROPPED_ORDERS_KEY);
     if (!stored) {
       return [];
     }
@@ -116,7 +97,7 @@ export const getDroppedOrders = async (): Promise<string[]> => {
  */
 export const getDroppedContainers = async (): Promise<string[]> => {
   try {
-    const stored = await AsyncStorage.getItem(DROPPED_CONTAINERS_KEY);
+    const stored = await safeAsyncStorage.getItem(DROPPED_CONTAINERS_KEY);
     if (!stored) {
       return [];
     }
@@ -167,7 +148,7 @@ export const getDropRecordForOrder = async (
 ): Promise<DropWasteRecord | null> => {
   try {
     const dropKey = `${DROP_WASTE_KEY_PREFIX}${orderNumber}`;
-    const stored = await AsyncStorage.getItem(dropKey);
+    const stored = await safeAsyncStorage.getItem(dropKey);
     if (!stored) {
       return null;
     }
@@ -177,4 +158,13 @@ export const getDropRecordForOrder = async (
     return null;
   }
 };
+
+
+
+
+
+
+
+
+
 
