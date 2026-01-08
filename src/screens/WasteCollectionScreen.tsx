@@ -25,6 +25,9 @@ import {
 } from 'react-native';
 import SignatureCanvas from '../components/SignatureCanvas';
 import DropWasteModal from '../components/DropWasteModal';
+import ChecklistScreen from './ChecklistScreen';
+import {sampleChecklist} from '../data/sampleChecklist';
+import {ChecklistAnswer} from '../types/checklist';
 import {Button} from '../components/Button';
 import {Input} from '../components/Input';
 import {
@@ -228,6 +231,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   onGoBack,
 }) => {
   const [currentStep, setCurrentStep] = useState<FlowStep>('dashboard');
+  const [showChecklistModal, setShowChecklistModal] = useState(false);
+  const [checklistAnswers, setChecklistAnswers] = useState<ChecklistAnswer[] | null>(null);
   const [selectedOrderData, setSelectedOrderData] = useState<OrderData | null>(
     null,
   );
@@ -384,6 +389,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       loadTruckId();
     }
   }, [currentStep, loadTruckId]);
+
+
 
   // Load active time tracking
   const loadActiveTimeTracking = useCallback(async () => {
@@ -1012,6 +1019,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 onPress={() => setShowDropWasteModal(true)}
               />
             )}
+
             <Button
               title="Sync"
               variant="outline"
@@ -1289,6 +1297,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 onPress={() => setShowDropWasteModal(true)}
               />
             )}
+            <Button
+              title="Service Closeout"
+              variant="outline"
+              size="md"
+              onPress={() => onNavigate?.('ServiceCloseout')}
+            />
             <Button
               title="Sync"
               variant="outline"
@@ -4180,6 +4194,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             onPress={() => setCurrentStep('manifest-management')}
           />
           <Button
+            title="Service Checklist"
+            variant="secondary"
+            size="md"
+            onPress={() => {
+              setShowChecklistModal(true);
+            }}
+          />
+          <Button
             title="Acknowledge & Complete"
             variant="primary"
             size="md"
@@ -5216,6 +5238,36 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           </View>
         </View>
       )}
+
+      {/* Service Checklist Modal */}
+      <Modal
+        visible={showChecklistModal}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowChecklistModal(false)}>
+        <ChecklistScreen
+          checklist={sampleChecklist}
+          onComplete={(answers) => {
+            setChecklistAnswers(answers);
+            setShowChecklistModal(false);
+            console.log('[WasteCollection] Checklist completed:', answers);
+          }}
+          onCancel={() => {
+            Alert.alert(
+              'Cancel Checklist',
+              'Are you sure you want to cancel? Your progress will be lost.',
+              [
+                {text: 'No', style: 'cancel'},
+                {
+                  text: 'Yes',
+                  style: 'destructive',
+                  onPress: () => setShowChecklistModal(false),
+                },
+              ]
+            );
+          }}
+        />
+      </Modal>
     </SafeAreaView>
   );
 };
