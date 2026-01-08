@@ -1204,25 +1204,18 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         </Text>
                       </View>
                     )}
-                  </CardContent>
-                </Card>
-
-                <Card style={styles.detailCard}>
-                  <CardHeader>
-                    <CardTitle>
-                      <CardTitleText>Programs</CardTitleText>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <View style={styles.programsContainer}>
-                      {selectedOrder.programs.map((program, i) => (
-                        <Badge
-                          key={i}
-                          variant="secondary"
-                          style={styles.programBadge}>
-                          {program}
-                        </Badge>
-                      ))}
+                    <View style={[styles.detailRow, styles.programsDetailRow]}>
+                      <Text style={styles.detailLabel}>Programs:</Text>
+                      <View style={styles.programsContainerInline}>
+                        {selectedOrder.programs.map((program, i) => (
+                          <Badge
+                            key={i}
+                            variant="secondary"
+                            style={styles.programBadge}>
+                            {program}
+                          </Badge>
+                        ))}
+                      </View>
                     </View>
                   </CardContent>
                 </Card>
@@ -5613,6 +5606,16 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.sm,
     marginTop: spacing.sm,
+  },
+  programsContainerInline: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  programsDetailRow: {
+    alignItems: 'flex-start',
   },
   programBadge: {
     marginRight: spacing.xs,

@@ -7,6 +7,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  Modal,
 } from 'react-native';
 import {Button} from '../components/Button';
 import {Input} from '../components/Input';
@@ -40,6 +41,8 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
 }) => {
   const [answers, setAnswers] = useState<Record<string, ChecklistAnswer>>({});
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerMonth, setDatePickerMonth] = useState(new Date());
 
   // Flatten questions with conditional logic
   const flatQuestions = useMemo(() => {
@@ -114,6 +117,21 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
   const getCurrentAnswer = (): ChecklistAnswer | undefined => {
     return currentQuestion ? answers[currentQuestion.id] : undefined;
   };
+
+  // Initialize date answer to today if not set
+  useEffect(() => {
+    if (currentQuestion?.type === 'Date' && !answers[currentQuestion.id]) {
+      const today = new Date();
+      const todayString = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+      setAnswers(prev => ({
+        ...prev,
+        [currentQuestion.id]: {
+          questionId: currentQuestion.id,
+          value: todayString,
+        },
+      }));
+    }
+  }, [currentQuestion?.id, currentQuestion?.type]);
 
   const isAnswerValid = (): boolean => {
     if (!currentQuestion) return false;
@@ -298,13 +316,182 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
         );
 
       case 'Date':
+        const dateString = answerValue && !Array.isArray(answerValue) 
+          ? answerValue.toString() 
+          : '';
+        const selectedDate = dateString ? new Date(dateString) : new Date();
+        
+        // Format date for display (YYYY-MM-DD to MM/DD/YYYY)
+        const formatDateForDisplay = (dateStr: string) => {
+          if (!dateStr) return '';
+          const parts = dateStr.split('-');
+          if (parts.length === 3) {
+            return `${parts[1]}/${parts[2]}/${parts[0]}`;
+          }
+          return dateStr;
+        };
+        
+        // Get calendar days for current month
+        const getCalendarDays = (date: Date) => {
+          const year = date.getFullYear();
+          const month = date.getMonth();
+          const firstDay = new Date(year, month, 1);
+          const lastDay = new Date(year, month + 1, 0);
+          const daysInMonth = lastDay.getDate();
+          const startingDayOfWeek = firstDay.getDay();
+          
+          const days: Array<{day: number; date: Date; isCurrentMonth: boolean}> = [];
+          
+          // Add previous month's trailing days
+          const prevMonth = new Date(year, month - 1, 0);
+          for (let i = startingDayOfWeek - 1; i >= 0; i--) {
+            days.push({
+              day: prevMonth.getDate() - i,
+              date: new Date(year, month - 1, prevMonth.getDate() - i),
+              isCurrentMonth: false,
+            });
+          }
+          
+          // Add current month's days
+          for (let day = 1; day <= daysInMonth; day++) {
+            days.push({
+              day,
+              date: new Date(year, month, day),
+              isCurrentMonth: true,
+            });
+          }
+          
+          // Add next month's leading days to fill the grid
+          const remainingDays = 42 - days.length; // 6 rows × 7 days
+          for (let day = 1; day <= remainingDays; day++) {
+            days.push({
+              day,
+              date: new Date(year, month + 1, day),
+              isCurrentMonth: false,
+            });
+          }
+          
+          return days;
+        };
+        
+        const calendarDays = getCalendarDays(datePickerMonth);
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+          'July', 'August', 'September', 'October', 'November', 'December'];
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        
+        const handleDateSelect = (date: Date) => {
+          const dateStr = date.toISOString().split('T')[0];
+          handleAnswerChange(currentQuestion.id, dateStr);
+          setShowDatePicker(false);
+        };
+        
+        const navigateMonth = (direction: 'prev' | 'next') => {
+          const newDate = new Date(datePickerMonth);
+          if (direction === 'prev') {
+            newDate.setMonth(newDate.getMonth() - 1);
+          } else {
+            newDate.setMonth(newDate.getMonth() + 1);
+          }
+          setDatePickerMonth(newDate);
+        };
+        
         return (
-          <Input
-            value={answerValue?.toString() || ''}
-            onChangeText={text => handleAnswerChange(currentQuestion.id, text)}
-            placeholder="MM/DD/YYYY"
-            size="lg"
-          />
+          <View>
+            <TouchableOpacity
+              style={styles.dateInputButton}
+              onPress={() => {
+                setDatePickerMonth(selectedDate);
+                setShowDatePicker(true);
+              }}>
+              <Text style={styles.dateInputText}>
+                {formatDateForDisplay(dateString) || 'Select Date'}
+              </Text>
+              <Text style={styles.dateInputIcon}>📅</Text>
+            </TouchableOpacity>
+            
+            {/* Simple Calendar Date Picker Modal */}
+            <Modal
+              visible={showDatePicker}
+              transparent={true}
+              animationType="slide"
+              onRequestClose={() => setShowDatePicker(false)}>
+              <View style={styles.datePickerOverlay}>
+                <View style={styles.datePickerContent}>
+                  <View style={styles.datePickerHeader}>
+                    <TouchableOpacity
+                      onPress={() => navigateMonth('prev')}
+                      style={styles.datePickerNavButton}>
+                      <Text style={styles.datePickerNavText}>‹</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.datePickerMonthText}>
+                      {monthNames[datePickerMonth.getMonth()]} {datePickerMonth.getFullYear()}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => navigateMonth('next')}
+                      style={styles.datePickerNavButton}>
+                      <Text style={styles.datePickerNavText}>›</Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <View style={styles.datePickerGrid}>
+                    {/* Day headers */}
+                    {dayNames.map(day => (
+                      <View key={day} style={styles.datePickerDayHeader}>
+                        <Text style={styles.datePickerDayHeaderText}>{day}</Text>
+                      </View>
+                    ))}
+                    
+                    {/* Calendar days */}
+                    {calendarDays.map((item, index) => {
+                      const isSelected = dateString && 
+                        item.date.toISOString().split('T')[0] === dateString;
+                      const isToday = item.date.toDateString() === new Date().toDateString();
+                      
+                      return (
+                        <TouchableOpacity
+                          key={index}
+                          style={[
+                            styles.datePickerDay,
+                            !item.isCurrentMonth ? styles.datePickerDayOtherMonth : undefined,
+                            isSelected ? styles.datePickerDaySelected : undefined,
+                            isToday && !isSelected ? styles.datePickerDayToday : undefined,
+                          ]}
+                          onPress={() => handleDateSelect(item.date)}>
+                          <Text
+                            style={[
+                              styles.datePickerDayText,
+                              !item.isCurrentMonth ? styles.datePickerDayTextOtherMonth : undefined,
+                              isSelected ? styles.datePickerDayTextSelected : undefined,
+                              isToday && !isSelected ? styles.datePickerDayTextToday : undefined,
+                            ]}>
+                            {item.day}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  
+                  <View style={styles.datePickerFooter}>
+                    <Button
+                      title="Today"
+                      onPress={() => {
+                        const today = new Date();
+                        handleDateSelect(today);
+                      }}
+                      variant="outline"
+                      size="sm"
+                    />
+                    <Button
+                      title="Cancel"
+                      onPress={() => setShowDatePicker(false)}
+                      variant="outline"
+                      size="sm"
+                    />
+                  </View>
+                </View>
+              </View>
+            </Modal>
+          </View>
         );
 
       case 'Text':
@@ -365,7 +552,13 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
             )}
 
             <CardTitle>
-              <CardTitleText>{currentQuestion.text}</CardTitleText>
+              <CardTitleText>{currentQuestion.text} &nbsp;
+                                    {currentQuestion.required && (
+                                        <View style={[styles.tag, styles.tagRequired]}>
+                                          <Text style={styles.tagText}>Required</Text>
+                                        </View>
+                                      )}
+                </CardTitleText>
             </CardTitle>
 
             {currentQuestion.description && (
@@ -374,16 +567,12 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
 
             {currentQuestion.tags && currentQuestion.tags.length > 0 && (
               <View style={styles.tagsContainer}>
-                {currentQuestion.tags.map((tag, index) => (
+                {/* {currentQuestion.tags.map((tag, index) => (
                   <View key={index} style={styles.tag}>
                     <Text style={styles.tagText}>{tag}</Text>
                   </View>
-                ))}
-                {currentQuestion.required && (
-                  <View style={[styles.tag, styles.tagRequired]}>
-                    <Text style={styles.tagText}>Required</Text>
-                  </View>
-                )}
+                ))} */}
+
               </View>
             )}
 
@@ -565,6 +754,117 @@ const styles = StyleSheet.create({
     ...typography.lg,
     color: colors.destructive,
     marginBottom: spacing.lg,
+  },
+  dateInputButton: {
+    minHeight: touchTargets.comfortable,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.inputBackground,
+    borderWidth: 2,
+    borderColor: colors.input,
+    borderRadius: borderRadius.md,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  dateInputText: {
+    ...typography.base,
+    color: colors.foreground,
+  },
+  dateInputIcon: {
+    fontSize: 24,
+  },
+  datePickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  datePickerContent: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    width: '90%',
+    maxWidth: 500,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  datePickerNavButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.muted,
+  },
+  datePickerNavText: {
+    ...typography.xl,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  datePickerMonthText: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  datePickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: spacing.md,
+  },
+  datePickerDayHeader: {
+    width: '14.28%',
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  datePickerDayHeaderText: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.mutedForeground,
+  },
+  datePickerDay: {
+    width: '14.28%',
+    aspectRatio: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: borderRadius.sm,
+    margin: 2,
+  },
+  datePickerDayOtherMonth: {
+    opacity: 0.3,
+  },
+  datePickerDaySelected: {
+    backgroundColor: colors.primary,
+  },
+  datePickerDayToday: {
+    backgroundColor: colors.muted,
+    borderWidth: 2,
+    borderColor: colors.primary,
+  },
+  datePickerDayText: {
+    ...typography.base,
+    color: colors.foreground,
+  },
+  datePickerDayTextOtherMonth: {
+    color: colors.mutedForeground,
+  },
+  datePickerDayTextSelected: {
+    color: colors.primaryForeground,
+    fontWeight: '600',
+  },
+  datePickerDayTextToday: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  datePickerFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    marginTop: spacing.sm,
   },
 });
 
