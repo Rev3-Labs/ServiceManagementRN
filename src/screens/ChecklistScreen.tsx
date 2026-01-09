@@ -1,4 +1,4 @@
-import React, {useState, useMemo, useEffect} from 'react';
+import React, {useState, useMemo, useEffect, useRef} from 'react';
 import {
   View,
   Text,
@@ -40,9 +40,12 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
   onCancel,
 }) => {
   const [answers, setAnswers] = useState<Record<string, ChecklistAnswer>>({});
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [visibleQuestionIndices, setVisibleQuestionIndices] = useState<number[]>([0]);
+  const [confirmedQuestions, setConfirmedQuestions] = useState<Set<string>>(new Set());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerMonth, setDatePickerMonth] = useState(new Date());
+  const [datePickerQuestionId, setDatePickerQuestionId] = useState<string | null>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   // Flatten questions with conditional logic
   const flatQuestions = useMemo(() => {
@@ -91,53 +94,103 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
     return flattened;
   }, [checklist.questions, answers]);
 
-  // Ensure currentQuestionIndex is valid when flatQuestions changes
-  useEffect(() => {
-    if (currentQuestionIndex >= flatQuestions.length && flatQuestions.length > 0) {
-      setCurrentQuestionIndex(flatQuestions.length - 1);
-    }
-  }, [flatQuestions.length, currentQuestionIndex]);
-
+  // Get the current question index (last visible question)
+  const currentQuestionIndex = visibleQuestionIndices[visibleQuestionIndices.length - 1] ?? 0;
   const currentFlatQuestion = flatQuestions[currentQuestionIndex];
   const currentQuestion = currentFlatQuestion?.question;
+  
+  // Ensure visibleQuestionIndices includes all questions up to currentQuestionIndex
+  useEffect(() => {
+    if (flatQuestions.length > 0) {
+      setVisibleQuestionIndices(prev => {
+        const maxIndex = Math.max(...prev, currentQuestionIndex);
+        const newIndices: number[] = [];
+        for (let i = 0; i <= maxIndex && i < flatQuestions.length; i++) {
+          if (!newIndices.includes(i)) {
+            newIndices.push(i);
+          }
+        }
+        return newIndices.length > 0 ? newIndices : [0];
+      });
+    }
+  }, [flatQuestions.length, currentQuestionIndex]);
+  
+  // Calculate progress based on answered questions
+  const answeredCount = Object.keys(answers).filter(id => {
+    const answer = answers[id];
+    return answer && answer.value !== null && answer.value !== undefined;
+  }).length;
   const progress = flatQuestions.length > 0 
-    ? ((currentQuestionIndex + 1) / flatQuestions.length) * 100 
+    ? (answeredCount / flatQuestions.length) * 100 
     : 0;
 
-  const handleAnswerChange = (questionId: string, value: any) => {
-    setAnswers(prev => ({
-      ...prev,
-      [questionId]: {
-        questionId,
-        value,
-      },
-    }));
-  };
-
-  const getCurrentAnswer = (): ChecklistAnswer | undefined => {
-    return currentQuestion ? answers[currentQuestion.id] : undefined;
-  };
-
-  // Initialize date answer to today if not set
-  useEffect(() => {
-    if (currentQuestion?.type === 'Date' && !answers[currentQuestion.id]) {
-      const today = new Date();
-      const todayString = today.toISOString().split('T')[0]; // YYYY-MM-DD format
-      setAnswers(prev => ({
+  const handleAnswerChange = (questionId: string, value: any, questionType: QuestionType) => {
+    setAnswers(prev => {
+      const newAnswers = {
         ...prev,
-        [currentQuestion.id]: {
-          questionId: currentQuestion.id,
-          value: todayString,
+        [questionId]: {
+          questionId,
+          value,
         },
-      }));
-    }
-  }, [currentQuestion?.id, currentQuestion?.type]);
+      };
+      
+      // Check if we should auto-advance for Yes/No/NA or Single Choice
+      const shouldAutoAdvance = questionType === 'Yes/No/NA' || questionType === 'Single Choice';
+      
+      if (shouldAutoAdvance && value !== null && value !== undefined) {
+        // Mark as confirmed since it auto-advances
+        setConfirmedQuestions(prev => new Set(prev).add(questionId));
+        // Auto-advance to next question after a short delay
+        setTimeout(() => {
+          handleNextQuestion();
+        }, 300);
+      }
+      
+      return newAnswers;
+    });
+  };
 
-  const isAnswerValid = (): boolean => {
-    if (!currentQuestion) return false;
-    if (!currentQuestion.required) return true;
+  const handleNextQuestion = () => {
+    const nextIndex = currentQuestionIndex + 1;
+    if (nextIndex < flatQuestions.length) {
+      setVisibleQuestionIndices(prev => {
+        if (!prev.includes(nextIndex)) {
+          return [...prev, nextIndex];
+        }
+        return prev;
+      });
+    }
+    // Don't auto-complete - user must click "Complete Checklist" button
+  };
+
+
+  // Initialize date answer to today if not set for visible questions
+  useEffect(() => {
+    visibleQuestionIndices.forEach(index => {
+      const flatQuestion = flatQuestions[index];
+      if (flatQuestion?.question.type === 'Date') {
+        setAnswers(prev => {
+          if (prev[flatQuestion.question.id]) {
+            return prev; // Already has an answer
+          }
+          const today = new Date();
+          const todayString = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+          return {
+            ...prev,
+            [flatQuestion.question.id]: {
+              questionId: flatQuestion.question.id,
+              value: todayString,
+            },
+          };
+        });
+      }
+    });
+  }, [visibleQuestionIndices, flatQuestions]);
+
+  const isAnswerValid = (question: ChecklistQuestion): boolean => {
+    if (!question.required) return true;
     
-    const answer = getCurrentAnswer();
+    const answer = answers[question.id];
     if (!answer || answer.value === null || answer.value === undefined) {
       return false;
     }
@@ -153,24 +206,18 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
     return true;
   };
 
-  const handleNext = () => {
-    if (!isAnswerValid()) {
+  const handleContinue = (questionId: string) => {
+    const question = flatQuestions.find(fq => fq.question.id === questionId)?.question;
+    if (!question) return;
+
+    if (!isAnswerValid(question)) {
       Alert.alert('Required Field', 'Please answer this question before continuing.');
       return;
     }
 
-    if (currentQuestionIndex < flatQuestions.length - 1) {
-      setCurrentQuestionIndex(prev => prev + 1);
-    } else {
-      // Last question - show completion
-      handleComplete();
-    }
-  };
-
-  const handlePrevious = () => {
-    if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex(prev => prev - 1);
-    }
+    // Mark as confirmed when user clicks Continue
+    setConfirmedQuestions(prev => new Set(prev).add(questionId));
+    handleNextQuestion();
   };
 
   const handleComplete = () => {
@@ -188,12 +235,12 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
         'Incomplete Checklist',
         `Please answer all required questions. ${missingRequired.length} question(s) remaining.`
       );
-      // Find first missing question
+      // Find first missing question and make it visible
       const firstMissingIndex = flatQuestions.findIndex(
         fq => missingRequired.some(mr => mr.id === fq.question.id)
       );
       if (firstMissingIndex >= 0) {
-        setCurrentQuestionIndex(firstMissingIndex);
+        setVisibleQuestionIndices([firstMissingIndex]);
       }
       return;
     }
@@ -201,13 +248,11 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
     onComplete(allAnswers);
   };
 
-  const renderQuestionInput = () => {
-    if (!currentQuestion) return null;
-
-    const answer = getCurrentAnswer();
+  const renderQuestionInput = (question: ChecklistQuestion, isAnswered: boolean) => {
+    const answer = answers[question.id];
     const answerValue = answer?.value;
 
-    switch (currentQuestion.type) {
+    switch (question.type) {
       case 'Yes/No/NA':
         return (
           <View style={styles.choiceContainer}>
@@ -219,12 +264,15 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                   style={[
                     styles.choiceButton,
                     isSelected && styles.choiceButtonSelected,
+                    isAnswered && !isSelected && styles.choiceButtonDisabled,
                   ]}
-                  onPress={() => handleAnswerChange(currentQuestion.id, option)}>
+                  onPress={() => !isAnswered && handleAnswerChange(question.id, option, question.type)}
+                  disabled={isAnswered}>
                   <Text
                     style={[
                       styles.choiceButtonText,
                       isSelected && styles.choiceButtonTextSelected,
+                      isAnswered && !isSelected && styles.choiceButtonTextDisabled,
                     ]}>
                     {option}
                   </Text>
@@ -235,10 +283,10 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
         );
 
       case 'Single Choice':
-        if (!currentQuestion.choices) return null;
+        if (!question.choices) return null;
         return (
           <View style={styles.choiceContainer}>
-            {currentQuestion.choices.map(choice => {
+            {question.choices.map(choice => {
               const isSelected = answerValue === choice.id || answerValue === choice.label;
               return (
                 <TouchableOpacity
@@ -246,12 +294,15 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                   style={[
                     styles.choiceButton,
                     isSelected && styles.choiceButtonSelected,
+                    isAnswered && !isSelected && styles.choiceButtonDisabled,
                   ]}
-                  onPress={() => handleAnswerChange(currentQuestion.id, choice.id)}>
+                  onPress={() => !isAnswered && handleAnswerChange(question.id, choice.id, question.type)}
+                  disabled={isAnswered}>
                   <Text
                     style={[
                       styles.choiceButtonText,
                       isSelected && styles.choiceButtonTextSelected,
+                      isAnswered && !isSelected && styles.choiceButtonTextDisabled,
                     ]}>
                     {choice.label}
                   </Text>
@@ -262,14 +313,14 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
         );
 
       case 'Multiple Choice':
-        if (!currentQuestion.choices) return null;
+        if (!question.choices) return null;
         const selectedValues = Array.isArray(answerValue) 
           ? answerValue 
           : answerValue ? [answerValue] : [];
         
         return (
           <View style={styles.choiceContainer}>
-            {currentQuestion.choices.map(choice => {
+            {question.choices.map(choice => {
               const isSelected = selectedValues.includes(choice.id) || 
                                selectedValues.includes(choice.label);
               return (
@@ -278,17 +329,21 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                   style={[
                     styles.choiceButton,
                     isSelected && styles.choiceButtonSelected,
+                    isAnswered && !isSelected && styles.choiceButtonDisabled,
                   ]}
                   onPress={() => {
+                    if (isAnswered) return;
                     const newValues = isSelected
                       ? selectedValues.filter(v => v !== choice.id && v !== choice.label)
                       : [...selectedValues, choice.id];
-                    handleAnswerChange(currentQuestion.id, newValues);
-                  }}>
+                    handleAnswerChange(question.id, newValues, question.type);
+                  }}
+                  disabled={isAnswered}>
                   <Text
                     style={[
                       styles.choiceButtonText,
                       isSelected && styles.choiceButtonTextSelected,
+                      isAnswered && !isSelected && styles.choiceButtonTextDisabled,
                     ]}>
                     {choice.label}
                   </Text>
@@ -306,12 +361,14 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
             onChangeText={text => {
               const num = parseFloat(text);
               handleAnswerChange(
-                currentQuestion.id,
-                isNaN(num) ? null : num
+                question.id,
+                isNaN(num) ? null : num,
+                question.type
               );
             }}
             placeholder="Enter a number"
             size="lg"
+            editable={!isAnswered}
           />
         );
 
@@ -379,10 +436,11 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
           'July', 'August', 'September', 'October', 'November', 'December'];
         const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         
-        const handleDateSelect = (date: Date) => {
+        const handleDateSelect = (date: Date, qId: string) => {
           const dateStr = date.toISOString().split('T')[0];
-          handleAnswerChange(currentQuestion.id, dateStr);
+          handleAnswerChange(qId, dateStr, question.type);
           setShowDatePicker(false);
+          setDatePickerQuestionId(null);
         };
         
         const navigateMonth = (direction: 'prev' | 'next') => {
@@ -398,12 +456,21 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
         return (
           <View>
             <TouchableOpacity
-              style={styles.dateInputButton}
+              style={[
+                styles.dateInputButton,
+                isAnswered && styles.dateInputButtonDisabled,
+              ]}
               onPress={() => {
+                if (isAnswered) return;
                 setDatePickerMonth(selectedDate);
+                setDatePickerQuestionId(question.id);
                 setShowDatePicker(true);
-              }}>
-              <Text style={styles.dateInputText}>
+              }}
+              disabled={isAnswered}>
+              <Text style={[
+                styles.dateInputText,
+                isAnswered && styles.dateInputTextDisabled,
+              ]}>
                 {formatDateForDisplay(dateString) || 'Select Date'}
               </Text>
               <Text style={styles.dateInputIcon}>📅</Text>
@@ -411,10 +478,13 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
             
             {/* Simple Calendar Date Picker Modal */}
             <Modal
-              visible={showDatePicker}
+              visible={showDatePicker && datePickerQuestionId === question.id}
               transparent={true}
               animationType="slide"
-              onRequestClose={() => setShowDatePicker(false)}>
+              onRequestClose={() => {
+                setShowDatePicker(false);
+                setDatePickerQuestionId(null);
+              }}>
               <View style={styles.datePickerOverlay}>
                 <View style={styles.datePickerContent}>
                   <View style={styles.datePickerHeader}>
@@ -456,7 +526,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                             isSelected ? styles.datePickerDaySelected : undefined,
                             isToday && !isSelected ? styles.datePickerDayToday : undefined,
                           ]}
-                          onPress={() => handleDateSelect(item.date)}>
+                          onPress={() => handleDateSelect(item.date, question.id)}>
                           <Text
                             style={[
                               styles.datePickerDayText,
@@ -476,14 +546,17 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                       title="Today"
                       onPress={() => {
                         const today = new Date();
-                        handleDateSelect(today);
+                        handleDateSelect(today, question.id);
                       }}
                       variant="outline"
                       size="sm"
                     />
                     <Button
                       title="Cancel"
-                      onPress={() => setShowDatePicker(false)}
+                      onPress={() => {
+                        setShowDatePicker(false);
+                        setDatePickerQuestionId(null);
+                      }}
                       variant="outline"
                       size="sm"
                     />
@@ -500,10 +573,11 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
             multiline
             numberOfLines={4}
             value={answerValue?.toString() || ''}
-            onChangeText={text => handleAnswerChange(currentQuestion.id, text)}
+            onChangeText={text => handleAnswerChange(question.id, text, question.type)}
             placeholder="Enter your answer"
             size="lg"
             style={styles.textInput}
+            editable={!isAnswered}
           />
         );
 
@@ -512,7 +586,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
     }
   };
 
-  if (!currentQuestion) {
+  if (flatQuestions.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.content}>
@@ -522,6 +596,11 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
       </SafeAreaView>
     );
   }
+
+  // Get visible questions (all answered + current unanswered)
+  const visibleQuestions = visibleQuestionIndices
+    .map(index => flatQuestions[index])
+    .filter(Boolean);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -534,71 +613,120 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
             <View style={[styles.progressFill, {width: `${progress}%`}]} />
           </View>
           <Text style={styles.progressText}>
-            Question {currentQuestionIndex + 1} of {flatQuestions.length}
+            {answeredCount} of {flatQuestions.length} answered
           </Text>
         </View>
       </View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        <Card style={styles.questionCard}>
-          <CardContent>
-            {currentFlatQuestion.level > 0 && (
-              <View style={styles.branchIndicator}>
-                <View style={styles.branchLine} />
-                <Text style={styles.branchText}>
-                  {currentFlatQuestion.branch} ({currentFlatQuestion.level} level deep)
-                </Text>
-              </View>
-            )}
+      <ScrollView 
+        ref={scrollViewRef}
+        style={styles.scrollView} 
+        contentContainerStyle={styles.scrollContent}
+        onContentSizeChange={() => {
+          // Auto-scroll to bottom when new question appears
+          if (scrollViewRef.current && visibleQuestions.length > 0) {
+            setTimeout(() => {
+              scrollViewRef.current?.scrollToEnd({ animated: true });
+            }, 100);
+          }
+        }}>
+        {visibleQuestions.map((flatQuestion, questionIndex) => {
+          const question = flatQuestion.question;
+          const answer = answers[question.id];
+          const hasAnswer = answer && answer.value !== null && answer.value !== undefined;
+          const isConfirmed = confirmedQuestions.has(question.id);
+          // A question is "answered" (visually) only if it has an answer AND is confirmed
+          // OR if it's auto-advance type (Yes/No/NA, Single Choice) and has an answer
+          const isAnswered = hasAnswer && (
+            isConfirmed || 
+            question.type === 'Yes/No/NA' || 
+            question.type === 'Single Choice'
+          );
+          const isCurrentQuestion = questionIndex === visibleQuestions.length - 1;
+          const isLastQuestion = currentQuestionIndex === flatQuestions.length - 1;
+          // Don't show continue button for the last question - user will use "Complete Checklist" button
+          const needsContinueButton = hasAnswer && !isConfirmed && isCurrentQuestion && 
+            !isLastQuestion &&
+            question.type !== 'Yes/No/NA' && 
+            question.type !== 'Single Choice';
 
-            <CardTitle>
-              <CardTitleText>{currentQuestion.text} &nbsp;
-                                    {currentQuestion.required && (
-                                        <View style={[styles.tag, styles.tagRequired]}>
-                                          <Text style={styles.tagText}>Required</Text>
-                                        </View>
-                                      )}
-                </CardTitleText>
-            </CardTitle>
+          const cardStyles = [
+            styles.questionCard,
+            isAnswered && styles.questionCardAnswered,
+            isCurrentQuestion && !isAnswered && styles.questionCardCurrent,
+          ].filter(Boolean);
 
-            {currentQuestion.description && (
-              <Text style={styles.description}>{currentQuestion.description}</Text>
-            )}
-
-            {currentQuestion.tags && currentQuestion.tags.length > 0 && (
-              <View style={styles.tagsContainer}>
-                {/* {currentQuestion.tags.map((tag, index) => (
-                  <View key={index} style={styles.tag}>
-                    <Text style={styles.tagText}>{tag}</Text>
+          return (
+            <Card 
+              key={question.id} 
+              style={cardStyles.length > 1 ? cardStyles : cardStyles[0]}>
+              <CardContent>
+                {flatQuestion.level > 0 && (
+                  <View style={styles.branchIndicator}>
+                    <View style={styles.branchLine} />
+                    <Text style={styles.branchText}>
+                      {flatQuestion.branch} ({flatQuestion.level} level deep)
+                    </Text>
                   </View>
-                ))} */}
+                )}
 
-              </View>
-            )}
+                <CardTitle>
+                  <CardTitleText>
+                    {question.text}
+                    {question.required && (
+                      <View style={[styles.tag, styles.tagRequired]}>
+                        <Text style={styles.tagText}>Required</Text>
+                      </View>
+                    )}
+                  </CardTitleText>
+                </CardTitle>
 
-            <View style={styles.inputContainer}>
-              {renderQuestionInput()}
-            </View>
-          </CardContent>
-        </Card>
+                {question.description && (
+                  <Text style={styles.description}>{question.description}</Text>
+                )}
+
+                {question.tags && question.tags.length > 0 && (
+                  <View style={styles.tagsContainer}>
+                    {/* Tags can be displayed here if needed */}
+                  </View>
+                )}
+
+                <View style={styles.inputContainer}>
+                  {renderQuestionInput(question, isAnswered)}
+                </View>
+
+                {needsContinueButton && (
+                  <View style={styles.continueButtonContainer}>
+                    <Button
+                      title={currentQuestionIndex === flatQuestions.length - 1 ? 'Complete' : 'Continue'}
+                      onPress={() => handleContinue(question.id)}
+                      variant="primary"
+                      size="lg"
+                    />
+                  </View>
+                )}
+
+                {isAnswered && isCurrentQuestion && currentQuestionIndex < flatQuestions.length - 1 && (
+                  <View style={styles.answeredIndicator}>
+                    <Text style={styles.answeredText}>✓ Answered</Text>
+                  </View>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
       </ScrollView>
 
-      <View style={styles.footer}>
-        <Button
-          title="Previous"
-          onPress={handlePrevious}
-          variant="outline"
-          disabled={currentQuestionIndex === 0}
-          style={styles.footerButton}
-        />
-        <Button
-          title={currentQuestionIndex === flatQuestions.length - 1 ? 'Complete' : 'Next'}
-          onPress={handleNext}
-          variant="primary"
-          style={styles.footerButton}
-          fullWidth={currentQuestionIndex === 0}
-        />
-      </View>
+      {currentQuestionIndex === flatQuestions.length - 1 && (
+        <View style={styles.footer}>
+          <Button
+            title="Complete Checklist"
+            onPress={handleComplete}
+            variant="primary"
+            size="lg"
+          />
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -654,6 +782,19 @@ const styles = StyleSheet.create({
   },
   questionCard: {
     marginBottom: spacing.lg,
+  },
+  questionCardAnswered: {
+    opacity: 0.8,
+    borderColor: colors.muted,
+  },
+  questionCardCurrent: {
+    borderWidth: 2,
+    borderColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   branchIndicator: {
     flexDirection: 'row',
@@ -733,16 +874,36 @@ const styles = StyleSheet.create({
     color: colors.primaryForeground,
     fontWeight: '600',
   },
+  choiceButtonDisabled: {
+    opacity: 0.5,
+  },
+  choiceButtonTextDisabled: {
+    opacity: 0.5,
+  },
   footer: {
-    flexDirection: 'row',
     padding: spacing.lg,
     backgroundColor: colors.card,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    gap: spacing.md,
   },
   footerButton: {
     flex: 1,
+  },
+  continueButtonContainer: {
+    marginTop: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  answeredIndicator: {
+    marginTop: spacing.md,
+    paddingTop: spacing.sm,
+    alignItems: 'flex-end',
+  },
+  answeredText: {
+    ...typography.sm,
+    color: colors.primary,
+    fontWeight: '600',
   },
   content: {
     flex: 1,
@@ -773,6 +934,12 @@ const styles = StyleSheet.create({
   },
   dateInputIcon: {
     fontSize: 24,
+  },
+  dateInputButtonDisabled: {
+    opacity: 0.5,
+  },
+  dateInputTextDisabled: {
+    opacity: 0.5,
   },
   datePickerOverlay: {
     flex: 1,
