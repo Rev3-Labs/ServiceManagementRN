@@ -104,6 +104,7 @@ interface WasteStream {
   containerCount?: number;
   allowedContainers: string[];
   isDEARegulated?: boolean;
+  requiresCylinderCount?: boolean; // Whether this profile requires cylinder count entry
 }
 
 interface ContainerType {
@@ -246,6 +247,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [scaleWeight, setScaleWeight] = useState('');
   const [grossWeight, setGrossWeight] = useState('285');
   const [barcode, setBarcode] = useState('');
+  const [cylinderCount, setCylinderCount] = useState('');
+  const [recentlyUsedProfiles, setRecentlyUsedProfiles] = useState<string[]>(['D001', 'U001', 'N001', 'HT001']);
   const [isManualWeightEntry, setIsManualWeightEntry] = useState(false);
   const [isScaleConnected, setIsScaleConnected] = useState(true); // Default to online for simulation
   const [scaleReading, setScaleReading] = useState<number | null>(null); // Simulated integer reading
@@ -833,6 +836,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       weight: '800 lbs max',
       popular: false,
     },
+    {
+      id: 'CYLINDER',
+      size: 'Gas Cylinder',
+      capacity: 'Varies',
+      code: 'CYL',
+      weight: 'Varies',
+      popular: false,
+    },
   ];
 
   const wasteStreams: WasteStream[] = [
@@ -848,6 +859,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       flags: ['Flammable', 'Toxic'],
       containerCount: 5,
       allowedContainers: ['30G', '55G', '85G'],
+      requiresCylinderCount: true, // Example: This profile requires cylinder count
     },
     {
       id: 'U001',
@@ -860,6 +872,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       flags: ['Non-Hazardous'],
       containerCount: 3,
       allowedContainers: ['1YD', '2YD', '4YD'],
+      requiresCylinderCount: false,
     },
     {
       id: 'N001',
@@ -872,23 +885,343 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       flags: ['Recyclable'],
       containerCount: 2,
       allowedContainers: ['5G', '30G', '55G', '95T', 'BULK'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'HT001',
+      profileName: 'Helium Tank',
+      profileNumber: 'HT001',
+      category: 'Compressed Gas',
+      hazardClass: 'Class 2.2',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'Handle compressed gas cylinders with care. Ensure proper valve protection.',
+      flags: ['Compressed Gas', 'Non-Flammable'],
+      containerCount: 1,
+      allowedContainers: ['CYLINDER'],
+      requiresCylinderCount: true, // Helium Tank profile requires cylinder count
+    },
+    // Additional test profiles
+    {
+      id: 'D002',
+      profileName: 'Corrosive Waste',
+      profileNumber: 'D002',
+      category: 'Hazardous',
+      hazardClass: 'Class 8',
+      consolidationAllowed: true,
+      accumulationsApply: true,
+      specialInstructions: 'Handle corrosive materials with appropriate PPE',
+      flags: ['Corrosive', 'Hazardous'],
+      containerCount: 3,
+      allowedContainers: ['30G', '55G'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'D003',
+      profileName: 'Flammable Liquids',
+      profileNumber: 'D003',
+      category: 'Hazardous',
+      hazardClass: 'Class 3',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'Store away from ignition sources',
+      flags: ['Flammable', 'Hazardous'],
+      containerCount: 4,
+      allowedContainers: ['5G', '30G', '55G'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'D004',
+      profileName: 'Toxic Waste',
+      profileNumber: 'D004',
+      category: 'Hazardous',
+      hazardClass: 'Class 6.1',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'Toxic materials - use proper ventilation',
+      flags: ['Toxic', 'Hazardous'],
+      containerCount: 2,
+      allowedContainers: ['30G', '55G'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'D005',
+      profileName: 'Oxidizing Waste',
+      profileNumber: 'D005',
+      category: 'Hazardous',
+      hazardClass: 'Class 5.1',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'Keep away from combustible materials',
+      flags: ['Oxidizing', 'Hazardous'],
+      containerCount: 3,
+      allowedContainers: ['30G', '55G'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'U002',
+      profileName: 'Universal Waste - Batteries',
+      profileNumber: 'U002',
+      category: 'Universal',
+      consolidationAllowed: true,
+      accumulationsApply: false,
+      specialInstructions: 'Store batteries in designated containers',
+      flags: ['Universal', 'Recyclable'],
+      containerCount: 5,
+      allowedContainers: ['5G', '30G'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'U003',
+      profileName: 'Universal Waste - Electronics',
+      profileNumber: 'U003',
+      category: 'Universal',
+      consolidationAllowed: true,
+      accumulationsApply: false,
+      specialInstructions: 'Handle electronic waste with care',
+      flags: ['Universal', 'E-Waste'],
+      containerCount: 2,
+      allowedContainers: ['1YD', '2YD', '4YD'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'U004',
+      profileName: 'Universal Waste - Pesticides',
+      profileNumber: 'U004',
+      category: 'Universal',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'Store in original containers when possible',
+      flags: ['Universal', 'Pesticide'],
+      containerCount: 1,
+      allowedContainers: ['5G', '30G'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'N002',
+      profileName: 'Office Paper Waste',
+      profileNumber: 'N002',
+      category: 'Non-Hazardous',
+      consolidationAllowed: true,
+      accumulationsApply: false,
+      specialInstructions: 'Standard recycling procedures',
+      flags: ['Recyclable', 'Paper'],
+      containerCount: 8,
+      allowedContainers: ['1YD', '2YD', '4YD', 'BULK'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'N003',
+      profileName: 'Cardboard Waste',
+      profileNumber: 'N003',
+      category: 'Non-Hazardous',
+      consolidationAllowed: true,
+      accumulationsApply: false,
+      specialInstructions: 'Flatten cardboard before disposal',
+      flags: ['Recyclable', 'Cardboard'],
+      containerCount: 6,
+      allowedContainers: ['1YD', '2YD', '4YD', 'BULK'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'N004',
+      profileName: 'Food Waste',
+      profileNumber: 'N004',
+      category: 'Non-Hazardous',
+      consolidationAllowed: true,
+      accumulationsApply: false,
+      specialInstructions: 'Compostable organic waste',
+      flags: ['Organic', 'Compostable'],
+      containerCount: 4,
+      allowedContainers: ['30G', '55G', '95T'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'N005',
+      profileName: 'Plastic Waste',
+      profileNumber: 'N005',
+      category: 'Non-Hazardous',
+      consolidationAllowed: true,
+      accumulationsApply: false,
+      specialInstructions: 'Separate by plastic type when possible',
+      flags: ['Recyclable', 'Plastic'],
+      containerCount: 7,
+      allowedContainers: ['30G', '55G', '95T', 'BULK'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'CG001',
+      profileName: 'Nitrogen Tank',
+      profileNumber: 'CG001',
+      category: 'Compressed Gas',
+      hazardClass: 'Class 2.2',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'Handle compressed gas cylinders with care',
+      flags: ['Compressed Gas', 'Non-Flammable'],
+      containerCount: 1,
+      allowedContainers: ['CYLINDER'],
+      requiresCylinderCount: true,
+    },
+    {
+      id: 'CG002',
+      profileName: 'Oxygen Tank',
+      profileNumber: 'CG002',
+      category: 'Compressed Gas',
+      hazardClass: 'Class 2.2',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'Oxygen supports combustion - keep away from oil and grease',
+      flags: ['Compressed Gas', 'Oxidizing'],
+      containerCount: 1,
+      allowedContainers: ['CYLINDER'],
+      requiresCylinderCount: true,
+    },
+    {
+      id: 'CG003',
+      profileName: 'Acetylene Tank',
+      profileNumber: 'CG003',
+      category: 'Compressed Gas',
+      hazardClass: 'Class 2.1',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'Highly flammable - handle with extreme care',
+      flags: ['Compressed Gas', 'Flammable'],
+      containerCount: 1,
+      allowedContainers: ['CYLINDER'],
+      requiresCylinderCount: true,
+    },
+    {
+      id: 'D006',
+      profileName: 'Infectious Waste',
+      profileNumber: 'D006',
+      category: 'Hazardous',
+      hazardClass: 'Class 6.2',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'Biohazard - use red bags and proper labeling',
+      flags: ['Infectious', 'Biohazard'],
+      containerCount: 2,
+      allowedContainers: ['30G', '55G'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'D007',
+      profileName: 'Radioactive Waste',
+      profileNumber: 'D007',
+      category: 'Hazardous',
+      hazardClass: 'Class 7',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'Radioactive materials - special handling required',
+      flags: ['Radioactive', 'Hazardous'],
+      containerCount: 1,
+      allowedContainers: ['30G', '55G'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'D008',
+      profileName: 'Reactive Waste',
+      profileNumber: 'D008',
+      category: 'Hazardous',
+      hazardClass: 'Class 4.3',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'Water-reactive materials - keep dry',
+      flags: ['Reactive', 'Hazardous'],
+      containerCount: 2,
+      allowedContainers: ['30G', '55G'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'N006',
+      profileName: 'Metal Scrap',
+      profileNumber: 'N006',
+      category: 'Non-Hazardous',
+      consolidationAllowed: true,
+      accumulationsApply: false,
+      specialInstructions: 'Separate ferrous and non-ferrous metals',
+      flags: ['Recyclable', 'Metal'],
+      containerCount: 10,
+      allowedContainers: ['30G', '55G', '95T', 'BULK'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'N007',
+      profileName: 'Glass Waste',
+      profileNumber: 'N007',
+      category: 'Non-Hazardous',
+      consolidationAllowed: true,
+      accumulationsApply: false,
+      specialInstructions: 'Separate by color when possible',
+      flags: ['Recyclable', 'Glass'],
+      containerCount: 5,
+      allowedContainers: ['30G', '55G', 'BULK'],
+      requiresCylinderCount: false,
+    },
+    {
+      id: 'U005',
+      profileName: 'Universal Waste - Mercury',
+      profileNumber: 'U005',
+      category: 'Universal',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'Mercury-containing devices - handle with care',
+      flags: ['Universal', 'Mercury'],
+      containerCount: 1,
+      allowedContainers: ['5G', '30G'],
+      requiresCylinderCount: false,
     },
   ];
 
-  // Memoize filtered streams to prevent unnecessary re-renders
-  const filteredStreams = useMemo(() => {
-    if (!streamSearchQuery.trim()) {
-      return wasteStreams;
+  // Get badge variant based on category
+  const getCategoryBadgeVariant = (category: string): 'default' | 'secondary' | 'outline' | 'destructive' => {
+    const categoryLower = category.toLowerCase();
+    if (categoryLower.includes('hazardous') && !categoryLower.includes('non')) {
+      return 'destructive'; // Red for hazardous
+    } else if (categoryLower.includes('universal')) {
+      return 'secondary'; // Gray for universal
+    } else if (categoryLower.includes('compressed')) {
+      return 'default'; // Primary green for compressed gas
+    } else {
+      return 'outline'; // Outline for non-hazardous
     }
-    const searchLower = streamSearchQuery.toLowerCase();
-    return wasteStreams.filter(stream => {
-      return (
-        stream.profileName.toLowerCase().includes(searchLower) ||
-        stream.profileNumber.toLowerCase().includes(searchLower) ||
-        stream.category.toLowerCase().includes(searchLower)
-      );
+  };
+
+  // Memoize filtered streams to prevent unnecessary re-renders
+  // Sort to show recently used profiles first
+  const filteredStreams = useMemo(() => {
+    let streams = wasteStreams;
+    
+    // Filter by search query if provided
+    if (streamSearchQuery.trim()) {
+      const searchLower = streamSearchQuery.toLowerCase();
+      streams = wasteStreams.filter(stream => {
+        return (
+          stream.profileName.toLowerCase().includes(searchLower) ||
+          stream.profileNumber.toLowerCase().includes(searchLower) ||
+          stream.category.toLowerCase().includes(searchLower)
+        );
+      });
+    }
+    
+    // Sort: recently used first, then alphabetically by profile name
+    return [...streams].sort((a, b) => {
+      const aIndex = recentlyUsedProfiles.indexOf(a.id);
+      const bIndex = recentlyUsedProfiles.indexOf(b.id);
+      
+      // If both are in recently used, maintain their order
+      if (aIndex !== -1 && bIndex !== -1) {
+        return aIndex - bIndex;
+      }
+      // If only a is recently used, it comes first
+      if (aIndex !== -1) return -1;
+      // If only b is recently used, it comes first
+      if (bIndex !== -1) return 1;
+      // Neither is recently used, sort alphabetically
+      return a.profileName.localeCompare(b.profileName);
     });
-  }, [streamSearchQuery]);
+  }, [streamSearchQuery, recentlyUsedProfiles]);
 
   // Sync Status Indicator Component
   const SyncStatusIndicator: React.FC<{
@@ -1526,36 +1859,60 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
           {filteredStreams.length > 0 ? (
             <View style={styles.streamsGrid} key="streams-grid">
-              {filteredStreams.map(stream => (
-                <TouchableOpacity
-                  key={stream.id}
-                  style={styles.streamCard}
-                  onPress={() => {
-                    if (!isCurrentOrderCompleted) {
-                      setSelectedStream(stream.profileName);
-                      setSelectedStreamCode(stream.profileNumber);
-                      setSelectedStreamId(stream.id);
-                      setCurrentStep('container-selection');
-                    }
-                  }}
-                  disabled={isCurrentOrderCompleted}
-                  activeOpacity={isCurrentOrderCompleted ? 1 : 0.7}>
+              {filteredStreams.map(stream => {
+                const handleStreamPress = () => {
+                  if (!isCurrentOrderCompleted && stream) {
+                    // Track recently used profile
+                    setRecentlyUsedProfiles(prev => {
+                      // Remove if already exists, then add to front
+                      const filtered = prev.filter(id => id !== stream.id);
+                      return [stream.id, ...filtered].slice(0, 5); // Keep only last 5
+                    });
+                    
+                    setSelectedStream(stream.profileName);
+                    setSelectedStreamCode(stream.profileNumber);
+                    setSelectedStreamId(stream.id);
+                    setCylinderCount(''); // Reset cylinder count when stream changes
+                    setCurrentStep('container-selection');
+                  }
+                };
+
+                return (
+                  <TouchableOpacity
+                    key={stream.id}
+                    style={styles.streamCard}
+                    onPress={handleStreamPress}
+                    disabled={isCurrentOrderCompleted}
+                    activeOpacity={isCurrentOrderCompleted ? 1 : 0.7}>
                   <View style={styles.streamCardHeader}>
-                    <Badge variant="outline">{stream.profileNumber}</Badge>
+                    <View style={styles.streamCardBadges}>
+                      <Badge variant={getCategoryBadgeVariant(stream.category)}>
+                        {stream.category}
+                      </Badge>
+                    </View>
+                    {recentlyUsedProfiles.includes(stream.id) && (
+                      <Badge 
+                        variant="outline" 
+                        style={styles.recentlyUsedBadge}
+                        textStyle={styles.recentlyUsedBadgeText}>
+                        Recently Used
+                      </Badge>
+                    )}
                   </View>
                   <Text style={styles.streamCardTitle}>
                     {stream.profileName}
-                  </Text>
-                  <Text style={styles.streamCardCategory}>
-                    {stream.category}
                   </Text>
                   <Text style={styles.streamCardHazard}>
                     {stream.hazardClass
                       ? `Hazard Class: ${stream.hazardClass}`
                       : 'Non-Hazardous'}
                   </Text>
+                  <View style={styles.streamCardWasteCode}>
+                    <Badge variant="outline">{stream.profileNumber}</Badge>
+                  </View>
                 </TouchableOpacity>
-              ))}
+                );
+              })}
             </View>
           ) : (
             <View style={styles.emptyState}>
@@ -1657,6 +2014,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const ContainerEntryScreen = () => {
     const netWeight =
       parseInt(grossWeight || '0') - parseInt(tareWeight || '0');
+    
+    // Check if current stream requires cylinder count
+    const currentStream = wasteStreams.find(s => s.id === selectedStreamId);
+    const requiresCylinderCount = currentStream?.requiresCylinderCount || false;
 
     // Get weight limits from selected container type
     const getWeightLimits = () => {
@@ -1756,6 +2117,28 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           showsVerticalScrollIndicator={true}
           removeClippedSubviews={false}
           scrollEventThrottle={16}>
+          
+          {/* Cylinder Count Input - Only shown for profiles that require it */}
+          {requiresCylinderCount && (
+            <Card style={styles.cylinderCountCard}>
+              <CardHeader>
+                <CardTitle>
+                  <CardTitleText>Cylinder Count</CardTitleText>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Input
+                  label="Number of Cylinders *"
+                  value={cylinderCount}
+                  onChangeText={setCylinderCount}
+                  keyboardType="numeric"
+                  placeholder="Enter cylinder count"
+                  editable={!isCurrentOrderCompleted}
+                />
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>
@@ -1866,6 +2249,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               )}
             </CardContent>
           </Card>
+
         </ScrollView>
 
         <View style={styles.footer}>
@@ -1889,6 +2273,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 selectedStream &&
                 !isCurrentOrderCompleted
               ) {
+                // Validate cylinder count if required
+                if (requiresCylinderCount && (!cylinderCount || cylinderCount.trim() === '')) {
+                  Alert.alert(
+                    'Required Field',
+                    'Please enter the cylinder count before adding the container.'
+                  );
+                  return;
+                }
+
                 const netWeight =
                   parseInt(grossWeight || '0') - parseInt(tareWeight || '0');
 
@@ -1913,6 +2306,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   netWeight,
                   isManualEntry: isManualWeightEntry, // Track if manually entered
                   shippingLabelBarcode, // Unique shipping label barcode
+                  ...(requiresCylinderCount && cylinderCount ? { cylinderCount: parseInt(cylinderCount) || 0 } : {}),
                 };
 
                 setAddedContainers(prev => [...prev, newContainer]);
@@ -1940,6 +2334,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 setBarcode('');
                 setTareWeight('45');
                 setGrossWeight('285');
+                setCylinderCount('');
                 setIsManualWeightEntry(false);
                 setCurrentStep('container-summary');
               }
@@ -5103,85 +5498,91 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   isTablet() && styles.modalDetailsPaneTablet,
                 ]}>
                 <Text style={styles.sectionTitle}>Item Details</Text>
-                {showAddMaterialSuccess && (
-                  <View style={styles.addSuccessIndicator}>
-                    <Text style={styles.addSuccessText}>
-                      ✓ Material added successfully!
-                    </Text>
-                  </View>
-                )}
-                {selectedMaterialItem ? (
-                  <>
-                    <View style={styles.selectedItemInfo}>
-                      <Text style={styles.selectedItemNumber}>
-                        {selectedMaterialItem.itemNumber}
-                      </Text>
-                      <Text style={styles.selectedItemDescription}>
-                        {selectedMaterialItem.description}
+                <ScrollView
+                  style={styles.modalDetailsScroll}
+                  contentContainerStyle={styles.modalDetailsContent}
+                  showsVerticalScrollIndicator={true}
+                  keyboardShouldPersistTaps="handled">
+                  {showAddMaterialSuccess && (
+                    <View style={styles.addSuccessIndicator}>
+                      <Text style={styles.addSuccessText}>
+                        ✓ Material added successfully!
                       </Text>
                     </View>
-
-                    <View style={styles.materialInputSection}>
-                      <Input
-                        label="Quantity"
-                        value={materialQuantity}
-                        onChangeText={setMaterialQuantity}
-                        keyboardType="numeric"
-                        placeholder="1"
-                      />
-                    </View>
-
-                    <View style={styles.materialInputSection}>
-                      <Text style={styles.inputLabel}>Type</Text>
-                      <Text style={styles.sectionDescription}>
-                        Select whether this item was used or left behind
-                      </Text>
-                      <View style={styles.materialTypeCards}>
-                        <TouchableOpacity
-                          style={[
-                            styles.materialTypeCard,
-                            materialType === 'used' &&
-                              styles.materialTypeCardSelected,
-                          ]}
-                          onPress={() => setMaterialType('used')}>
-                          <Text
-                            style={[
-                              styles.materialTypeCardTitle,
-                              materialType === 'used' &&
-                                styles.materialTypeCardTitleSelected,
-                            ]}>
-                            Used
-                          </Text>
-
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.materialTypeCard,
-                            materialType === 'left_behind' &&
-                              styles.materialTypeCardSelected,
-                          ]}
-                          onPress={() => setMaterialType('left_behind')}>
-                          <Text
-                            style={[
-                              styles.materialTypeCardTitle,
-                              materialType === 'left_behind' &&
-                                styles.materialTypeCardTitleSelected,
-                            ]}>
-                            Left Behind
-                          </Text>
-
-                        </TouchableOpacity>
+                  )}
+                  {selectedMaterialItem ? (
+                    <>
+                      <View style={styles.selectedItemInfo}>
+                        <Text style={styles.selectedItemNumber}>
+                          {selectedMaterialItem.itemNumber}
+                        </Text>
+                        <Text style={styles.selectedItemDescription}>
+                          {selectedMaterialItem.description}
+                        </Text>
                       </View>
+
+                      <View style={styles.materialInputSection}>
+                        <Input
+                          label="Quantity"
+                          value={materialQuantity}
+                          onChangeText={setMaterialQuantity}
+                          keyboardType="numeric"
+                          placeholder="1"
+                        />
+                      </View>
+
+                      <View style={styles.materialInputSection}>
+                        <Text style={styles.inputLabel}>Type</Text>
+                        <Text style={styles.sectionDescription}>
+                          Select whether this item was used or left behind
+                        </Text>
+                        <View style={styles.materialTypeCards}>
+                          <TouchableOpacity
+                            style={[
+                              styles.materialTypeCard,
+                              materialType === 'used' &&
+                                styles.materialTypeCardSelected,
+                            ]}
+                            onPress={() => setMaterialType('used')}>
+                            <Text
+                              style={[
+                                styles.materialTypeCardTitle,
+                                materialType === 'used' &&
+                                  styles.materialTypeCardTitleSelected,
+                              ]}>
+                              Used
+                            </Text>
+
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[
+                              styles.materialTypeCard,
+                              materialType === 'left_behind' &&
+                                styles.materialTypeCardSelected,
+                            ]}
+                            onPress={() => setMaterialType('left_behind')}>
+                            <Text
+                              style={[
+                                styles.materialTypeCardTitle,
+                                materialType === 'left_behind' &&
+                                  styles.materialTypeCardTitleSelected,
+                              ]}>
+                              Left Behind
+                            </Text>
+
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.noSelectionPlaceholder}>
+                      <Text style={styles.noSelectionText}>
+                        Select an item from the catalog to configure quantity
+                        and type
+                      </Text>
                     </View>
-                  </>
-                ) : (
-                  <View style={styles.noSelectionPlaceholder}>
-                    <Text style={styles.noSelectionText}>
-                      Select an item from the catalog to configure quantity
-                      and type
-                    </Text>
-                  </View>
-                )}
+                  )}
+                </ScrollView>
               </View>
             </View>
           </View>
@@ -5246,18 +5647,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             console.log('[WasteCollection] Checklist completed:', answers);
           }}
           onCancel={() => {
-            Alert.alert(
-              'Cancel Checklist',
-              'Are you sure you want to cancel? Your progress will be lost.',
-              [
-                {text: 'No', style: 'cancel'},
-                {
-                  text: 'Yes',
-                  style: 'destructive',
-                  onPress: () => setShowChecklistModal(false),
-                },
-              ]
-            );
+            // Close modal directly - user can confirm if needed before opening
+            setShowChecklistModal(false);
           }}
         />
       </Modal>
@@ -5675,8 +6066,22 @@ const styles = StyleSheet.create({
   streamCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    gap: spacing.sm,
     marginBottom: spacing.md,
+    flexWrap: 'wrap',
+  },
+  streamCardBadges: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  recentlyUsedBadge: {
+    // Transparent background (handled by outline variant)
+  },
+  recentlyUsedBadgeText: {
+    color: colors.mutedForeground,
   },
   streamCardTitle: {
     ...typography.lg,
@@ -5692,6 +6097,10 @@ const styles = StyleSheet.create({
   streamCardHazard: {
     ...typography.sm,
     color: colors.mutedForeground,
+    marginBottom: spacing.sm,
+  },
+  streamCardWasteCode: {
+    marginTop: spacing.xs,
   },
   containersGrid: {
     flexDirection: 'row',
@@ -5798,6 +6207,9 @@ const styles = StyleSheet.create({
   warningText: {
     ...typography.sm,
     color: colors.mutedForeground,
+  },
+  cylinderCountCard: {
+    marginBottom: spacing.md,
   },
   manualEntryIndicator: {
     backgroundColor: '#fef3c720',
@@ -6427,6 +6839,12 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: undefined,
   },
+  modalDetailsScroll: {
+    flex: 1,
+  },
+  modalDetailsContent: {
+    paddingBottom: spacing.md,
+  },
   selectedItemInfo: {
     marginBottom: spacing.lg,
     paddingBottom: spacing.md,
@@ -6844,9 +7262,6 @@ const styles = StyleSheet.create({
   },
   detailActions: {
     marginTop: spacing.lg,
-    paddingTop: spacing.lg,
-    borderTopWidth: 2,
-    borderTopColor: colors.border,
   },
   detailPaneEmpty: {
     flex: 1,

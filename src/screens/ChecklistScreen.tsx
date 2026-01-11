@@ -672,7 +672,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
 
                 <CardTitle>
                   <CardTitleText>
-                    {question.text}
+                    {question.text}&nbsp; 
                     {question.required && (
                       <View style={[styles.tag, styles.tagRequired]}>
                         <Text style={styles.tagText}>Required</Text>

@@ -1,21 +1,23 @@
 import React from 'react';
-import {View, Text, StyleSheet, ViewStyle} from 'react-native';
+import {View, Text, StyleSheet, ViewStyle, TextStyle} from 'react-native';
 import {colors, spacing, borderRadius, typography} from '../styles/theme';
 
 interface BadgeProps {
   children: React.ReactNode;
   variant?: 'default' | 'secondary' | 'outline' | 'destructive';
   style?: ViewStyle;
+  textStyle?: TextStyle;
 }
 
 export const Badge: React.FC<BadgeProps> = ({
   children,
   variant = 'default',
   style,
+  textStyle,
 }) => {
   return (
     <View style={[styles.badge, styles[`badge_${variant}`], style]}>
-      <Text style={[styles.text, styles[`text_${variant}`]]}>{children}</Text>
+      <Text style={[styles.text, styles[`text_${variant}`], textStyle]}>{children}</Text>
     </View>
   );
 };
