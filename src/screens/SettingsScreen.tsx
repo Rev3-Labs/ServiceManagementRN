@@ -9,8 +9,8 @@ import {
   TouchableOpacity,
   Modal,
   FlatList,
-  SafeAreaView,
 } from 'react-native';
+import {SafeAreaView} from 'react-native-safe-area-context';
 import {Button} from '../components/Button';
 import {Icon} from '../components/Icon';
 import {
@@ -29,23 +29,15 @@ import {
 import {
   getUserTruckId,
   saveUserTruckId,
+  getUserTruck,
+  saveUserTruck,
+  getUserTrailer,
+  saveUserTrailer,
 } from '../services/userSettingsService';
 import {offlineTrackingService} from '../services/offlineTrackingService';
 import {serviceCenterService} from '../services/serviceCenterService';
-
-// List of available truck IDs
-const TRUCK_IDS = [
-  'TRK-001',
-  'TRK-002',
-  'TRK-003',
-  'TRK-004',
-  'TRK-005',
-  'TRK-006',
-  'TRK-007',
-  'TRK-008',
-  'TRK-009',
-  'TRK-010',
-];
+import {vehicleService, Truck, Trailer} from '../services/vehicleService';
+import {Input} from '../components/Input';
 
 type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings';
 
@@ -59,14 +51,20 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
   username,
   onGoBack,
 }) => {
-  const [truckId, setTruckId] = useState('');
+  const [truckId, setTruckId] = useState(''); // Keep for backward compatibility display
+  const [selectedTruck, setSelectedTruck] = useState<Truck | null>(null);
+  const [selectedTrailer, setSelectedTrailer] = useState<Trailer | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
+  const [showTruckDropdown, setShowTruckDropdown] = useState(false);
+  const [showTrailerDropdown, setShowTrailerDropdown] = useState(false);
+  const [truckSearchQuery, setTruckSearchQuery] = useState('');
+  const [trailerSearchQuery, setTrailerSearchQuery] = useState('');
   const [showSuccessNotification, setShowSuccessNotification] = useState(false);
   const [savedTruckId, setSavedTruckId] = useState('');
   const [selectedOfflineScenario, setSelectedOfflineScenario] = useState<number | null>(null);
   const [showOfflineNotification, setShowOfflineNotification] = useState(false);
+  const [serviceCenter, setServiceCenter] = useState(serviceCenterService.getServiceCenter());
 
   useEffect(() => {
     loadTruckId();
@@ -91,13 +89,32 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
     try {
       setLoading(true);
-      const savedTruckId = await getUserTruckId(username);
-      if (savedTruckId) {
-        setTruckId(savedTruckId);
+      // Load truck and trailer objects
+      const truck = await getUserTruck(username);
+      const trailer = await getUserTrailer(username);
+      
+      if (truck) {
+        setSelectedTruck(truck);
+        setTruckId(truck.number); // For backward compatibility
+      } else {
+        // Fallback to old truck ID format
+        const savedTruckId = await getUserTruckId(username);
+        if (savedTruckId) {
+          setTruckId(savedTruckId);
+          // Try to find truck by number
+          const truckByNumber = vehicleService.getTruckByNumber(savedTruckId);
+          if (truckByNumber) {
+            setSelectedTruck(truckByNumber);
+          }
+        }
+      }
+      
+      if (trailer) {
+        setSelectedTrailer(trailer);
       }
     } catch (error) {
-      console.error('Error loading truck ID:', error);
-      Alert.alert('Error', 'Failed to load truck settings');
+      console.error('Error loading vehicle settings:', error);
+      Alert.alert('Error', 'Failed to load vehicle settings');
     } finally {
       setLoading(false);
     }
@@ -109,16 +126,17 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
       return;
     }
 
-    if (!truckId) {
-      Alert.alert('Error', 'Please select a truck ID');
+    if (!selectedTruck) {
+      Alert.alert('Error', 'Please select a truck');
       return;
     }
 
     try {
       setSaving(true);
-      await saveUserTruckId(username, truckId);
+      await saveUserTruck(username, selectedTruck);
+      await saveUserTrailer(username, selectedTrailer);
       // Show success notification
-      setSavedTruckId(truckId);
+      setSavedTruckId(selectedTruck.number);
       setShowSuccessNotification(true);
       
       // Auto-dismiss notification after 3 seconds and navigate back
@@ -136,30 +154,96 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  const handleSelectTruck = (selectedId: string) => {
-    setTruckId(selectedId);
-    setShowDropdown(false);
+  // Subscribe to Service Center changes to update available trucks
+  useEffect(() => {
+    const unsubscribe = serviceCenterService.onServiceCenterChange((newServiceCenter) => {
+      setServiceCenter(newServiceCenter);
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleSelectTruck = (truck: Truck) => {
+    setSelectedTruck(truck);
+    setTruckId(truck.number);
+    setShowTruckDropdown(false);
+    setTruckSearchQuery('');
   };
 
-  const renderDropdownItem = ({item}: {item: string}) => (
+  const handleSelectTrailer = (trailer: Trailer | null) => {
+    setSelectedTrailer(trailer);
+    setShowTrailerDropdown(false);
+    setTrailerSearchQuery('');
+  };
+
+  const filteredTrucks = vehicleService.searchTrucks(
+    serviceCenter?.name || null,
+    truckSearchQuery
+  );
+
+  const filteredTrailers = vehicleService.searchTrailers(trailerSearchQuery);
+
+  const renderTruckItem = ({item}: {item: Truck}) => (
     <TouchableOpacity
       style={[
         styles.dropdownItem,
-        truckId === item && styles.dropdownItemSelected,
+        selectedTruck?.id === item.id && styles.dropdownItemSelected,
       ]}
       onPress={() => handleSelectTruck(item)}>
       <Text
         style={[
           styles.dropdownItemText,
-          truckId === item && styles.dropdownItemTextSelected,
+          selectedTruck?.id === item.id && styles.dropdownItemTextSelected,
         ]}>
-        {item}
+        {vehicleService.formatTruckDisplay(item)}
       </Text>
-      {truckId === item && (
+      {selectedTruck?.id === item.id && (
         <Icon name="check" size={20} color={colors.primary} />
       )}
     </TouchableOpacity>
   );
+
+  const renderTrailerItem = ({item}: {item: Trailer | null}) => {
+    if (item === null) {
+      return (
+        <TouchableOpacity
+          style={[
+            styles.dropdownItem,
+            selectedTrailer === null && styles.dropdownItemSelected,
+          ]}
+          onPress={() => handleSelectTrailer(null)}>
+          <Text
+            style={[
+              styles.dropdownItemText,
+              selectedTrailer === null && styles.dropdownItemTextSelected,
+            ]}>
+            No Trailer
+          </Text>
+          {selectedTrailer === null && (
+            <Icon name="check" size={20} color={colors.primary} />
+          )}
+        </TouchableOpacity>
+      );
+    }
+    return (
+      <TouchableOpacity
+        style={[
+          styles.dropdownItem,
+          selectedTrailer?.id === item.id && styles.dropdownItemSelected,
+        ]}
+        onPress={() => handleSelectTrailer(item)}>
+        <Text
+          style={[
+            styles.dropdownItemText,
+            selectedTrailer?.id === item.id && styles.dropdownItemTextSelected,
+          ]}>
+          {vehicleService.formatTrailerDisplay(item)}
+        </Text>
+        {selectedTrailer?.id === item.id && (
+          <Icon name="check" size={20} color={colors.primary} />
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   if (loading) {
     return (
@@ -202,55 +286,155 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
           </CardHeader>
           <CardContent>
             <Text style={styles.description}>
-              Select the truck number you are currently operating. This will be
+              Select the truck and trailer you are currently operating. These will be
               saved and automatically loaded the next time you log in.
             </Text>
 
             <View style={styles.dropdownContainer}>
-              <Text style={styles.dropdownLabel}>Truck ID</Text>
+              <Text style={styles.dropdownLabel}>Truck *</Text>
               <TouchableOpacity
                 style={[
                   styles.dropdownButton,
                   saving && styles.dropdownButtonDisabled,
                 ]}
-                onPress={() => !saving && setShowDropdown(true)}
+                onPress={() => !saving && setShowTruckDropdown(true)}
                 disabled={saving}>
                 <Text
                   style={[
                     styles.dropdownButtonText,
-                    !truckId && styles.dropdownButtonPlaceholder,
+                    !selectedTruck && styles.dropdownButtonPlaceholder,
                   ]}>
-                  {truckId || 'Select a truck...'}
+                  {selectedTruck 
+                    ? vehicleService.formatTruckDisplay(selectedTruck)
+                    : 'Select a truck...'}
                 </Text>
                 <Icon name="keyboard-arrow-down" size={20} color={colors.mutedForeground} />
               </TouchableOpacity>
             </View>
 
+            <View style={styles.dropdownContainer}>
+              <Text style={styles.dropdownLabel}>Trailer</Text>
+              <TouchableOpacity
+                style={[
+                  styles.dropdownButton,
+                  saving && styles.dropdownButtonDisabled,
+                ]}
+                onPress={() => !saving && setShowTrailerDropdown(true)}
+                disabled={saving}>
+                <Text
+                  style={[
+                    styles.dropdownButtonText,
+                    !selectedTrailer && styles.dropdownButtonPlaceholder,
+                  ]}>
+                  {selectedTrailer 
+                    ? vehicleService.formatTrailerDisplay(selectedTrailer)
+                    : 'Select a trailer (optional)...'}
+                </Text>
+                <Icon name="keyboard-arrow-down" size={20} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Truck Selection Modal */}
             <Modal
-              visible={showDropdown}
+              visible={showTruckDropdown}
               transparent
               animationType="fade"
-              onRequestClose={() => setShowDropdown(false)}>
+              onRequestClose={() => {
+                setShowTruckDropdown(false);
+                setTruckSearchQuery('');
+              }}>
               <TouchableOpacity
                 style={styles.modalOverlay}
                 activeOpacity={1}
-                onPress={() => setShowDropdown(false)}>
+                onPress={() => {
+                  setShowTruckDropdown(false);
+                  setTruckSearchQuery('');
+                }}>
                 <View style={styles.dropdownModal}>
                   <View style={styles.dropdownModalHeader}>
                     <Text style={styles.dropdownModalTitle}>
-                      Select Truck ID
+                      Select Truck
                     </Text>
                     <TouchableOpacity
-                      onPress={() => setShowDropdown(false)}
+                      onPress={() => {
+                        setShowTruckDropdown(false);
+                        setTruckSearchQuery('');
+                      }}
                       style={styles.dropdownModalClose}>
                       <Icon name="close" size={20} color={colors.foreground} />
                     </TouchableOpacity>
                   </View>
+                  <View style={styles.searchContainer}>
+                    <Input
+                      placeholder="Search trucks..."
+                      value={truckSearchQuery}
+                      onChangeText={setTruckSearchQuery}
+                      style={styles.searchInput}
+                    />
+                  </View>
                   <FlatList
-                    data={TRUCK_IDS}
-                    renderItem={renderDropdownItem}
-                    keyExtractor={item => item}
+                    data={filteredTrucks}
+                    renderItem={renderTruckItem}
+                    keyExtractor={item => item.id}
                     style={styles.dropdownList}
+                    ListEmptyComponent={
+                      <View style={styles.emptyState}>
+                        <Text style={styles.emptyStateText}>No trucks found</Text>
+                      </View>
+                    }
+                  />
+                </View>
+              </TouchableOpacity>
+            </Modal>
+
+            {/* Trailer Selection Modal */}
+            <Modal
+              visible={showTrailerDropdown}
+              transparent
+              animationType="fade"
+              onRequestClose={() => {
+                setShowTrailerDropdown(false);
+                setTrailerSearchQuery('');
+              }}>
+              <TouchableOpacity
+                style={styles.modalOverlay}
+                activeOpacity={1}
+                onPress={() => {
+                  setShowTrailerDropdown(false);
+                  setTrailerSearchQuery('');
+                }}>
+                <View style={styles.dropdownModal}>
+                  <View style={styles.dropdownModalHeader}>
+                    <Text style={styles.dropdownModalTitle}>
+                      Select Trailer
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setShowTrailerDropdown(false);
+                        setTrailerSearchQuery('');
+                      }}
+                      style={styles.dropdownModalClose}>
+                      <Icon name="close" size={20} color={colors.foreground} />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.searchContainer}>
+                    <Input
+                      placeholder="Search trailers..."
+                      value={trailerSearchQuery}
+                      onChangeText={setTrailerSearchQuery}
+                      style={styles.searchInput}
+                    />
+                  </View>
+                  <FlatList
+                    data={[null, ...filteredTrailers]}
+                    renderItem={renderTrailerItem}
+                    keyExtractor={(item, index) => item ? item.id : `no-trailer-${index}`}
+                    style={styles.dropdownList}
+                    ListEmptyComponent={
+                      <View style={styles.emptyState}>
+                        <Text style={styles.emptyStateText}>No trailers found</Text>
+                      </View>
+                    }
                   />
                 </View>
               </TouchableOpacity>
@@ -263,7 +447,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 size="md"
                 onPress={handleSave}
                 loading={saving}
-                disabled={saving || !truckId}
+                disabled={saving || !selectedTruck}
                 style={styles.saveButton}
               />
             </View>
@@ -442,9 +626,10 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <Icon name="check-circle" size={20} color={colors.success} />
             </View>
             <View style={styles.notificationContent}>
-              <Text style={styles.notificationTitle}>Truck Set Successfully</Text>
+              <Text style={styles.notificationTitle}>Vehicles Set Successfully</Text>
               <Text style={styles.notificationSubtitle}>
                 Truck: {savedTruckId}
+                {selectedTrailer && ` • Trailer: ${selectedTrailer.number}`}
               </Text>
             </View>
           </View>
@@ -597,6 +782,24 @@ const styles = StyleSheet.create({
   },
   dropdownList: {
     maxHeight: 400,
+  },
+  searchContainer: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  searchInput: {
+    marginBottom: 0,
+  },
+  emptyState: {
+    padding: spacing.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateText: {
+    ...typography.base,
+    color: colors.mutedForeground,
   },
   dropdownItem: {
     flexDirection: 'row',

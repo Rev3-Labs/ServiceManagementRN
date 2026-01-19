@@ -21,6 +21,8 @@ interface PersistentOrderHeaderProps {
   };
   onViewValidation?: () => void;
   onViewServiceCenter?: () => void;
+  truckNumber?: string;
+  trailerNumber?: string | null;
 }
 
 export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
@@ -34,6 +36,8 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
   validationState,
   onViewValidation,
   onViewServiceCenter,
+  truckNumber,
+  trailerNumber,
 }) => {
   const [offlineStatus, setOfflineStatus] = useState<OfflineStatus>(
     offlineTrackingService.getStatus(),
@@ -301,6 +305,33 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               </Badge>
             </View>
           </View>
+
+          {/* Vehicle Information */}
+          {!isCollapsed && (truckNumber || trailerNumber) && (
+            <View style={styles.persistentHeaderRow}>
+              {truckNumber && (
+                <View style={styles.persistentHeaderItem}>
+                  <Text style={styles.persistentHeaderLabel}>Truck</Text>
+                  <Text style={styles.persistentHeaderValue}>
+                    {truckNumber}
+                  </Text>
+                </View>
+              )}
+              {trailerNumber ? (
+                <View style={styles.persistentHeaderItem}>
+                  <Text style={styles.persistentHeaderLabel}>Trailer</Text>
+                  <Text style={styles.persistentHeaderValue}>
+                    {trailerNumber}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.persistentHeaderItem}>
+                  <Text style={styles.persistentHeaderLabel}>Trailer</Text>
+                  <Text style={styles.persistentHeaderValue}>None</Text>
+                </View>
+              )}
+            </View>
+          )}
 
           {/* Last Sync Info */}
           {!isCollapsed && (

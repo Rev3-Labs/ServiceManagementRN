@@ -42,7 +42,8 @@ import {Badge} from '../components/Badge';
 import {Switch} from '../components/Switch';
 import {Icon} from '../components/Icon';
 import {syncService, SyncStatus} from '../services/syncService';
-import {getUserTruckId} from '../services/userSettingsService';
+import {getUserTruckId, getUserTruck, getUserTrailer} from '../services/userSettingsService';
+import {vehicleService} from '../services/vehicleService';
 import {offlineTrackingService, OfflineStatus} from '../services/offlineTrackingService';
 import {
   getPersistedIssues,
@@ -286,7 +287,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
     return unsubscribe;
   }, [selectedOrderData?.orderNumber]);
-  const [truckId, setTruckId] = useState<string>('');
+  const [truckId, setTruckId] = useState<string>(''); // Keep for backward compatibility
+  const [selectedTruck, setSelectedTruck] = useState<{number: string; description?: string} | null>(null);
+  const [selectedTrailer, setSelectedTrailer] = useState<{number: string; description?: string} | null>(null);
   const [activeTimeTracking, setActiveTimeTracking] = useState<TimeTrackingRecord | null>(null);
   const [currentOrderTimeTracking, setCurrentOrderTimeTracking] = useState<TimeTrackingRecord | null>(null);
   const [elapsedTimeDisplay, setElapsedTimeDisplay] = useState<string>('');
@@ -1381,10 +1384,21 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               <Text style={styles.headerTitle}>
                 {username ? `Welcome, ${username}` : 'Welcome'}
               </Text>
-              {truckId ? (
+              {selectedTruck ? (
+                <View>
+                  <Text style={styles.headerSubtitle}>
+                    Truck: {selectedTruck.number}
+                  </Text>
+                  {selectedTrailer && (
+                    <Text style={styles.headerSubtitle}>
+                      Trailer: {selectedTrailer.number}
+                    </Text>
+                  )}
+                </View>
+              ) : truckId ? (
                 <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
               ) : (
-                <Text style={styles.headerSubtitle}>Set Truck ID</Text>
+                <Text style={styles.headerSubtitle}>Set Vehicle</Text>
               )}
             </TouchableOpacity>
                         {serviceCenter && (
@@ -1770,12 +1784,23 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               <Text style={styles.headerTitle}>
                 {username ? `Welcome, ${username}` : 'Welcome'}
               </Text>
-              {truckId ? (
+              {selectedTruck ? (
+                <View>
+                  <Text style={styles.headerSubtitle}>
+                    Truck: {selectedTruck.number}
+                  </Text>
+                  {selectedTrailer && (
+                    <Text style={styles.headerSubtitle}>
+                      Trailer: {selectedTrailer.number}
+                    </Text>
+                  )}
+                </View>
+              ) : truckId ? (
                 <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
               ) : (
-                <Text style={styles.headerSubtitle}>Set Truck ID</Text>
+                <Text style={styles.headerSubtitle}>Set Vehicle</Text>
               )}
-            </TouchableOpacity>
+          </TouchableOpacity>
           </View>
           <View style={styles.headerActions}>
             <SyncStatusIndicator
@@ -2071,6 +2096,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           validationState={validationState}
           onViewValidation={() => setShowValidationModal(true)}
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
+          truckNumber={selectedTruck?.number || truckId || undefined}
+          trailerNumber={selectedTrailer?.number || null}
         />
 
         <ScrollView
@@ -2185,6 +2212,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           validationState={validationState}
           onViewValidation={() => setShowValidationModal(true)}
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
+          truckNumber={selectedTruck?.number || truckId || undefined}
+          trailerNumber={selectedTrailer?.number || null}
         />
 
         <ScrollView
@@ -2331,6 +2360,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           validationState={validationState}
           onViewValidation={() => setShowValidationModal(true)}
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
+          truckNumber={selectedTruck?.number || truckId || undefined}
+          trailerNumber={selectedTrailer?.number || null}
         />
 
         <ScrollView
@@ -2674,6 +2705,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           validationState={validationState}
           onViewValidation={() => setShowValidationModal(true)}
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
+          truckNumber={selectedTruck?.number || truckId || undefined}
+          trailerNumber={selectedTrailer?.number || null}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -2877,6 +2910,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           validationState={validationState}
           onViewValidation={() => setShowValidationModal(true)}
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
+          truckNumber={selectedTruck?.number || truckId || undefined}
+          trailerNumber={selectedTrailer?.number || null}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -3729,6 +3764,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           validationState={validationState}
           onViewValidation={() => setShowValidationModal(true)}
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
+          truckNumber={selectedTruck?.number || truckId || undefined}
+          trailerNumber={selectedTrailer?.number || null}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -3954,6 +3991,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           validationState={validationState}
           onViewValidation={() => setShowValidationModal(true)}
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
+          truckNumber={selectedTruck?.number || truckId || undefined}
+          trailerNumber={selectedTrailer?.number || null}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -4358,6 +4397,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           validationState={validationState}
           onViewValidation={() => setShowValidationModal(true)}
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
+          truckNumber={selectedTruck?.number || truckId || undefined}
+          trailerNumber={selectedTrailer?.number || null}
         />
 
         <View style={styles.scrollViewContainer}>
