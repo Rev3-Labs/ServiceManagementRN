@@ -3,6 +3,7 @@ import {View, Text, StyleSheet, SafeAreaView, TouchableOpacity, Alert, ScrollVie
 import {colors, typography, spacing, borderRadius} from '../styles/theme';
 import {Button} from '../components/Button';
 import {Card, CardContent, CardTitle, CardTitleText} from '../components/Card';
+import {Icon} from '../components/Icon';
 import ChecklistScreen from './ChecklistScreen';
 import {sampleChecklist} from '../data/sampleChecklist';
 import {ChecklistAnswer} from '../types/checklist';
@@ -114,7 +115,8 @@ const ServiceCloseoutScreen: React.FC<ServiceCloseoutScreenProps> = ({
         style={styles.backButton}
         onPress={onGoBack}
         activeOpacity={0.7}>
-        <Text style={styles.backButtonText}>← Back</Text>
+        <Icon name="arrow-back" size={20} color={colors.foreground} style={styles.backButtonIcon} />
+        <Text style={styles.backButtonText}>Back</Text>
       </TouchableOpacity>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
@@ -141,12 +143,11 @@ const ServiceCloseoutScreen: React.FC<ServiceCloseoutScreenProps> = ({
                   styles.statusIndicator,
                   isChecklistCompleted ? styles.statusIndicatorComplete : styles.statusIndicatorPending
                 ]}>
-                  <Text style={[
-                    styles.statusIndicatorText,
-                    isChecklistCompleted ? styles.statusIndicatorTextComplete : styles.statusIndicatorTextPending
-                  ]}>
-                    {isChecklistCompleted ? '✓' : '○'}
-                  </Text>
+                  {isChecklistCompleted ? (
+                    <Icon name="check-circle" size={24} color={colors.success} />
+                  ) : (
+                    <Icon name="radio-button-unchecked" size={24} color={colors.mutedForeground} />
+                  )}
                 </View>
                 <Text style={styles.statusText}>
                   {isChecklistCompleted 
@@ -220,9 +221,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     marginBottom: spacing.sm,
+    gap: spacing.xs,
+  },
+  backButtonIcon: {
+    marginRight: spacing.xs / 2,
   },
   backButtonText: {
     ...typography.base,

@@ -12,6 +12,7 @@ import {
   SafeAreaView,
 } from 'react-native';
 import {Button} from '../components/Button';
+import {Icon} from '../components/Icon';
 import {
   Card,
   CardContent,
@@ -29,6 +30,8 @@ import {
   getUserTruckId,
   saveUserTruckId,
 } from '../services/userSettingsService';
+import {offlineTrackingService} from '../services/offlineTrackingService';
+import {serviceCenterService} from '../services/serviceCenterService';
 
 // List of available truck IDs
 const TRUCK_IDS = [
@@ -62,9 +65,22 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [showDropdown, setShowDropdown] = useState(false);
   const [showSuccessNotification, setShowSuccessNotification] = useState(false);
   const [savedTruckId, setSavedTruckId] = useState('');
+  const [selectedOfflineScenario, setSelectedOfflineScenario] = useState<number | null>(null);
+  const [showOfflineNotification, setShowOfflineNotification] = useState(false);
 
   useEffect(() => {
     loadTruckId();
+    // Check current debug state
+    const currentDebug = offlineTrackingService.getDebugDurationHours();
+    setSelectedOfflineScenario(currentDebug);
+    
+    // Subscribe to offline status changes to update UI if changed elsewhere
+    const unsubscribe = offlineTrackingService.onStatusChange(() => {
+      const currentDebug = offlineTrackingService.getDebugDurationHours();
+      setSelectedOfflineScenario(currentDebug);
+    });
+    
+    return unsubscribe;
   }, [username]);
 
   const loadTruckId = async () => {
@@ -140,7 +156,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {item}
       </Text>
       {truckId === item && (
-        <Text style={styles.dropdownItemCheckmark}>✓</Text>
+        <Icon name="check" size={20} color={colors.primary} />
       )}
     </TouchableOpacity>
   );
@@ -206,7 +222,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   ]}>
                   {truckId || 'Select a truck...'}
                 </Text>
-                <Text style={styles.dropdownArrow}>▼</Text>
+                <Icon name="keyboard-arrow-down" size={20} color={colors.mutedForeground} />
               </TouchableOpacity>
             </View>
 
@@ -227,7 +243,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     <TouchableOpacity
                       onPress={() => setShowDropdown(false)}
                       style={styles.dropdownModalClose}>
-                      <Text style={styles.dropdownModalCloseText}>✕</Text>
+                      <Icon name="close" size={20} color={colors.foreground} />
                     </TouchableOpacity>
                   </View>
                   <FlatList
@@ -253,6 +269,169 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </View>
           </CardContent>
         </Card>
+
+        {/* Offline Debug Panel */}
+        <Card style={styles.settingsCard}>
+          <CardHeader>
+            <CardTitle>
+              <CardTitleText>Offline Status Testing</CardTitleText>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Text style={styles.description}>
+              Simulate different offline scenarios for testing and demonstrations.
+            </Text>
+
+            <View style={styles.debugButtonRow}>
+              <Button
+                title="Online"
+                variant={selectedOfflineScenario === null ? "primary" : "outline"}
+                size="sm"
+                onPress={() => {
+                  offlineTrackingService.setDebugOfflineDuration(null);
+                  setSelectedOfflineScenario(null);
+                  setShowOfflineNotification(true);
+                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                }}
+                style={styles.debugButton}
+              />
+              <Button
+                title="7 hrs"
+                variant={selectedOfflineScenario === 7 ? "primary" : "outline"}
+                size="sm"
+                onPress={() => {
+                  offlineTrackingService.setDebugOfflineDuration(7);
+                  setSelectedOfflineScenario(7);
+                  setShowOfflineNotification(true);
+                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                }}
+                style={styles.debugButton}
+              />
+              <Button
+                title="8 hrs"
+                variant={selectedOfflineScenario === 8 ? "primary" : "outline"}
+                size="sm"
+                onPress={() => {
+                  offlineTrackingService.setDebugOfflineDuration(8);
+                  setSelectedOfflineScenario(8);
+                  setShowOfflineNotification(true);
+                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                }}
+                style={styles.debugButton}
+              />
+            </View>
+
+            <View style={styles.debugButtonRow}>
+              <Button
+                title="9 hrs"
+                variant={selectedOfflineScenario === 9 ? "primary" : "outline"}
+                size="sm"
+                onPress={() => {
+                  offlineTrackingService.setDebugOfflineDuration(9);
+                  setSelectedOfflineScenario(9);
+                  setShowOfflineNotification(true);
+                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                }}
+                style={styles.debugButton}
+              />
+              <Button
+                title="9.5 hrs"
+                variant={selectedOfflineScenario === 9.5 ? "primary" : "outline"}
+                size="sm"
+                onPress={() => {
+                  offlineTrackingService.setDebugOfflineDuration(9.5);
+                  setSelectedOfflineScenario(9.5);
+                  setShowOfflineNotification(true);
+                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                }}
+                style={styles.debugButton}
+              />
+              <Button
+                title="10 hrs"
+                variant={selectedOfflineScenario === 10 ? "primary" : "outline"}
+                size="sm"
+                onPress={() => {
+                  offlineTrackingService.setDebugOfflineDuration(10);
+                  setSelectedOfflineScenario(10);
+                  setShowOfflineNotification(true);
+                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                }}
+                style={styles.debugButton}
+              />
+            </View>
+
+            <View style={styles.debugButtonRow}>
+              <Button
+                title="Reset to Normal"
+                variant="ghost"
+                size="sm"
+                onPress={() => {
+                  offlineTrackingService.resetDebugMode();
+                  setSelectedOfflineScenario(null);
+                  setShowOfflineNotification(true);
+                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                }}
+                style={styles.debugButtonReset}
+              />
+            </View>
+          </CardContent>
+        </Card>
+
+        {/* Service Center Testing */}
+        <Card style={styles.settingsCard}>
+          <CardHeader>
+            <CardTitle>
+              <CardTitleText>Service Center Testing</CardTitleText>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Text style={styles.description}>
+              Test Service Center display and update notifications.
+            </Text>
+
+            <View style={styles.debugButtonRow}>
+              <Button
+                title="Dallas SC"
+                variant="outline"
+                size="sm"
+                onPress={async () => {
+                  const changed = await serviceCenterService.setServiceCenter(
+                    'Dallas Service Center',
+                    'DAL',
+                    '1234 Main St, Dallas, TX 75201'
+                  );
+                }}
+                style={styles.debugButton}
+              />
+              <Button
+                title="Houston SC"
+                variant="outline"
+                size="sm"
+                onPress={async () => {
+                  const changed = await serviceCenterService.setServiceCenter(
+                    'Houston Service Center',
+                    'HOU',
+                    '5678 Commerce Blvd, Houston, TX 77001'
+                  );
+                }}
+                style={styles.debugButton}
+              />
+              <Button
+                title="Austin SC"
+                variant="outline"
+                size="sm"
+                onPress={async () => {
+                  const changed = await serviceCenterService.setServiceCenter(
+                    'Austin Service Center',
+                    'AUS',
+                    '9012 Capital Way, Austin, TX 78701'
+                  );
+                }}
+                style={styles.debugButton}
+              />
+            </View>
+          </CardContent>
+        </Card>
       </ScrollView>
 
       {/* Success Notification */}
@@ -260,12 +439,33 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <View style={styles.notificationOverlay}>
           <View style={styles.notificationCard}>
             <View style={styles.notificationIconContainer}>
-              <Text style={styles.notificationIcon}>✓</Text>
+              <Icon name="check-circle" size={20} color={colors.success} />
             </View>
             <View style={styles.notificationContent}>
               <Text style={styles.notificationTitle}>Truck Set Successfully</Text>
               <Text style={styles.notificationSubtitle}>
                 Truck: {savedTruckId}
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Offline Scenario Notification */}
+      {showOfflineNotification && (
+        <View style={styles.notificationOverlay}>
+          <View style={styles.notificationCard}>
+            <View style={styles.notificationIconContainer}>
+              <Icon name="check-circle" size={20} color={colors.primary} />
+            </View>
+            <View style={styles.notificationContent}>
+              <Text style={styles.notificationTitle}>
+                {selectedOfflineScenario === null 
+                  ? 'Online Mode Active' 
+                  : `Offline: ${selectedOfflineScenario} hrs`}
+              </Text>
+              <Text style={styles.notificationSubtitle}>
+                Scenario applied successfully
               </Text>
             </View>
           </View>
@@ -360,11 +560,6 @@ const styles = StyleSheet.create({
   dropdownButtonPlaceholder: {
     color: colors.mutedForeground,
   },
-  dropdownArrow: {
-    ...typography.sm,
-    color: colors.mutedForeground,
-    marginLeft: spacing.sm,
-  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -400,10 +595,6 @@ const styles = StyleSheet.create({
   dropdownModalClose: {
     padding: spacing.xs,
   },
-  dropdownModalCloseText: {
-    ...typography.xl,
-    color: colors.mutedForeground,
-  },
   dropdownList: {
     maxHeight: 400,
   },
@@ -429,17 +620,25 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.primary,
   },
-  dropdownItemCheckmark: {
-    ...typography.base,
-    color: colors.primary,
-    fontWeight: '700',
-    marginLeft: spacing.sm,
-  },
   buttonRow: {
     marginTop: spacing.md,
   },
   saveButton: {
     width: '100%',
+  },
+  debugButtonRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  debugButton: {
+    flex: 1,
+    minWidth: 100,
+  },
+  debugButtonReset: {
+    width: '100%',
+    marginTop: spacing.xs,
   },
   // Success Notification Styles
   notificationOverlay: {

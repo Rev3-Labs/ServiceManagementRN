@@ -22,6 +22,7 @@ import {
   Image,
   ImageStyle,
   SafeAreaView,
+  Linking,
 } from 'react-native';
 import SignatureCanvas from '../components/SignatureCanvas';
 import DropWasteModal from '../components/DropWasteModal';
@@ -39,8 +40,16 @@ import {
 } from '../components/Card';
 import {Badge} from '../components/Badge';
 import {Switch} from '../components/Switch';
+import {Icon} from '../components/Icon';
 import {syncService, SyncStatus} from '../services/syncService';
 import {getUserTruckId} from '../services/userSettingsService';
+import {offlineTrackingService, OfflineStatus} from '../services/offlineTrackingService';
+import {
+  getPersistedIssues,
+  updateValidationIssues,
+  clearValidationIssues,
+} from '../services/validationService';
+import {serviceCenterService, ServiceCenter} from '../services/serviceCenterService';
 import {
   startTimeTracking,
   stopTimeTracking,
@@ -61,169 +70,25 @@ import {
   getResponsiveValue,
   isTablet,
 } from '../utils/responsive';
+import {
+  FlowStep,
+  OrderData,
+  WasteStream,
+  ContainerType,
+  AddedContainer,
+  Screen,
+  WasteCollectionScreenProps,
+  ValidationIssue,
+} from '../types/wasteCollection';
+import {MOCK_ORDERS} from '../data/mockOrders';
+import {MATERIALS_CATALOG} from '../data/materialsCatalog';
+import {PersistentOrderHeader} from '../components/PersistentOrderHeader';
+import {PhotoCaptureButton} from '../components/PhotoCaptureButton';
+import {photoService} from '../services/photoService';
 
 const {width, height} = Dimensions.get('window');
 const gridColumns = getGridColumns();
 const cardWidth = (width - spacing.lg * (gridColumns + 1)) / gridColumns;
-
-type FlowStep =
-  | 'dashboard'
-  | 'order-detail'
-  | 'stream-selection'
-  | 'container-selection'
-  | 'container-entry'
-  | 'container-summary'
-  | 'manifest-management'
-  | 'materials-supplies'
-  | 'equipment-ppe'
-  | 'order-service';
-
-interface OrderData {
-  orderNumber: string;
-  customer: string;
-  site: string;
-  city: string;
-  state: string;
-  genNumber?: string;
-  orderType?: string;
-  programs: string[];
-  serviceDate: string;
-  status: 'Not Started' | 'In Progress' | 'Blocked' | 'Completed';
-}
-
-interface WasteStream {
-  id: string;
-  profileName: string;
-  profileNumber: string;
-  category: string;
-  hazardClass?: string;
-  consolidationAllowed: boolean;
-  accumulationsApply: boolean;
-  specialInstructions?: string;
-  flags?: string[];
-  containerCount?: number;
-  allowedContainers: string[];
-  isDEARegulated?: boolean;
-  requiresCylinderCount?: boolean; // Whether this profile requires cylinder count entry
-}
-
-interface ContainerType {
-  id: string;
-  size: string;
-  capacity: string;
-  code: string;
-  weight: string;
-  popular: boolean;
-}
-
-// Mock orders data - defined outside component to prevent recreation
-const MOCK_ORDERS: OrderData[] = [
-  {
-    orderNumber: 'WO-2024-1234',
-    customer: 'Acme Manufacturing',
-    site: 'Building A - Main Facility',
-    city: 'Denver',
-    state: 'CO',
-    genNumber: 'GEN-12345',
-    programs: ['Retail', 'DEA'],
-    serviceDate: 'Today, 9:00 AM',
-    status: 'Not Started',
-  },
-  {
-    orderNumber: 'WO-2024-1235',
-    customer: 'Walmart',
-    site: 'Store #1234',
-    city: 'Aurora',
-    state: 'CO',
-    orderType: 'Regular Service',
-    programs: ['Retail', 'Pharmacy'],
-    serviceDate: 'Today, 11:00 AM',
-    status: 'Not Started',
-  },
-  {
-    orderNumber: 'WO-2024-1236',
-    customer: 'Target Corporation',
-    site: 'Distribution Center #567',
-    city: 'Commerce City',
-    state: 'CO',
-    genNumber: 'GEN-12346',
-    programs: ['Retail', 'Pharmacy', 'DEA'],
-    serviceDate: 'Today, 1:00 PM',
-    status: 'Not Started',
-  },
-  {
-    orderNumber: 'WO-2024-1237',
-    customer: 'Home Depot',
-    site: 'Store #890',
-    city: 'Boulder',
-    state: 'CO',
-    orderType: 'Emergency Service',
-    programs: ['Retail'],
-    serviceDate: 'Today, 3:00 PM',
-    status: 'Not Started',
-  },
-  {
-    orderNumber: 'WO-2024-1238',
-    customer: 'Costco Wholesale',
-    site: 'Warehouse #234',
-    city: 'Westminster',
-    state: 'CO',
-    programs: ['Retail', 'Pharmacy'],
-    serviceDate: 'Today, 4:30 PM',
-    status: 'Not Started',
-  },
-];
-
-// Pre-determined materials and supplies catalog (from legacy system)
-const MATERIALS_CATALOG = [
-  // Absorbents & Supplies
-  {itemNumber: '604STK00', description: 'ABSORBENT PADS, 100/CS'},
-  
-  // Administrative Fees
-  {itemNumber: 'ADMCOST-092', description: 'Third Party Cost Plus %'},
-  {itemNumber: 'ADMPROF-002', description: 'Profile Administration Fee'},
-  {itemNumber: 'ADMSETUP-002', description: 'Set up fee for Healthcare/retail'},
-  {itemNumber: 'ADMSUP48-001', description: 'Priority Supply drop 24-48 hours'},
-  
-  // Cylinders
-  {itemNumber: 'F000X303-027', description: 'Argon, Cylinder'},
-  {itemNumber: 'F000X303-038', description: 'Carbon Dioxide, Cylinder'},
-  
-  // Labor
-  {itemNumber: 'LBCHEMDT-003', description: 'Chemist, Double Time'},
-  {itemNumber: 'LBCHEMOT-003', description: 'Chemist, Overtime'},
-  
-  // Drums - Metal
-  {itemNumber: 'SPDM55NC-002', description: 'Drum, Metal, 55 gallon, New, Closed Top'},
-  {itemNumber: 'SPDM55NO-002', description: 'Drum, Metal, 55 gallon, New, Open Top'},
-  {itemNumber: 'SPDM30NC-001', description: 'Drum, Metal, 30 gallon, New, Closed Top'},
-  {itemNumber: 'SPDM30NO-001', description: 'Drum, Metal, 30 gallon, New, Open Top'},
-  
-  // Drums - Poly
-  {itemNumber: 'SPDP55NC-002', description: 'Drum, Poly, 55 gallon, New, Closed Top'},
-  {itemNumber: 'SPDP55NO-002', description: 'Drum, Poly, 55 gallon, New, Open Top'},
-  {itemNumber: 'SPDP30NC-001', description: 'Drum, Poly, 30 gallon, New, Closed Top'},
-  {itemNumber: 'SPDP30NO-001', description: 'Drum, Poly, 30 gallon, New, Open Top'},
-  
-  // Containers & Packaging
-  {itemNumber: 'SPBOX01-001', description: 'Box, Fiber, 1 cubic foot'},
-  {itemNumber: 'SPBOX04-001', description: 'Box, Fiber, 4 cubic foot'},
-  {itemNumber: 'SPPAIL5G-001', description: 'Pail, 5 gallon, Plastic'},
-  
-  // Liners & Bags
-  {itemNumber: 'SPLINER55-001', description: 'Drum Liner, 55 gallon'},
-  {itemNumber: 'SPLINER30-001', description: 'Drum Liner, 30 gallon'},
-  {itemNumber: 'SPBAG-001', description: 'Hazardous Waste Bag, Large'},
-];
-
-interface WasteCollectionScreenProps {
-  username?: string;
-  onLogout?: () => void;
-  onNavigate?: (screen: Screen) => void;
-  onGoBack?: () => void;
-}
-
-type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings';
 
 const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   username,
@@ -236,6 +101,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [checklistAnswers, setChecklistAnswers] = useState<ChecklistAnswer[] | null>(null);
   const [selectedOrderData, setSelectedOrderData] = useState<OrderData | null>(
     null,
+  );
+  const [isOrderHeaderCollapsed, setIsOrderHeaderCollapsed] = useState(true);
+  const [showJobNotesModal, setShowJobNotesModal] = useState(false);
+  const [pendingOrderToStart, setPendingOrderToStart] = useState<OrderData | null>(null);
+  const [jobNotesAcknowledged, setJobNotesAcknowledged] = useState(false);
+  const [acknowledgedOrders, setAcknowledgedOrders] = useState<Set<string>>(new Set());
+  const [showValidationModal, setShowValidationModal] = useState(false);
+  const [showOfflineBlockedModal, setShowOfflineBlockedModal] = useState(false);
+  const [persistedValidationIssues, setPersistedValidationIssues] = useState<ValidationIssue[]>([]);
+  const [offlineStatus, setOfflineStatus] = useState<OfflineStatus>(
+    offlineTrackingService.getStatus(),
+  );
+  const [serviceCenter, setServiceCenter] = useState<ServiceCenter | null>(
+    serviceCenterService.getServiceCenter(),
+  );
+  const [showServiceCenterModal, setShowServiceCenterModal] = useState(false);
+  const [showServiceCenterUpdateNotification, setShowServiceCenterUpdateNotification] = useState(false);
+  const [updatedServiceCenterName, setUpdatedServiceCenterName] = useState<string>('');
+  const [showPhotoGallery, setShowPhotoGallery] = useState(false);
+  const [orderPhotos, setOrderPhotos] = useState(
+    selectedOrderData ? photoService.getPhotosForOrder(selectedOrderData.orderNumber) : []
   );
   const [selectedStream, setSelectedStream] = useState('Hazardous Waste');
   const [selectedStreamCode, setSelectedStreamCode] = useState('D001');
@@ -359,6 +245,47 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     useState<OrderData | null>(null); // Selected order in master-detail view
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
+
+  // Subscribe to offline status changes
+  useEffect(() => {
+    const unsubscribe = offlineTrackingService.onStatusChange(setOfflineStatus);
+    return unsubscribe;
+  }, []);
+
+  // Subscribe to Service Center changes
+  useEffect(() => {
+    let previousName: string | null = serviceCenter?.name || null;
+    
+    const unsubscribe = serviceCenterService.onServiceCenterChange((newServiceCenter) => {
+      // Show notification if Service Center changed
+      if (previousName && newServiceCenter && previousName !== newServiceCenter.name) {
+        setUpdatedServiceCenterName(newServiceCenter.name);
+        setShowServiceCenterUpdateNotification(true);
+        setTimeout(() => setShowServiceCenterUpdateNotification(false), 3000);
+      }
+      
+      previousName = newServiceCenter?.name || null;
+      setServiceCenter(newServiceCenter);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Subscribe to photo changes for current order
+  useEffect(() => {
+    if (!selectedOrderData) {
+      setOrderPhotos([]);
+      return;
+    }
+
+    const unsubscribe = photoService.onPhotosChange(
+      selectedOrderData.orderNumber,
+      (photos) => {
+        setOrderPhotos(photos);
+      }
+    );
+
+    return unsubscribe;
+  }, [selectedOrderData?.orderNumber]);
   const [truckId, setTruckId] = useState<string>('');
   const [activeTimeTracking, setActiveTimeTracking] = useState<TimeTrackingRecord | null>(null);
   const [currentOrderTimeTracking, setCurrentOrderTimeTracking] = useState<TimeTrackingRecord | null>(null);
@@ -366,6 +293,68 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
   // Use the mock orders
   const orders = MOCK_ORDERS;
+
+  // Helper function to extract store number from site field
+  const extractStoreNumber = (site: string): string | null => {
+    if (!site) return null;
+    // Match patterns like "Store #1234", "#1234", "Store 1234", etc.
+    const match = site.match(/#?\s*(\d+)/);
+    return match ? match[1] : null;
+  };
+
+  // Helper function to format customer name with store number
+  const formatCustomerWithStore = (customer: string, site: string): string => {
+    const storeNumber = extractStoreNumber(site);
+    if (storeNumber) {
+      return `${customer} - Store #${storeNumber}`;
+    }
+    return customer;
+  };
+
+  // Helper function to format phone number as (XXX) XXX-XXXX
+  const formatPhoneNumber = (phone: string): string => {
+    if (!phone) return '';
+    // Remove all non-digit characters
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length === 10) {
+      return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    }
+    // Return original if not 10 digits
+    return phone;
+  };
+
+  // Handle phone call
+  const handlePhoneCall = useCallback(async (phone: string) => {
+    if (!phone) return;
+    const phoneNumber = phone.replace(/\D/g, ''); // Remove non-digits
+    const url = `tel:${phoneNumber}`;
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Error', 'Unable to make phone call');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Unable to make phone call');
+    }
+  }, []);
+
+  // Handle email
+  const handleEmail = useCallback(async (email: string) => {
+    if (!email) return;
+    const url = `mailto:${email}`;
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Error', 'Unable to open email client');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Unable to open email client');
+    }
+  }, []);
 
   // Load truck ID for the user
   const loadTruckId = useCallback(async () => {
@@ -526,8 +515,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }
   }, []);
 
-  // Handle starting service - starts time tracking
-  const handleStartService = useCallback(async (order: OrderData) => {
+  // Proceed with starting service after acknowledgment
+  const proceedWithStartService = useCallback(async (order: OrderData) => {
     try {
       // Start time tracking for this order
       await startTimeTracking(order.orderNumber, truckId, username);
@@ -546,13 +535,71 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       // Set selected order and navigate to stream selection
       setSelectedOrderData(order);
       setCurrentStep('stream-selection');
+      
+      // Close modal if open
+      setShowJobNotesModal(false);
+      setPendingOrderToStart(null);
+      setJobNotesAcknowledged(false);
     } catch (error) {
       console.error('Error starting time tracking:', error);
       // Still allow navigation even if tracking fails
       setSelectedOrderData(order);
       setCurrentStep('stream-selection');
+      setShowJobNotesModal(false);
+      setPendingOrderToStart(null);
+      setJobNotesAcknowledged(false);
     }
   }, [truckId, username]);
+
+  // Check if actions are blocked due to offline limit
+  const checkOfflineBlock = useCallback((): boolean => {
+    if (offlineStatus.isBlocked) {
+      setShowOfflineBlockedModal(true);
+      return true;
+    }
+    return false;
+  }, [offlineStatus.isBlocked]);
+
+  // Handle starting service - shows job notes modal first if notes exist
+  const handleStartService = useCallback(async (order: OrderData) => {
+    // Check if blocked due to offline limit
+    if (checkOfflineBlock()) {
+      return;
+    }
+
+    // Check if order has job notes that need acknowledgment
+    const hasJobNotes = 
+      order.customerSpecialInstructions ||
+      order.siteAccessNotes ||
+      (order.safetyWarnings && order.safetyWarnings.length > 0) ||
+      (order.previousServiceNotes && order.previousServiceNotes.length > 0);
+    
+    // Check if already acknowledged
+    const isAcknowledged = acknowledgedOrders.has(order.orderNumber);
+    
+    if (hasJobNotes && !isAcknowledged) {
+      // Show job notes modal first
+      setPendingOrderToStart(order);
+      setShowJobNotesModal(true);
+      setJobNotesAcknowledged(false);
+      return;
+    }
+    
+    // Proceed with starting service
+    await proceedWithStartService(order);
+  }, [truckId, username, acknowledgedOrders, proceedWithStartService, offlineStatus.isBlocked, checkOfflineBlock]);
+
+  // Handle job notes acknowledgment
+  const handleJobNotesAcknowledge = useCallback(() => {
+    if (!pendingOrderToStart) return;
+    
+    // Mark as acknowledged
+    setAcknowledgedOrders(prev => new Set(prev).add(pendingOrderToStart.orderNumber));
+    setJobNotesAcknowledged(true);
+    
+    // Proceed with starting service
+    proceedWithStartService(pendingOrderToStart);
+  }, [pendingOrderToStart, proceedWithStartService]);
 
   // Generate unique shipping label barcode
   // Format: I-8digitssalesorder-001 (e.g., I-20241234-001)
@@ -850,7 +897,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'D001',
       profileName: 'Hazardous Waste',
-      profileNumber: 'D001',
+      profileNumber: '243030001',
       category: 'Hazardous',
       hazardClass: 'Class 8',
       consolidationAllowed: true,
@@ -864,7 +911,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'U001',
       profileName: 'Universal Waste - Lamps',
-      profileNumber: 'U001',
+      profileNumber: '241010002',
       category: 'Universal',
       consolidationAllowed: false,
       accumulationsApply: false,
@@ -877,7 +924,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'N001',
       profileName: 'Non-Hazardous Solid Waste',
-      profileNumber: 'N001',
+      profileNumber: '242050003',
       category: 'Non-Hazardous',
       consolidationAllowed: true,
       accumulationsApply: false,
@@ -890,7 +937,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'HT001',
       profileName: 'Helium Tank',
-      profileNumber: 'HT001',
+      profileNumber: '244500004',
       category: 'Compressed Gas',
       hazardClass: 'Class 2.2',
       consolidationAllowed: false,
@@ -905,7 +952,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'D002',
       profileName: 'Corrosive Waste',
-      profileNumber: 'D002',
+      profileNumber: '241270005',
       category: 'Hazardous',
       hazardClass: 'Class 8',
       consolidationAllowed: true,
@@ -919,7 +966,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'D003',
       profileName: 'Flammable Liquids',
-      profileNumber: 'D003',
+      profileNumber: '243080006',
       category: 'Hazardous',
       hazardClass: 'Class 3',
       consolidationAllowed: false,
@@ -933,7 +980,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'D004',
       profileName: 'Toxic Waste',
-      profileNumber: 'D004',
+      profileNumber: '242250007',
       category: 'Hazardous',
       hazardClass: 'Class 6.1',
       consolidationAllowed: false,
@@ -947,7 +994,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'D005',
       profileName: 'Oxidizing Waste',
-      profileNumber: 'D005',
+      profileNumber: '241560008',
       category: 'Hazardous',
       hazardClass: 'Class 5.1',
       consolidationAllowed: false,
@@ -961,7 +1008,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'U002',
       profileName: 'Universal Waste - Batteries',
-      profileNumber: 'U002',
+      profileNumber: '243030009',
       category: 'Universal',
       consolidationAllowed: true,
       accumulationsApply: false,
@@ -974,7 +1021,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'U003',
       profileName: 'Universal Waste - Electronics',
-      profileNumber: 'U003',
+      profileNumber: '241010010',
       category: 'Universal',
       consolidationAllowed: true,
       accumulationsApply: false,
@@ -987,7 +1034,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'U004',
       profileName: 'Universal Waste - Pesticides',
-      profileNumber: 'U004',
+      profileNumber: '241890011',
       category: 'Universal',
       consolidationAllowed: false,
       accumulationsApply: true,
@@ -1000,7 +1047,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'N002',
       profileName: 'Office Paper Waste',
-      profileNumber: 'N002',
+      profileNumber: '242050012',
       category: 'Non-Hazardous',
       consolidationAllowed: true,
       accumulationsApply: false,
@@ -1013,7 +1060,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'N003',
       profileName: 'Cardboard Waste',
-      profileNumber: 'N003',
+      profileNumber: '243030013',
       category: 'Non-Hazardous',
       consolidationAllowed: true,
       accumulationsApply: false,
@@ -1026,7 +1073,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'N004',
       profileName: 'Food Waste',
-      profileNumber: 'N004',
+      profileNumber: '241010014',
       category: 'Non-Hazardous',
       consolidationAllowed: true,
       accumulationsApply: false,
@@ -1039,7 +1086,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'N005',
       profileName: 'Plastic Waste',
-      profileNumber: 'N005',
+      profileNumber: '242050015',
       category: 'Non-Hazardous',
       consolidationAllowed: true,
       accumulationsApply: false,
@@ -1052,7 +1099,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'CG001',
       profileName: 'Nitrogen Tank',
-      profileNumber: 'CG001',
+      profileNumber: '244500016',
       category: 'Compressed Gas',
       hazardClass: 'Class 2.2',
       consolidationAllowed: false,
@@ -1066,7 +1113,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'CG002',
       profileName: 'Oxygen Tank',
-      profileNumber: 'CG002',
+      profileNumber: '241270017',
       category: 'Compressed Gas',
       hazardClass: 'Class 2.2',
       consolidationAllowed: false,
@@ -1080,7 +1127,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'CG003',
       profileName: 'Acetylene Tank',
-      profileNumber: 'CG003',
+      profileNumber: '243080018',
       category: 'Compressed Gas',
       hazardClass: 'Class 2.1',
       consolidationAllowed: false,
@@ -1094,7 +1141,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'D006',
       profileName: 'Infectious Waste',
-      profileNumber: 'D006',
+      profileNumber: '242250019',
       category: 'Hazardous',
       hazardClass: 'Class 6.2',
       consolidationAllowed: false,
@@ -1108,7 +1155,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'D007',
       profileName: 'Radioactive Waste',
-      profileNumber: 'D007',
+      profileNumber: '241560020',
       category: 'Hazardous',
       hazardClass: 'Class 7',
       consolidationAllowed: false,
@@ -1122,7 +1169,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'D008',
       profileName: 'Reactive Waste',
-      profileNumber: 'D008',
+      profileNumber: '243030021',
       category: 'Hazardous',
       hazardClass: 'Class 4.3',
       consolidationAllowed: false,
@@ -1136,7 +1183,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'N006',
       profileName: 'Metal Scrap',
-      profileNumber: 'N006',
+      profileNumber: '241010022',
       category: 'Non-Hazardous',
       consolidationAllowed: true,
       accumulationsApply: false,
@@ -1149,7 +1196,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'N007',
       profileName: 'Glass Waste',
-      profileNumber: 'N007',
+      profileNumber: '242050023',
       category: 'Non-Hazardous',
       consolidationAllowed: true,
       accumulationsApply: false,
@@ -1162,7 +1209,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     {
       id: 'U005',
       profileName: 'Universal Waste - Mercury',
-      profileNumber: 'U005',
+      profileNumber: '244500024',
       category: 'Universal',
       consolidationAllowed: false,
       accumulationsApply: true,
@@ -1326,19 +1373,32 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.headerContent}
-            onPress={() => onNavigate?.('Settings')}
-            activeOpacity={0.7}>
-            <Text style={styles.headerTitle}>
-              {username ? `Welcome, ${username}` : 'Welcome'}
-            </Text>
-            {truckId ? (
-              <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
-            ) : (
-              <Text style={styles.headerSubtitle}>Set Truck ID</Text>
+          <View style={styles.headerLeft}>
+            <TouchableOpacity
+              style={styles.headerContent}
+              onPress={() => onNavigate?.('Settings')}
+              activeOpacity={0.7}>
+              <Text style={styles.headerTitle}>
+                {username ? `Welcome, ${username}` : 'Welcome'}
+              </Text>
+              {truckId ? (
+                <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
+              ) : (
+                <Text style={styles.headerSubtitle}>Set Truck ID</Text>
+              )}
+            </TouchableOpacity>
+                        {serviceCenter && (
+              <TouchableOpacity
+                style={styles.serviceCenterBadge}
+                onPress={() => setShowServiceCenterModal(true)}
+                activeOpacity={0.7}>
+                <Icon name="business" size={16} color={colors.primary} />
+                <Text style={styles.serviceCenterText}>
+                  {serviceCenterService.getDisplayFormat(false)}
+                </Text>
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+          </View>
           <View style={styles.headerActions}>
             <SyncStatusIndicator
               status={syncStatus}
@@ -1425,7 +1485,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       </Badge>
                     </View>
                     <Text style={styles.masterOrderCustomer}>
-                      {order.customer}
+                      {formatCustomerWithStore(order.customer, order.site)}
                     </Text>
                     <Text style={styles.masterOrderSite}>
                       {order.site} • {order.city}, {order.state}
@@ -1488,6 +1548,93 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   </Badge>
                 </View>
 
+                {/* Primary Contact Section - Prominently placed above the fold */}
+                <Card style={styles.contactCard}>
+                  <CardHeader>
+                    <CardTitle>
+                      <CardTitleText>Primary Contact</CardTitleText>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {selectedOrder.primaryContactName ||
+                    selectedOrder.primaryContactPhone ||
+                    selectedOrder.primaryContactEmail ? (
+                      <>
+                        {selectedOrder.primaryContactName && (
+                          <View style={styles.contactRow}>
+                            <Text style={styles.contactLabel}>Name:</Text>
+                            <Text style={styles.contactValue}>
+                              {selectedOrder.primaryContactName}
+                            </Text>
+                          </View>
+                        )}
+                        {selectedOrder.primaryContactPhone ? (
+                          <View style={styles.contactRow}>
+                            <Text style={styles.contactLabel}>Phone:</Text>
+                            <TouchableOpacity
+                              onPress={() =>
+                                handlePhoneCall(selectedOrder.primaryContactPhone!)
+                              }
+                              activeOpacity={0.7}>
+                              <Text style={styles.contactLink}>
+                                {formatPhoneNumber(selectedOrder.primaryContactPhone)}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <View style={styles.contactRow}>
+                            <Text style={styles.contactLabel}>Phone:</Text>
+                            <Text style={styles.contactValue}>—</Text>
+                          </View>
+                        )}
+                        {selectedOrder.primaryContactEmail ? (
+                          <View style={styles.contactRow}>
+                            <Text style={styles.contactLabel}>Email:</Text>
+                            <TouchableOpacity
+                              onPress={() =>
+                                handleEmail(selectedOrder.primaryContactEmail!)
+                              }
+                              activeOpacity={0.7}>
+                              <Text style={styles.contactLink}>
+                                {selectedOrder.primaryContactEmail}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <View style={styles.contactRow}>
+                            <Text style={styles.contactLabel}>Email:</Text>
+                            <Text style={styles.contactValue}>—</Text>
+                          </View>
+                        )}
+                        {selectedOrder.hasSecondaryContacts && (
+                          <TouchableOpacity
+                            style={styles.viewAllContactsButton}
+                            onPress={() => {
+                              Alert.alert(
+                                'All Contacts',
+                                'Secondary contacts feature coming soon.',
+                              );
+                            }}
+                            activeOpacity={0.7}>
+                            <View style={styles.viewAllContactsRow}>
+                              <Text style={styles.viewAllContactsText}>
+                                View All Contacts
+                              </Text>
+                              <Icon name="arrow-forward" size={16} color={colors.primary} />
+                            </View>
+                          </TouchableOpacity>
+                        )}
+                      </>
+                    ) : (
+                      <View style={styles.noContactContainer}>
+                        <Text style={styles.noContactText}>
+                          No contact on file
+                        </Text>
+                      </View>
+                    )}
+                  </CardContent>
+                </Card>
+
                 <Card style={styles.detailCard}>
                   <CardHeader>
                     <CardTitle>
@@ -1497,9 +1644,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   <CardContent>
                     <View style={styles.detailRow}>
                       <Text style={styles.detailLabel}>Customer:</Text>
-                      <Text style={styles.detailValue}>
-                        {selectedOrder.customer}
-                      </Text>
+                      <View style={styles.detailValueContainer}>
+                        <Text style={styles.detailValue}>
+                          {selectedOrder.customer}
+                        </Text>
+                        {extractStoreNumber(selectedOrder.site) && (
+                          <Text style={styles.storeNumber}>
+                            Store #{extractStoreNumber(selectedOrder.site)}
+                          </Text>
+                        )}
+                      </View>
                     </View>
                     <View style={styles.detailRow}>
                       <Text style={styles.detailLabel}>Site:</Text>
@@ -1597,19 +1751,32 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.headerContent}
-            onPress={() => onNavigate?.('Settings')}
-            activeOpacity={0.7}>
-            <Text style={styles.headerTitle}>
-              {username ? `Welcome, ${username}` : 'Welcome'}
-            </Text>
-            {truckId ? (
-              <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
-            ) : (
-              <Text style={styles.headerSubtitle}>Set Truck ID</Text>
+          <View style={styles.headerLeft}>
+            {serviceCenter && (
+              <TouchableOpacity
+                style={styles.serviceCenterBadge}
+                onPress={() => setShowServiceCenterModal(true)}
+                activeOpacity={0.7}>
+                <Icon name="business" size={16} color={colors.primary} />
+                <Text style={styles.serviceCenterText}>
+                  {serviceCenterService.getDisplayFormat(false)}
+                </Text>
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerContent}
+              onPress={() => onNavigate?.('Settings')}
+              activeOpacity={0.7}>
+              <Text style={styles.headerTitle}>
+                {username ? `Welcome, ${username}` : 'Welcome'}
+              </Text>
+              {truckId ? (
+                <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
+              ) : (
+                <Text style={styles.headerSubtitle}>Set Truck ID</Text>
+              )}
+            </TouchableOpacity>
+          </View>
           <View style={styles.headerActions}>
             <SyncStatusIndicator
               status={syncStatus}
@@ -1723,7 +1890,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     </Badge>
                   </View>
                   <View style={styles.orderCardBody}>
-                    <Text style={styles.customerName}>{order.customer}</Text>
+                    <Text style={styles.customerName}>
+                      {formatCustomerWithStore(order.customer, order.site)}
+                    </Text>
                     <Text style={styles.siteInfo}>
                       {order.site} • {order.city}, {order.state}
                     </Text>
@@ -1754,9 +1923,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             {completedOrdersList.length > 0 && (
               <View style={styles.completedOrdersSection}>
                 <View style={styles.completedOrdersHeader}>
-                  <Text style={styles.completedOrdersTitle}>
-                    ✓ Completed ({completedOrdersList.length})
-                  </Text>
+                  <View style={styles.completedOrdersTitleRow}>
+                    <Icon name="check-circle" size={20} color={colors.success} style={styles.completedOrdersIcon} />
+                    <Text style={styles.completedOrdersTitle}>
+                      Completed ({completedOrdersList.length})
+                    </Text>
+                  </View>
                 </View>
                 {completedOrdersList.map((order, index) => (
                   <View
@@ -1768,11 +1940,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           {order.orderNumber}
                         </Text>
                         <Text style={styles.completedOrderCustomer}>
-                          {order.customer}
+                          {formatCustomerWithStore(order.customer, order.site)}
                         </Text>
                       </View>
                       <View style={styles.completedOrderRight}>
-                        <Text style={styles.completedOrderCheck}>✓</Text>
+                        <Icon name="check-circle" size={24} color={colors.success} />
                       </View>
                     </View>
                   </View>
@@ -1811,36 +1983,95 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }
   }, []);
 
+  // Persistent Order Header Component
+
   // StreamSelectionScreen component - defined as a stable component
   const StreamSelectionScreen = () => {
     const isCurrentOrderCompleted = selectedOrderData
       ? isOrderCompleted(selectedOrderData.orderNumber)
       : false;
 
-    return (
-      <View style={styles.container}>
-        <View style={styles.screenHeader}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setCurrentStep('dashboard')}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.screenHeaderContent}>
-            <Text style={styles.screenHeaderTitle}>
-              {selectedOrderData?.orderNumber || 'Order #WO-2024-1234'}
-            </Text>
-            <Text style={styles.screenHeaderSubtitle}>
-              {selectedOrderData?.customer || 'Customer Name'} -{' '}
-              {selectedOrderData?.site || 'Site Location'}
-            </Text>
-          </View>
-          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
-            <View style={styles.timeTrackingBadge}>
-              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+    if (!selectedOrderData) return null;
+    
+      // Get warning banner based on offline status
+      const getWarningBanner = () => {
+        if (offlineStatus.isOnline) return null;
+
+        const {warningLevel, offlineDurationMs} = offlineStatus;
+        if (warningLevel === 'blocked') return null; // Modal handles this
+
+        let bannerStyle = styles.offlineWarningBanner;
+        let bannerText = '';
+        let remainingTime = '';
+        let iconColor = colors.foreground;
+
+        if (warningLevel === 'critical') {
+          // Red critical banner at 9.5 hours
+          bannerStyle = styles.offlineCriticalBanner;
+          iconColor = colors.primaryForeground;
+          const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
+          const remainingMinutes = Math.floor(remainingMs / (60 * 1000));
+          if (remainingMinutes < 60) {
+            remainingTime = `${remainingMinutes} min remaining`;
+          } else {
+            const remainingHours = Math.floor(remainingMinutes / 60);
+            const remainingMins = remainingMinutes % 60;
+            remainingTime = `${remainingHours} hr ${remainingMins} min remaining`;
+          }
+          bannerText = `Critical: ${remainingTime} before offline limit`;
+        } else if (warningLevel === 'orange') {
+          // Orange warning banner at 9 hours
+          bannerStyle = styles.offlineOrangeBanner;
+          iconColor = '#FF6B35';
+          const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
+          const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
+          const remainingMins = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
+          remainingTime = `${remainingHours} hr ${remainingMins} min remaining`;
+          bannerText = `Warning: ${remainingTime} before offline limit`;
+        } else if (warningLevel === 'warning') {
+          // Yellow warning banner at 8 hours
+          bannerStyle = styles.offlineWarningBanner;
+          iconColor = colors.foreground;
+          const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
+          const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
+          remainingTime = `${remainingHours} hr${remainingHours !== 1 ? 's' : ''} remaining`;
+          bannerText = `Warning: ${remainingTime} before offline limit`;
+        }
+
+        if (!bannerText) return null;
+
+        return (
+          <View style={bannerStyle}>
+            <View style={styles.offlineWarningBannerRow}>
+              <Icon 
+                name="warning" 
+                size={18} 
+                color={iconColor} 
+              />
+              <Text style={styles.offlineWarningBannerText}>{bannerText}</Text>
             </View>
-          )}
-        </View>
+          </View>
+        );
+      };
+
+      return (
+        <View style={styles.container}>
+          {getWarningBanner()}
+          <PersistentOrderHeader
+            orderData={selectedOrderData}
+            isCollapsed={isOrderHeaderCollapsed}
+            onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
+            onBackPress={() => setCurrentStep('dashboard')}
+          subtitle={`${selectedOrderData.customer || 'Customer Name'} - ${selectedOrderData.site || 'Site Location'}`}
+          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          onViewNotes={() => {
+            setPendingOrderToStart(null);
+            setShowJobNotesModal(true);
+          }}
+          validationState={validationState}
+          onViewValidation={() => setShowValidationModal(true)}
+          onViewServiceCenter={() => setShowServiceCenterModal(true)}
+        />
 
         <ScrollView
           style={styles.scrollView}
@@ -1862,6 +2093,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               {filteredStreams.map(stream => {
                 const handleStreamPress = () => {
                   if (!isCurrentOrderCompleted && stream) {
+                    // Check if blocked due to offline limit
+                    if (offlineStatus.isBlocked) {
+                      setShowOfflineBlockedModal(true);
+                      return;
+                    }
+
                     // Track recently used profile
                     setRecentlyUsedProfiles(prev => {
                       // Remove if already exists, then add to front
@@ -1885,11 +2122,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     disabled={isCurrentOrderCompleted}
                     activeOpacity={isCurrentOrderCompleted ? 1 : 0.7}>
                   <View style={styles.streamCardHeader}>
-                    <View style={styles.streamCardBadges}>
-                      <Badge variant={getCategoryBadgeVariant(stream.category)}>
-                        {stream.category}
-                      </Badge>
-                    </View>
                     {recentlyUsedProfiles.includes(stream.id) && (
                       <Badge 
                         variant="outline" 
@@ -1902,14 +2134,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   <Text style={styles.streamCardTitle}>
                     {stream.profileName}
                   </Text>
-                  <Text style={styles.streamCardHazard}>
-                    {stream.hazardClass
-                      ? `Hazard Class: ${stream.hazardClass}`
-                      : 'Non-Hazardous'}
+                  <Text style={styles.streamCardProfileNumber}>
+                    {stream.profileNumber}
                   </Text>
-                  <View style={styles.streamCardWasteCode}>
-                    <Badge variant="outline">{stream.profileNumber}</Badge>
-                  </View>
+                  <Text style={styles.streamCardDescription}>
+                    {stream.category}
+                  </Text>
                 </TouchableOpacity>
                 );
               })}
@@ -1937,27 +2167,25 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       ? isOrderCompleted(selectedOrderData.orderNumber)
       : false;
 
+    if (!selectedOrderData) return null;
+    
     return (
       <View style={styles.container}>
-        <View style={styles.screenHeader}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setCurrentStep('stream-selection')}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.screenHeaderContent}>
-            <Text style={styles.screenHeaderTitle}>
-              {selectedOrderData?.orderNumber || 'Order #WO-2024-1234'}
-            </Text>
-            <Text style={styles.screenHeaderSubtitle}>{selectedStream}</Text>
-          </View>
-          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
-            <View style={styles.timeTrackingBadge}>
-              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
-            </View>
-          )}
-        </View>
+        <PersistentOrderHeader
+          orderData={selectedOrderData}
+          isCollapsed={isOrderHeaderCollapsed}
+          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
+          onBackPress={() => setCurrentStep('stream-selection')}
+          subtitle={selectedStream}
+          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          onViewNotes={() => {
+            setPendingOrderToStart(null);
+            setShowJobNotesModal(true);
+          }}
+          validationState={validationState}
+          onViewValidation={() => setShowValidationModal(true)}
+          onViewServiceCenter={() => setShowServiceCenterModal(true)}
+        />
 
         <ScrollView
           style={styles.scrollView}
@@ -2085,29 +2313,25 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       setIsManualWeightEntry(true);
     };
 
+    if (!selectedOrderData) return null;
+    
     return (
       <View style={styles.container}>
-        <View style={styles.screenHeader}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setCurrentStep('container-selection')}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.screenHeaderContent}>
-            <Text style={styles.screenHeaderTitle}>
-              {selectedOrderData?.orderNumber || 'Order #WO-2024-1234'}
-            </Text>
-            <Text style={styles.screenHeaderSubtitle}>
-              {selectedStream} • {selectedContainerType?.size || 'Container'}
-            </Text>
-          </View>
-          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
-            <View style={styles.timeTrackingBadge}>
-              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
-            </View>
-          )}
-        </View>
+        <PersistentOrderHeader
+          orderData={selectedOrderData}
+          isCollapsed={isOrderHeaderCollapsed}
+          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
+          onBackPress={() => setCurrentStep('container-selection')}
+          subtitle={`${selectedStream} • ${selectedContainerType?.size || 'Container'}`}
+          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          onViewNotes={() => {
+            setPendingOrderToStart(null);
+            setShowJobNotesModal(true);
+          }}
+          validationState={validationState}
+          onViewValidation={() => setShowValidationModal(true)}
+          onViewServiceCenter={() => setShowServiceCenterModal(true)}
+        />
 
         <ScrollView
           style={styles.scrollView}
@@ -2169,19 +2393,25 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 </View>
                 {showSoftWarning && (
                   <View style={styles.inlineWarningSoft}>
-                    <Text style={styles.inlineWarningText}>
-                      ⚠️ Approaching capacity (
-                      {Math.round((netWeight / weightLimits.max) * 100)}% of{' '}
-                      {weightLimits.max} lbs)
-                    </Text>
+                    <View style={styles.inlineWarningRow}>
+                      <Icon name="warning" size={18} color={colors.warning} style={styles.inlineWarningIcon} />
+                      <Text style={styles.inlineWarningText}>
+                        Approaching capacity (
+                        {Math.round((netWeight / weightLimits.max) * 100)}% of{' '}
+                        {weightLimits.max} lbs)
+                      </Text>
+                    </View>
                   </View>
                 )}
                 {showHardWarning && (
                   <View style={styles.inlineWarningHard}>
-                    <Text style={styles.inlineWarningText}>
-                      ⚠️ EXCEEDS MAXIMUM ({netWeight} lbs / {weightLimits.max}{' '}
-                      lbs max) - Must consolidate or use new container
-                    </Text>
+                    <View style={styles.inlineWarningRow}>
+                      <Icon name="warning" size={18} color={colors.destructive} style={styles.inlineWarningIcon} />
+                      <Text style={styles.inlineWarningText}>
+                        EXCEEDS MAXIMUM ({netWeight} lbs / {weightLimits.max}{' '}
+                        lbs max) - Must consolidate or use new container
+                      </Text>
+                    </View>
                   </View>
                 )}
               </View>
@@ -2242,9 +2472,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               {/* Manual Entry Indicator */}
               {isManualWeightEntry && (
                 <View style={styles.manualEntryIndicator}>
-                  <Text style={styles.manualEntryText}>
-                    ⚠️ Weight entered manually
-                  </Text>
+                  <View style={styles.manualWeightRow}>
+                    <Icon name="warning" size={16} color={colors.warning} style={styles.manualWeightIcon} />
+                    <Text style={styles.manualEntryText}>Weight entered manually</Text>
+                  </View>
                 </View>
               )}
             </CardContent>
@@ -2266,19 +2497,31 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             title="Add Container"
             variant="primary"
             size="md"
-            disabled={isCurrentOrderCompleted}
+            disabled={isCurrentOrderCompleted || offlineStatus.isBlocked}
             onPress={async () => {
               if (
                 selectedContainerType &&
                 selectedStream &&
                 !isCurrentOrderCompleted
               ) {
+                // Check if blocked due to offline limit
+                if (offlineStatus.isBlocked) {
+                  setShowOfflineBlockedModal(true);
+                  return;
+                }
+
                 // Validate cylinder count if required
                 if (requiresCylinderCount && (!cylinderCount || cylinderCount.trim() === '')) {
                   Alert.alert(
                     'Required Field',
                     'Please enter the cylinder count before adding the container.'
                   );
+                  return;
+                }
+
+                // Check if blocked due to offline limit
+                if (offlineStatus.isBlocked) {
+                  setShowOfflineBlockedModal(true);
                   return;
                 }
 
@@ -2413,27 +2656,25 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       );
     };
 
+    if (!selectedOrderData) return null;
+    
     return (
       <View style={styles.container}>
-        <View style={styles.screenHeader}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setCurrentStep('container-entry')}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.screenHeaderContent}>
-            <Text style={styles.screenHeaderTitle}>
-              {selectedOrderData?.orderNumber || 'Order Summary'}
-            </Text>
-            <Text style={styles.screenHeaderSubtitle}>Container Summary</Text>
-          </View>
-          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
-            <View style={styles.timeTrackingBadge}>
-              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
-            </View>
-          )}
-        </View>
+        <PersistentOrderHeader
+          orderData={selectedOrderData}
+          isCollapsed={isOrderHeaderCollapsed}
+          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
+          onBackPress={() => setCurrentStep('container-entry')}
+          subtitle="Container Summary"
+          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          onViewNotes={() => {
+            setPendingOrderToStart(null);
+            setShowJobNotesModal(true);
+          }}
+          validationState={validationState}
+          onViewValidation={() => setShowValidationModal(true)}
+          onViewServiceCenter={() => setShowServiceCenterModal(true)}
+        />
 
         <View style={styles.scrollViewContainer}>
           <ScrollView
@@ -2618,27 +2859,25 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       ? isOrderCompleted(selectedOrderData.orderNumber)
       : false;
 
+    if (!selectedOrderData) return null;
+    
     return (
       <View style={styles.container}>
-        <View style={styles.screenHeader}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setCurrentStep('container-summary')}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.screenHeaderContent}>
-            <Text style={styles.screenHeaderTitle}>
-              {selectedOrderData?.orderNumber || 'Order'}
-            </Text>
-            <Text style={styles.screenHeaderSubtitle}>Manifest Management</Text>
-          </View>
-          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
-            <View style={styles.timeTrackingBadge}>
-              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
-            </View>
-          )}
-        </View>
+        <PersistentOrderHeader
+          orderData={selectedOrderData}
+          isCollapsed={isOrderHeaderCollapsed}
+          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
+          onBackPress={() => setCurrentStep('container-summary')}
+          subtitle="Manifest Management"
+          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          onViewNotes={() => {
+            setPendingOrderToStart(null);
+            setShowJobNotesModal(true);
+          }}
+          validationState={validationState}
+          onViewValidation={() => setShowValidationModal(true)}
+          onViewServiceCenter={() => setShowServiceCenterModal(true)}
+        />
 
         <View style={styles.scrollViewContainer}>
           <ScrollView
@@ -2758,9 +2997,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 {/* Scanned Document Indicator */}
                 {manifestData?.scannedImageUri && (
                   <View style={styles.scannedImageIndicator}>
-                    <Text style={styles.scannedImageText}>
-                      ✓ Manifest document scanned and uploaded
-                    </Text>
+                    <View style={styles.manifestSuccessRow}>
+                      <Icon name="check-circle" size={18} color={colors.success} style={styles.manifestSuccessIcon} />
+                      <Text style={styles.scannedImageText}>Manifest document scanned and uploaded</Text>
+                    </View>
                   </View>
                 )}
               </CardContent>
@@ -2832,7 +3072,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               <TouchableOpacity
                 onPress={() => setShowSignatureModal(false)}
                 style={styles.signatureModalCloseBtn}>
-                <Text style={styles.signatureModalCloseBtnText}>✕</Text>
+                <Icon name="close" size={20} color={colors.foreground} />
               </TouchableOpacity>
             </View>
             <View style={styles.signatureCanvasContainer}>
@@ -2897,7 +3137,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               <TouchableOpacity
                 onPress={() => setShowPrintPreview(false)}
                 style={styles.manifestPreviewCloseBtn}>
-                <Text style={styles.manifestPreviewCloseBtnText}>✕</Text>
+                <Icon name="close" size={20} color={colors.foreground} />
               </TouchableOpacity>
             </View>
 
@@ -3380,7 +3620,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   }}
                   activeOpacity={0.7}>
                   <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
-                    <Text style={styles.bottomSheetOptionIconText}>🖨️</Text>
+                    <Icon name="print" size={24} color={colors.foreground} />
                   </View>
                   <View style={styles.bottomSheetOptionInfo}>
                     <Text style={styles.bottomSheetOptionLabel}>Print Manifest</Text>
@@ -3388,7 +3628,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       Print the hazardous waste manifest document
                     </Text>
                   </View>
-                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -3399,7 +3639,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   }}
                   activeOpacity={0.7}>
                   <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEF3C7'}]}>
-                    <Text style={styles.bottomSheetOptionIconText}>📄</Text>
+                    <Icon name="description" size={24} color={colors.foreground} />
                   </View>
                   <View style={styles.bottomSheetOptionInfo}>
                     <Text style={styles.bottomSheetOptionLabel}>Print LDR</Text>
@@ -3407,7 +3647,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       Print the Land Disposal Restrictions notification
                     </Text>
                   </View>
-                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -3418,7 +3658,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   }}
                   activeOpacity={0.7}>
                   <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEE2E2'}]}>
-                    <Text style={styles.bottomSheetOptionIconText}>❌</Text>
+                    <Icon name="error" size={24} color={colors.destructive} />
                   </View>
                   <View style={styles.bottomSheetOptionInfo}>
                     <Text style={styles.bottomSheetOptionLabel}>Void Manifest</Text>
@@ -3426,7 +3666,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       Void the current manifest document
                     </Text>
                   </View>
-                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
                 </TouchableOpacity>
               </ScrollView>
 
@@ -3471,29 +3711,25 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       setEditQuantityValue('');
     };
 
+    if (!selectedOrderData) return null;
+    
     return (
       <View style={styles.container}>
-        <View style={styles.screenHeader}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setCurrentStep('manifest-management')}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.screenHeaderContent}>
-            <Text style={styles.screenHeaderTitle}>
-              {selectedOrderData?.orderNumber || 'Order'}
-            </Text>
-            <Text style={styles.screenHeaderSubtitle}>
-              Supplies
-            </Text>
-          </View>
-          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
-            <View style={styles.timeTrackingBadge}>
-              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
-            </View>
-          )}
-        </View>
+        <PersistentOrderHeader
+          orderData={selectedOrderData}
+          isCollapsed={isOrderHeaderCollapsed}
+          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
+          onBackPress={() => setCurrentStep('manifest-management')}
+          subtitle="Supplies"
+          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          onViewNotes={() => {
+            setPendingOrderToStart(null);
+            setShowJobNotesModal(true);
+          }}
+          validationState={validationState}
+          onViewValidation={() => setShowValidationModal(true)}
+          onViewServiceCenter={() => setShowServiceCenterModal(true)}
+        />
 
         <View style={styles.scrollViewContainer}>
           <ScrollView
@@ -3553,9 +3789,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                               <TouchableOpacity
                                 onPress={() => handleSaveQuantity(material.id)}
                                 style={styles.quantityEditButton}>
-                                <Text style={styles.quantityEditButtonText}>
-                                  ✓
-                                </Text>
+                                <Icon name="check" size={20} color={colors.primaryForeground} />
                               </TouchableOpacity>
                               <TouchableOpacity
                                 onPress={() => {
@@ -3563,9 +3797,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                                   setEditQuantityValue('');
                                 }}
                                 style={styles.quantityEditButton}>
-                                <Text style={styles.quantityEditButtonText}>
-                                  ✕
-                                </Text>
+                                <Icon name="close" size={20} color={colors.foreground} />
                               </TouchableOpacity>
                             </View>
                           ) : (
@@ -3704,27 +3936,25 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       setEditEquipmentCount('');
     };
 
+    if (!selectedOrderData) return null;
+    
     return (
       <View style={styles.container}>
-        <View style={styles.screenHeader}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setCurrentStep('manifest-management')}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.screenHeaderContent}>
-            <Text style={styles.screenHeaderTitle}>
-              {selectedOrderData?.orderNumber || 'Order'}
-            </Text>
-            <Text style={styles.screenHeaderSubtitle}>Equipment</Text>
-          </View>
-          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
-            <View style={styles.timeTrackingBadge}>
-              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
-            </View>
-          )}
-        </View>
+        <PersistentOrderHeader
+          orderData={selectedOrderData}
+          isCollapsed={isOrderHeaderCollapsed}
+          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
+          onBackPress={() => setCurrentStep('manifest-management')}
+          subtitle="Equipment"
+          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          onViewNotes={() => {
+            setPendingOrderToStart(null);
+            setShowJobNotesModal(true);
+          }}
+          validationState={validationState}
+          onViewValidation={() => setShowValidationModal(true)}
+          onViewServiceCenter={() => setShowServiceCenterModal(true)}
+        />
 
         <View style={styles.scrollViewContainer}>
           <ScrollView
@@ -3774,9 +4004,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                               <TouchableOpacity
                                 onPress={() => handleSaveCount(equipment.id)}
                                 style={styles.quantityEditButton}>
-                                <Text style={styles.quantityEditButtonText}>
-                                  ✓
-                                </Text>
+                                <Icon name="check" size={20} color={colors.primaryForeground} />
                               </TouchableOpacity>
                               <TouchableOpacity
                                 onPress={() => {
@@ -3784,9 +4012,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                                   setEditEquipmentCount('');
                                 }}
                                 style={styles.quantityEditButton}>
-                                <Text style={styles.quantityEditButtonText}>
-                                  ✕
-                                </Text>
+                                <Icon name="close" size={20} color={colors.foreground} />
                               </TouchableOpacity>
                             </View>
                           ) : (
@@ -3865,7 +4091,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 }}
                 hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
                 style={styles.fullScreenModalCloseButton}>
-                <Text style={styles.fullScreenModalCloseText}>✕</Text>
+                <Icon name="close" size={20} color={colors.foreground} />
               </TouchableOpacity>
             </View>
 
@@ -3921,9 +4147,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   <Text style={styles.sectionTitle}>Item Details</Text>
                   {showAddEquipmentSuccess && (
                     <View style={styles.addSuccessIndicator}>
-                      <Text style={styles.addSuccessText}>
-                        ✓ Equipment added successfully!
-                      </Text>
+                      <View style={styles.successMessageRow}>
+                        <Icon name="check-circle" size={18} color={colors.success} style={styles.successMessageIcon} />
+                        <Text style={styles.addSuccessText}>Equipment added successfully!</Text>
+                      </View>
                     </View>
                   )}
                   {selectedEquipmentItem ? (
@@ -4113,29 +4340,25 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     };
 
     // Customer Acknowledgment View
+    if (!selectedOrderData) return null;
+    
     return (
       <View style={styles.container}>
-        <View style={styles.screenHeader}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => setCurrentStep('manifest-management')}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.screenHeaderContent}>
-            <Text style={styles.screenHeaderTitle}>
-              {selectedOrderData?.orderNumber || 'Order'}
-            </Text>
-            <Text style={styles.screenHeaderSubtitle}>
-              Customer Acknowledgment
-            </Text>
-          </View>
-          {elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData && (
-            <View style={styles.timeTrackingBadge}>
-              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
-            </View>
-          )}
-        </View>
+        <PersistentOrderHeader
+          orderData={selectedOrderData}
+          isCollapsed={isOrderHeaderCollapsed}
+          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
+          onBackPress={() => setCurrentStep('manifest-management')}
+          subtitle="Customer Acknowledgment"
+          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          onViewNotes={() => {
+            setPendingOrderToStart(null);
+            setShowJobNotesModal(true);
+          }}
+          validationState={validationState}
+          onViewValidation={() => setShowValidationModal(true)}
+          onViewServiceCenter={() => setShowServiceCenterModal(true)}
+        />
 
         <View style={styles.scrollViewContainer}>
           <ScrollView
@@ -4467,7 +4690,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 <CardHeader>
                   <CardTitle>
                     <View style={styles.incompleteWarningHeader}>
-                      <Text style={styles.incompleteWarningIcon}>⚠️</Text>
+                      <Icon name="warning" size={20} color="#B45309" />
                       <Text style={styles.incompleteWarningTitleText}>
                         Incomplete Order - Action Required
                       </Text>
@@ -4491,7 +4714,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         ]}
                       >
                         <Text style={styles.incompleteReasonBullet}>
-                          {item.severity === 'error' ? '❌' : '⚠️'}
+                          <Icon 
+                            name={item.severity === 'error' ? 'error' : 'warning'} 
+                            size={16} 
+                            color={item.severity === 'error' ? colors.destructive : colors.warning} 
+                          />
                         </Text>
                         <View style={styles.incompleteReasonContent}>
                           <Text style={[
@@ -4520,7 +4747,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         acknowledgeIncomplete && styles.acknowledgeCheckboxChecked
                       ]}>
                         {acknowledgeIncomplete && (
-                          <Text style={styles.acknowledgeCheckmark}>✓</Text>
+                          <Icon name="check" size={18} color={colors.primaryForeground} />
                         )}
                       </View>
                       <Text style={styles.acknowledgeCheckboxLabel}>
@@ -4889,7 +5116,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           style={styles.quickActionHomeButton}
           onPress={() => setCurrentStep('dashboard')}
           activeOpacity={0.7}>
-          <Text style={styles.quickActionHomeIcon}>🏠</Text>
+          <Icon name="home" size={24} color={colors.foreground} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -4900,7 +5127,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onPress={() => setCurrentStep('container-summary')}
           activeOpacity={0.7}>
           <View style={styles.quickActionContent}>
-            <Text style={styles.quickActionIcon}>📋</Text>
+            <Icon name="assignment" size={24} color={colors.foreground} />
             <Text style={styles.quickActionLabel}>Containers</Text>
             {containersCount > 0 && (
               <View style={styles.quickActionBadge}>
@@ -4920,7 +5147,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onPress={() => setCurrentStep('materials-supplies')}
           activeOpacity={0.7}>
           <View style={styles.quickActionContent}>
-            <Text style={styles.quickActionIcon}>📦</Text>
+            <Icon name="inventory" size={24} color={colors.foreground} />
             <Text
               style={styles.quickActionLabel}
               numberOfLines={1}
@@ -4944,7 +5171,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onPress={() => setCurrentStep('equipment-ppe')}
           activeOpacity={0.7}>
           <View style={styles.quickActionContent}>
-            <Text style={styles.quickActionIcon}>🛡️</Text>
+            <Icon name="security" size={24} color={colors.foreground} />
             <Text
               style={styles.quickActionLabel}
               numberOfLines={1}
@@ -4960,34 +5187,29 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             )}
           </View>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.quickActionButton,
-            isTablet() && styles.quickActionButtonTablet,
-          ]}
-          onPress={() => {
-            // If documents exist, show options menu; otherwise go straight to scan
-            if (scannedDocsCount > 0) {
-              setShowDocumentOptionsMenu(true);
-            } else {
-              handleScanDocuments();
-            }
-          }}
-          activeOpacity={0.7}>
-          <View style={styles.quickActionContent}>
-            <Text style={styles.quickActionIcon}>📷</Text>
-            <Text style={styles.quickActionLabel}>
-              {scannedDocsCount > 0 ? 'Documents' : 'Scan Documents'}
-            </Text>
-            {scannedDocsCount > 0 && (
-              <View style={styles.quickActionBadge}>
-                <Text style={styles.quickActionBadgeText}>
-                  {scannedDocsCount}
-                </Text>
-              </View>
-            )}
-          </View>
-        </TouchableOpacity>
+
+        {/* Photo Capture Button */}
+        {selectedOrderData && (
+          <PhotoCaptureButton
+            orderNumber={selectedOrderData.orderNumber}
+            onPhotoAdded={() => {
+              // Photo added successfully
+            }}
+            onViewPhotos={() => setShowPhotoGallery(true)}
+            onScanDocument={() => {
+              // Navigate to document scanning (existing functionality)
+              if (scannedDocsCount > 0) {
+                setShowDocumentOptionsMenu(true);
+              } else {
+                setShowDocumentTypeSelector(true);
+              }
+            }}
+            style={[
+              styles.quickActionButton,
+              isTablet() && styles.quickActionButtonTablet,
+            ]}
+          />
+        )}
 
         {/* Document Options Menu - Bottom Sheet */}
         <Modal
@@ -5007,7 +5229,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               <View style={styles.bottomSheetHandle} />
               
               <View style={styles.bottomSheetHeader}>
-                <Text style={styles.bottomSheetTitle}>📷 Documents</Text>
+                <View style={styles.bottomSheetTitleRow}>
+                  <Icon name="camera-alt" size={20} color={colors.foreground} style={styles.bottomSheetTitleIcon} />
+                  <Text style={styles.bottomSheetTitle}>Documents</Text>
+                </View>
                 <Text style={styles.bottomSheetSubtitle}>
                   {scannedDocsCount} document{scannedDocsCount !== 1 ? 's' : ''} scanned for this order
                 </Text>
@@ -5022,13 +5247,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   }}
                   activeOpacity={0.7}>
                   <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
-                    <Text style={styles.bottomSheetOptionIconText}>📋</Text>
+                    <Icon name="assignment" size={24} color={colors.foreground} />
                   </View>
                   <View style={styles.bottomSheetOptionInfo}>
                     <Text style={styles.bottomSheetOptionLabel}>View Documents</Text>
                     <Text style={styles.bottomSheetOptionDesc}>See all scanned documents</Text>
                   </View>
-                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -5039,13 +5264,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   }}
                   activeOpacity={0.7}>
                   <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#D1FAE5'}]}>
-                    <Text style={styles.bottomSheetOptionIconText}>📷</Text>
+                    <Icon name="camera-alt" size={24} color={colors.foreground} />
                   </View>
                   <View style={styles.bottomSheetOptionInfo}>
                     <Text style={styles.bottomSheetOptionLabel}>Scan New Document</Text>
                     <Text style={styles.bottomSheetOptionDesc}>Capture manifest, LDR, or BOL</Text>
                   </View>
-                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
                 </TouchableOpacity>
               </View>
 
@@ -5091,7 +5316,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   onPress={() => captureDocument('manifest')}
                   activeOpacity={0.7}>
                   <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
-                    <Text style={styles.bottomSheetOptionIconText}>📋</Text>
+                    <Icon name="assignment" size={24} color={colors.foreground} />
                   </View>
                   <View style={styles.bottomSheetOptionInfo}>
                     <Text style={styles.bottomSheetOptionLabel}>Manifest</Text>
@@ -5099,7 +5324,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       Hazardous waste manifest (EPA Form 8700-22)
                     </Text>
                   </View>
-                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -5107,7 +5332,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   onPress={() => captureDocument('ldr')}
                   activeOpacity={0.7}>
                   <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEF3C7'}]}>
-                    <Text style={styles.bottomSheetOptionIconText}>📄</Text>
+                    <Icon name="description" size={24} color={colors.foreground} />
                   </View>
                   <View style={styles.bottomSheetOptionInfo}>
                     <Text style={styles.bottomSheetOptionLabel}>LDR</Text>
@@ -5115,7 +5340,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       Land Disposal Restrictions notification
                     </Text>
                   </View>
-                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -5123,7 +5348,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   onPress={() => captureDocument('bol')}
                   activeOpacity={0.7}>
                   <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#D1FAE5'}]}>
-                    <Text style={styles.bottomSheetOptionIconText}>🚚</Text>
+                    <Icon name="local-shipping" size={24} color={colors.foreground} />
                   </View>
                   <View style={styles.bottomSheetOptionInfo}>
                     <Text style={styles.bottomSheetOptionLabel}>BOL</Text>
@@ -5131,7 +5356,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       Bill of Lading for shipment
                     </Text>
                   </View>
-                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
                 </TouchableOpacity>
               </ScrollView>
 
@@ -5176,7 +5401,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   onPress={() => handleCaptureWithMethod('camera')}
                   activeOpacity={0.7}>
                   <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
-                    <Text style={styles.bottomSheetOptionIconText}>📷</Text>
+                    <Icon name="camera-alt" size={24} color={colors.foreground} />
                   </View>
                   <View style={styles.bottomSheetOptionInfo}>
                     <Text style={styles.bottomSheetOptionLabel}>Take Photo</Text>
@@ -5184,7 +5409,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       Use camera to capture the document
                     </Text>
                   </View>
-                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -5192,7 +5417,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   onPress={() => handleCaptureWithMethod('gallery')}
                   activeOpacity={0.7}>
                   <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEF3C7'}]}>
-                    <Text style={styles.bottomSheetOptionIconText}>📁</Text>
+                    <Icon name="folder" size={24} color={colors.foreground} />
                   </View>
                   <View style={styles.bottomSheetOptionInfo}>
                     <Text style={styles.bottomSheetOptionLabel}>Choose from Files</Text>
@@ -5200,7 +5425,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       Select an existing image file
                     </Text>
                   </View>
-                  <Text style={styles.bottomSheetOptionArrow}>→</Text>
+                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
                 </TouchableOpacity>
               </ScrollView>
 
@@ -5232,7 +5457,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               <TouchableOpacity
                 style={styles.scannedDocsViewerCloseBtn}
                 onPress={() => setShowScannedDocumentsViewer(false)}>
-                <Text style={styles.scannedDocsViewerCloseBtnText}>✕</Text>
+                <Icon name="close" size={20} color={colors.foreground} />
               </TouchableOpacity>
             </View>
 
@@ -5244,9 +5469,20 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 .map(doc => {
                   const typeLabels = {manifest: 'Manifest', ldr: 'LDR', bol: 'BOL'};
                   const typeColors = {manifest: '#DBEAFE', ldr: '#FEF3C7', bol: '#D1FAE5'};
-                  const typeIcons = {manifest: '📋', ldr: '📄', bol: '🚚'};
+                  const getDocumentIconName = (type: 'manifest' | 'ldr' | 'bol') => {
+                    switch (type) {
+                      case 'manifest':
+                        return 'assignment';
+                      case 'ldr':
+                        return 'description';
+                      case 'bol':
+                        return 'local-shipping';
+                      default:
+                        return 'description';
+                    }
+                  };
                   const captureMethod = (doc as any).captureMethod || 'Camera';
-                  const methodIcon = captureMethod === 'Camera' ? '📷' : '📁';
+                  const methodIconName = captureMethod === 'Camera' ? 'camera-alt' : 'folder';
                   
                   return (
                     <View key={doc.id} style={styles.scannedDocCard}>
@@ -5257,17 +5493,28 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           {backgroundColor: typeColors[doc.documentType]}
                         ]}>
                         <View style={styles.scannedDocPlaceholderContent}>
-                          <Text style={styles.scannedDocPlaceholderIcon}>
-                            {typeIcons[doc.documentType]}
-                          </Text>
-                          <Text style={styles.scannedDocPlaceholderMethod}>
-                            {methodIcon}
-                          </Text>
+                          <Icon 
+                            name={getDocumentIconName(doc.documentType)} 
+                            size={32} 
+                            color={colors.foreground} 
+                            style={styles.scannedDocPlaceholderIcon}
+                          />
+                          <Icon 
+                            name={methodIconName} 
+                            size={16} 
+                            color={colors.mutedForeground} 
+                            style={styles.scannedDocPlaceholderMethod}
+                          />
                         </View>
                       </View>
                       <View style={styles.scannedDocInfo}>
                         <View style={[styles.scannedDocTypeBadge, {backgroundColor: typeColors[doc.documentType]}]}>
-                          <Text style={styles.scannedDocTypeIcon}>{typeIcons[doc.documentType]}</Text>
+                          <Icon 
+                            name={getDocumentIconName(doc.documentType)} 
+                            size={16} 
+                            color={colors.foreground} 
+                            style={styles.scannedDocTypeIcon}
+                          />
                           <Text style={styles.scannedDocTypeLabel}>{typeLabels[doc.documentType]}</Text>
                         </View>
                         <Text style={styles.scannedDocTimestamp}>
@@ -5295,7 +5542,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                             ]
                           );
                         }}>
-                        <Text style={styles.scannedDocDeleteBtnText}>🗑️</Text>
+                        <Icon name="delete" size={20} color={colors.foreground} />
                       </TouchableOpacity>
                     </View>
                   );
@@ -5303,7 +5550,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
               {scannedDocsCount === 0 && (
                 <View style={styles.scannedDocsEmptyState}>
-                  <Text style={styles.scannedDocsEmptyIcon}>📷</Text>
+                  <Icon name="camera-alt" size={64} color={colors.mutedForeground} style={styles.scannedDocsEmptyIcon} />
                   <Text style={styles.scannedDocsEmptyTitle}>No Documents Scanned</Text>
                   <Text style={styles.scannedDocsEmptySubtitle}>
                     Tap "Scan Documents" to capture manifests, LDRs, or BOLs
@@ -5398,10 +5645,625 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     );
   };
 
+  // Handle modal close request
+  const handleJobNotesModalClose = useCallback(() => {
+    // Don't allow closing without acknowledgment if starting service
+    if (pendingOrderToStart) {
+      Alert.alert(
+        'Acknowledgment Required',
+        'You must acknowledge the service notes before starting the order.',
+        [{text: 'OK'}]
+      );
+    } else {
+      setShowJobNotesModal(false);
+    }
+  }, [pendingOrderToStart]);
+
+  // Handle checkbox toggle - use callback to prevent modal recreation
+  const handleCheckboxToggle = useCallback(() => {
+    setJobNotesAcknowledged(prev => !prev);
+  }, []);
+
+  // Get order and notes data
+  const jobNotesOrder = pendingOrderToStart || selectedOrderData;
+  const hasJobNotes = jobNotesOrder && (
+    jobNotesOrder.customerSpecialInstructions ||
+    jobNotesOrder.siteAccessNotes ||
+    (jobNotesOrder.safetyWarnings && jobNotesOrder.safetyWarnings.length > 0) ||
+    (jobNotesOrder.previousServiceNotes && jobNotesOrder.previousServiceNotes.length > 0)
+  );
+  const lastThreeNotes = jobNotesOrder?.previousServiceNotes
+    ? jobNotesOrder.previousServiceNotes.slice(0, 3)
+    : [];
+
+  // Load persisted validation issues when order changes
+  useEffect(() => {
+    if (selectedOrderData) {
+      // Load persisted issues immediately (synchronous for now, but could be async)
+      const persisted = getPersistedIssues(selectedOrderData.orderNumber);
+      setPersistedValidationIssues(persisted);
+      
+      // Also trigger a re-validation to ensure persisted issues are up to date
+      // This will be handled by the persist effect below
+    } else {
+      setPersistedValidationIssues([]);
+    }
+  }, [selectedOrderData?.orderNumber]);
+
+  // Validation system - check all workflow validation points
+  const currentValidationIssues = useMemo((): ValidationIssue[] => {
+    if (!selectedOrderData) return [];
+
+    const issues: ValidationIssue[] = [];
+
+    // Check for scanned manifest
+    const hasScannedManifest = scannedDocuments.some(
+      doc => doc.orderNumber === selectedOrderData.orderNumber && doc.documentType === 'manifest'
+    );
+    if (!hasScannedManifest) {
+      issues.push({
+        id: 'missing-manifest',
+        message: 'Scanned manifest document is missing',
+        severity: 'error',
+        screen: 'manifest-management',
+        description: 'A scanned manifest document is required before completing the order.',
+      });
+    }
+
+    // Check if no containers were added
+    if (addedContainers.length === 0) {
+      issues.push({
+        id: 'no-containers',
+        message: 'No containers have been added',
+        severity: 'warning',
+        screen: 'container-selection',
+        description: 'At least one container must be added to the order.',
+      });
+    }
+
+    // Check if programs are not all selected
+    const allProgramsSelected = selectedOrderData.programs.every(
+      program => selectedPrograms[program]
+    );
+    if (!allProgramsSelected && selectedOrderData.programs.length > 0) {
+      issues.push({
+        id: 'incomplete-programs',
+        message: 'Not all programs have been selected',
+        severity: 'warning',
+        screen: 'manifest-management',
+        description: 'All programs must have a ship/noship selection.',
+      });
+    }
+
+    // Check for customer acknowledgment (if on order-service screen)
+    // This would be checked when trying to complete, but we can show a warning
+    // Note: We can't check customerFirstName/LastName here as they're local to OrderServiceScreen
+    // But we can add a general check if needed
+
+    return issues;
+  }, [selectedOrderData, scannedDocuments, addedContainers, selectedPrograms]);
+
+  // Merge current validation issues with persisted ones
+  // Persisted issues are kept until they're resolved (no longer in current issues)
+  // Always show persisted issues - they'll be removed by updateValidationIssues when resolved
+  const validationIssues = useMemo(() => {
+    if (!selectedOrderData) {
+      // Even if no order is selected, we might want to show persisted issues
+      // But for now, return empty
+      return [];
+    }
+
+    // Get current issues
+    const currentIssues = currentValidationIssues;
+    
+    // Always include ALL persisted issues - they persist until resolved
+    // Current issues take precedence (in case details changed)
+    const currentIssueIds = new Set(currentIssues.map(issue => issue.id));
+    
+    // Merge: current issues + persisted issues that aren't already in current
+    // This ensures persisted issues remain visible until actually resolved
+    const merged = [
+      ...currentIssues,
+      ...persistedValidationIssues.filter(p => !currentIssueIds.has(p.id))
+    ];
+    
+    return merged;
+  }, [currentValidationIssues, persistedValidationIssues, selectedOrderData]);
+
+  // Persist validation issues when they change
+  useEffect(() => {
+    if (!selectedOrderData) return;
+
+    const persistIssues = async () => {
+      // Only update persisted issues if we have current validation results
+      // This prevents clearing persisted issues when validation hasn't run yet
+      // Note: currentValidationIssues should always run, but we add this safeguard
+      const updated = await updateValidationIssues(
+        selectedOrderData.orderNumber,
+        currentValidationIssues
+      );
+      setPersistedValidationIssues(updated);
+    };
+
+    persistIssues();
+  }, [selectedOrderData?.orderNumber, currentValidationIssues]);
+
+  // Calculate validation state
+  const validationState = useMemo(() => {
+    const errors = validationIssues.filter(i => i.severity === 'error');
+    const warnings = validationIssues.filter(i => i.severity === 'warning');
+    const totalCount = validationIssues.length;
+
+    if (totalCount === 0) {
+      return { state: 'none' as const, count: 0 };
+    } else if (errors.length > 0) {
+      return { state: 'error' as const, count: totalCount, errors, warnings };
+    } else {
+      return { state: 'warning' as const, count: totalCount, errors, warnings };
+    }
+  }, [validationIssues]);
+
+  // Handle navigation to issue screen
+  const handleNavigateToIssue = useCallback((issue: ValidationIssue) => {
+    setShowValidationModal(false);
+    setCurrentStep(issue.screen);
+  }, []);
+
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safeArea}>
       {renderScreen()}
       <QuickActionsBar />
+      
+      {/* Job Notes Modal */}
+      {hasJobNotes && jobNotesOrder && (
+        <Modal
+          visible={showJobNotesModal}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={handleJobNotesModalClose}>
+          <SafeAreaView style={styles.jobNotesModalContainer}>
+            <View style={styles.jobNotesModalHeader}>
+              <Text style={styles.jobNotesModalTitle}>Service Notes</Text>
+              {!pendingOrderToStart && (
+                <TouchableOpacity
+                  onPress={() => setShowJobNotesModal(false)}
+                  style={styles.jobNotesModalCloseButton}
+                  hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                  <Icon name="close" size={20} color={colors.foreground} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <ScrollView
+              style={styles.jobNotesModalScroll}
+              contentContainerStyle={styles.jobNotesModalContent}>
+              {jobNotesOrder.customerSpecialInstructions && (
+                <Card style={styles.jobNotesCard}>
+                  <CardHeader>
+                    <CardTitle>
+                      <CardTitleText>Customer Special Instructions</CardTitleText>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Text style={styles.jobNotesText}>
+                      {jobNotesOrder.customerSpecialInstructions}
+                    </Text>
+                  </CardContent>
+                </Card>
+              )}
+
+              {jobNotesOrder.siteAccessNotes && (
+                <Card style={styles.jobNotesCard}>
+                  <CardHeader>
+                    <CardTitle>
+                      <CardTitleText>Site Access Notes</CardTitleText>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Text style={styles.jobNotesText}>
+                      {jobNotesOrder.siteAccessNotes}
+                    </Text>
+                  </CardContent>
+                </Card>
+              )}
+
+              {jobNotesOrder.safetyWarnings && jobNotesOrder.safetyWarnings.length > 0 && (
+                <Card style={styles.jobNotesSafetyCard}>
+                  <CardHeader>
+                  <CardTitle>
+                    <View style={styles.jobNotesSafetyTitleContainer}>
+                      <Icon
+                        name="warning"
+                        size={20}
+                        color={colors.destructive}
+                        style={styles.jobNotesSafetyIcon}
+                      />
+                      <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
+                        Safety Warnings
+                      </Text>
+                    </View>
+                  </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {jobNotesOrder.safetyWarnings.map((warning, index) => (
+                      <View key={index} style={styles.safetyWarningItem}>
+                        <Text style={styles.safetyWarningText}>{warning}</Text>
+                      </View>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {lastThreeNotes.length > 0 && (
+                <Card style={styles.jobNotesCard}>
+                  <CardHeader>
+                    <CardTitle>
+                      <CardTitleText>Previous Service Notes</CardTitleText>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {lastThreeNotes.map((note, index) => (
+                      <View key={index} style={styles.previousNoteItem}>
+                        <View style={styles.previousNoteHeader}>
+                          <Text style={styles.previousNoteDate}>{note.date}</Text>
+                          {note.technician && (
+                            <Text style={styles.previousNoteTechnician}>
+                              {note.technician}
+                            </Text>
+                          )}
+                        </View>
+                        <Text style={styles.previousNoteText}>{note.note}</Text>
+                      </View>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {pendingOrderToStart && (
+                <View style={styles.jobNotesAcknowledgment}>
+                  <TouchableOpacity
+                    style={styles.acknowledgmentCheckbox}
+                    onPress={handleCheckboxToggle}
+                    activeOpacity={0.7}>
+                    <View
+                      style={[
+                        styles.checkbox,
+                        jobNotesAcknowledged && styles.checkboxChecked,
+                      ]}>
+                    {jobNotesAcknowledged && (
+                      <Icon name="check" size={18} color={colors.primaryForeground} />
+                    )}
+                    </View>
+                    <Text style={styles.acknowledgmentText}>
+                      I have read the service notes
+                    </Text>
+                  </TouchableOpacity>
+                  <Button
+                    title="Acknowledge & Start Service"
+                    variant="primary"
+                    size="lg"
+                    fullWidth
+                    disabled={!jobNotesAcknowledged}
+                    onPress={handleJobNotesAcknowledge}
+                  />
+                </View>
+              )}
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      )}
+
+      {/* Offline Blocked Modal */}
+      <Modal
+        visible={showOfflineBlockedModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowOfflineBlockedModal(false)}>
+        <SafeAreaView style={styles.offlineBlockedModalContainer}>
+          <View style={styles.offlineBlockedModalHeader}>
+            <View style={styles.offlineBlockedModalTitleRow}>
+              <Icon name="error" size={24} color={colors.destructive} />
+              <Text style={styles.offlineBlockedModalTitle}>
+                Offline Limit Reached
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setShowOfflineBlockedModal(false)}
+              style={styles.offlineBlockedModalCloseButton}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+              <Icon name="close" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.offlineBlockedModalContent}>
+            <Text style={styles.offlineBlockedModalMessage}>
+              You have been offline for more than 10 hours. To continue working, please connect to a network and sync your data.
+            </Text>
+            <Text style={styles.offlineBlockedModalDetails}>
+              Offline Duration: {offlineStatus.offlineDurationFormatted}
+            </Text>
+            <Text style={styles.offlineBlockedModalDetails}>
+              Last Sync: {offlineStatus.lastSyncFormatted}
+            </Text>
+            <View style={styles.offlineBlockedModalActions}>
+              <Button
+                title="OK"
+                variant="primary"
+                size="lg"
+                fullWidth
+                onPress={() => setShowOfflineBlockedModal(false)}
+              />
+            </View>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Validation Summary Modal */}
+      <Modal
+        visible={showValidationModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowValidationModal(false)}>
+        <SafeAreaView style={styles.validationModalContainer}>
+          <View style={styles.validationModalHeader}>
+            <Text style={styles.validationModalTitle}>Validation Issues</Text>
+            <TouchableOpacity
+              onPress={() => setShowValidationModal(false)}
+              style={styles.validationModalCloseButton}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+              <Icon name="close" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.validationModalScroll}
+            contentContainerStyle={styles.validationModalContent}>
+            {validationIssues.length === 0 ? (
+              <View style={styles.validationNoIssues}>
+                <Icon name="check-circle" size={48} color={colors.success} />
+                <Text style={styles.validationNoIssuesText}>
+                  No validation issues found
+                </Text>
+              </View>
+            ) : (
+              <>
+                {validationState.errors && validationState.errors.length > 0 && (
+                  <View style={styles.validationSection}>
+                    <Text style={styles.validationSectionTitle}>
+                      Errors ({validationState.errors.length})
+                    </Text>
+                    {validationState.errors.map((issue) => (
+                      <TouchableOpacity
+                        key={issue.id}
+                        style={[styles.validationIssueItem, styles.validationIssueError]}
+                        onPress={() => handleNavigateToIssue(issue)}
+                        activeOpacity={0.7}>
+                        <View style={styles.validationIssueContent}>
+                          <Icon
+                            name="warning"
+                            size={20}
+                            color={colors.destructive}
+                            style={styles.validationIssueIcon}
+                          />
+                          <View style={styles.validationIssueText}>
+                            <Text style={styles.validationIssueMessage}>
+                              {issue.message}
+                            </Text>
+                            {issue.description && (
+                              <Text style={styles.validationIssueDescription}>
+                                {issue.description}
+                              </Text>
+                            )}
+                            <Text style={styles.validationIssueScreen}>
+                              Go to: {issue.screen.replace('-', ' ')}
+                            </Text>
+                          </View>
+                        </View>
+                        <Icon
+                          name="arrow-forward"
+                          size={20}
+                          color={colors.mutedForeground}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                {validationState.warnings && validationState.warnings.length > 0 && (
+                  <View style={styles.validationSection}>
+                    <Text style={styles.validationSectionTitle}>
+                      Warnings ({validationState.warnings.length})
+                    </Text>
+                    {validationState.warnings.map((issue) => (
+                      <TouchableOpacity
+                        key={issue.id}
+                        style={[styles.validationIssueItem, styles.validationIssueWarning]}
+                        onPress={() => handleNavigateToIssue(issue)}
+                        activeOpacity={0.7}>
+                        <View style={styles.validationIssueContent}>
+                          <Icon
+                            name="warning"
+                            size={20}
+                            color={colors.destructive}
+                            style={styles.validationIssueIcon}
+                          />
+                          <View style={styles.validationIssueText}>
+                            <Text style={styles.validationIssueMessage}>
+                              {issue.message}
+                            </Text>
+                            {issue.description && (
+                              <Text style={styles.validationIssueDescription}>
+                                {issue.description}
+                              </Text>
+                            )}
+                            <Text style={styles.validationIssueScreen}>
+                              Go to: {issue.screen.replace('-', ' ')}
+                            </Text>
+                          </View>
+                        </View>
+                        <Icon
+                          name="arrow-forward"
+                          size={20}
+                          color={colors.mutedForeground}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Service Center Modal */}
+      {serviceCenter && (
+        <Modal
+          visible={showServiceCenterModal}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowServiceCenterModal(false)}>
+          <SafeAreaView style={styles.serviceCenterModalContainer}>
+            <View style={styles.serviceCenterModalHeader}>
+              <Text style={styles.serviceCenterModalTitle}>Service Center</Text>
+              <TouchableOpacity
+                onPress={() => setShowServiceCenterModal(false)}
+                style={styles.serviceCenterModalCloseButton}
+                hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                <Icon name="close" size={20} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.serviceCenterModalScroll}
+              contentContainerStyle={styles.serviceCenterModalContent}>
+              <Card style={styles.serviceCenterCard}>
+                <CardHeader>
+                  <CardTitle>
+                    <CardTitleText>Service Center Name</CardTitleText>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Text style={styles.serviceCenterName}>
+                    {serviceCenter.name}
+                  </Text>
+                </CardContent>
+              </Card>
+
+              {serviceCenter.address && (
+                <Card style={styles.serviceCenterCard}>
+                  <CardHeader>
+                    <CardTitle>
+                      <CardTitleText>Address</CardTitleText>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Text style={styles.serviceCenterAddress}>
+                      {serviceCenter.address}
+                    </Text>
+                  </CardContent>
+                </Card>
+              )}
+
+              <Card style={styles.serviceCenterCard}>
+                <CardHeader>
+                  <CardTitle>
+                    <CardTitleText>Last Assignment Update</CardTitleText>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Text style={styles.serviceCenterUpdateDate}>
+                    {serviceCenterService.formatLastUpdate(serviceCenter.lastUpdated)}
+                  </Text>
+                </CardContent>
+              </Card>
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      )}
+
+      {/* Service Center Update Notification */}
+      {showServiceCenterUpdateNotification && (
+        <View style={styles.serviceCenterNotificationOverlay}>
+          <View style={styles.serviceCenterNotificationCard}>
+            <View style={styles.serviceCenterNotificationIconContainer}>
+              <Icon name="info" size={20} color={colors.primary} />
+            </View>
+            <View style={styles.serviceCenterNotificationContent}>
+              <Text style={styles.serviceCenterNotificationTitle}>
+                Service Center Updated
+              </Text>
+              <Text style={styles.serviceCenterNotificationSubtitle}>
+                {updatedServiceCenterName}
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Photo Gallery Modal */}
+      {selectedOrderData && (
+        <Modal
+          visible={showPhotoGallery}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowPhotoGallery(false)}>
+          <SafeAreaView style={styles.photoGalleryModalContainer}>
+            <View style={styles.photoGalleryModalHeader}>
+              <Text style={styles.photoGalleryModalTitle}>
+                Order Photos ({orderPhotos.length})
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowPhotoGallery(false)}
+                style={styles.photoGalleryModalCloseButton}
+                hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                <Icon name="close" size={20} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.photoGalleryScroll}
+              contentContainerStyle={styles.photoGalleryContent}>
+              {orderPhotos.length === 0 ? (
+                <View style={styles.photoGalleryEmpty}>
+                  <Icon name="camera-alt" size={64} color={colors.mutedForeground} />
+                  <Text style={styles.photoGalleryEmptyText}>
+                    No photos captured yet
+                  </Text>
+                  <Text style={styles.photoGalleryEmptySubtext}>
+                    Use the camera button to capture photos
+                  </Text>
+                </View>
+              ) : (
+                orderPhotos.map((photo) => (
+                  <Card key={photo.id} style={styles.photoCard}>
+                    <CardContent>
+                      <View style={styles.photoCardHeader}>
+                        <View style={styles.photoCardInfo}>
+                          <Text style={styles.photoCardCategory}>
+                            {photoService.getCategoryLabel(photo.category)}
+                          </Text>
+                          <Text style={styles.photoCardTimestamp}>
+                            {new Date(photo.timestamp).toLocaleString()}
+                          </Text>
+                        </View>
+                      </View>
+                      {photo.caption && (
+                        <Text style={styles.photoCardCaption}>{photo.caption}</Text>
+                      )}
+                      {/* Note: In a real app, you'd display the actual image here */}
+                      <View style={styles.photoPlaceholder}>
+                        <Icon name="camera-alt" size={48} color={colors.mutedForeground} />
+                        <Text style={styles.photoPlaceholderText}>Photo: {photo.uri}</Text>
+                      </View>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      )}
       
       {/* Drop Waste Modal */}
       <DropWasteModal
@@ -5432,7 +6294,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               }}
               hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
               style={styles.fullScreenModalCloseButton}>
-              <Text style={styles.fullScreenModalCloseText}>✕</Text>
+              <Icon name="close" size={20} color={colors.foreground} />
             </TouchableOpacity>
           </View>
 
@@ -5505,9 +6367,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   keyboardShouldPersistTaps="handled">
                   {showAddMaterialSuccess && (
                     <View style={styles.addSuccessIndicator}>
-                      <Text style={styles.addSuccessText}>
-                        ✓ Material added successfully!
-                      </Text>
+                      <View style={styles.addSuccessRow}>
+                        <Icon name="check-circle" size={18} color={colors.success} style={styles.addSuccessIcon} />
+                        <Text style={styles.addSuccessText}>
+                          Material added successfully!
+                        </Text>
+                      </View>
                     </View>
                   )}
                   {selectedMaterialItem ? (
@@ -5617,7 +6482,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         <View style={styles.labelPrintingOverlay}>
           <View style={styles.labelPrintingCard}>
             <View style={styles.labelPrintingIconContainer}>
-              <Text style={styles.labelPrintingIcon}>🖨️</Text>
+              <Icon name="print" size={24} color={colors.foreground} />
               <View style={styles.labelPrintingSpinner} />
             </View>
             <View style={styles.labelPrintingContent}>
@@ -5712,8 +6577,30 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  headerContent: {
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: spacing.md,
     flex: 1,
+  },
+  headerContent: {
+
+  },
+  serviceCenterBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.primary + '15',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.primary + '30',
+  },
+  serviceCenterText: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.primary,
   },
   headerTitle: {
     ...typography.xl,
@@ -5899,6 +6786,14 @@ const styles = StyleSheet.create({
   completedOrdersHeader: {
     marginBottom: spacing.md,
   },
+  completedOrdersTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  completedOrdersIcon: {
+    marginRight: spacing.xs / 2,
+  },
   completedOrdersTitle: {
     ...typography.lg,
     fontWeight: '600',
@@ -5938,11 +6833,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.success,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  completedOrderCheck: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
   },
   orderCard: {
     backgroundColor: colors.card,
@@ -6088,6 +6978,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.foreground,
     marginBottom: spacing.sm,
+  },
+  streamCardProfileNumber: {
+    ...typography.base,
+    fontWeight: '500',
+    color: colors.foreground,
+    marginBottom: spacing.xs,
+  },
+  streamCardDescription: {
+    ...typography.sm,
+    color: colors.mutedForeground,
   },
   streamCardCategory: {
     ...typography.base,
@@ -6292,11 +7192,20 @@ const styles = StyleSheet.create({
     borderColor: colors.destructive,
     width: '100%',
   },
+  inlineWarningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  inlineWarningIcon: {
+    marginRight: spacing.xs / 2,
+  },
   inlineWarningText: {
     ...typography.base,
     fontWeight: '600',
     color: colors.foreground,
     textAlign: 'center',
+    flex: 1,
   },
   compactWeightRow: {
     flexDirection: 'row',
@@ -6390,6 +7299,15 @@ const styles = StyleSheet.create({
     ...typography.sm,
     color: '#92400e',
     textAlign: 'center',
+  },
+  manualWeightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    justifyContent: 'center',
+  },
+  manualWeightIcon: {
+    marginRight: spacing.xs / 2,
   },
   footer: {
     flexDirection: 'row',
@@ -6887,11 +7805,29 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginBottom: spacing.md,
   },
+  successMessageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    justifyContent: 'center',
+  },
+  successMessageIcon: {
+    marginRight: spacing.xs / 2,
+  },
   addSuccessText: {
     ...typography.base,
     color: colors.success || colors.primary,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  addSuccessRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    justifyContent: 'center',
+  },
+  addSuccessIcon: {
+    marginRight: spacing.xs / 2,
   },
   fullScreenModalFooter: {
     flexDirection: 'row',
@@ -7236,6 +8172,66 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.foreground,
   },
+  contactCard: {
+    marginBottom: spacing.lg,
+    backgroundColor: colors.primary + '08', // Light tint to make it prominent
+    borderWidth: 2,
+    borderColor: colors.primary + '30',
+  },
+  contactRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  contactLabel: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    fontWeight: '500',
+    flex: 1,
+  },
+  contactValue: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '600',
+    flex: 2,
+    textAlign: 'right',
+  },
+  contactLink: {
+    ...typography.base,
+    color: colors.primary,
+    fontWeight: '600',
+    flex: 2,
+    textAlign: 'right',
+    textDecorationLine: 'underline',
+  },
+  noContactContainer: {
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  noContactText: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    fontStyle: 'italic',
+  },
+  viewAllContactsButton: {
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'flex-end',
+  },
+  viewAllContactsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  viewAllContactsText: {
+    ...typography.sm,
+    color: colors.primary,
+    fontWeight: '500',
+    textDecorationLine: 'underline',
+  },
   detailCard: {
     marginBottom: spacing.lg,
   },
@@ -7259,6 +8255,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flex: 2,
     textAlign: 'right',
+  },
+  detailValueContainer: {
+    flex: 2,
+    alignItems: 'flex-end',
+    gap: spacing.xs,
+  },
+  storeNumber: {
+    ...typography.sm,
+    fontWeight: '500',
+    color: colors.mutedForeground,
   },
   detailActions: {
     marginTop: spacing.lg,
@@ -7344,6 +8350,14 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  bottomSheetTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  bottomSheetTitleIcon: {
+    marginRight: spacing.xs / 2,
   },
   bottomSheetTitle: {
     ...typography.xl,
@@ -7565,6 +8579,14 @@ const styles = StyleSheet.create({
   },
   quickActionButtonTablet: {
     // maxWidth: 200,
+  },
+  manifestSuccessRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  manifestSuccessIcon: {
+    marginRight: spacing.xs / 2,
   },
   scannedImageText: {
     ...typography.sm,
@@ -8107,9 +9129,6 @@ const styles = StyleSheet.create({
     marginRight: spacing.md,
     position: 'relative',
   },
-  labelPrintingIcon: {
-    fontSize: 24,
-  },
   labelPrintingSpinner: {
     position: 'absolute',
     width: 48,
@@ -8316,10 +9335,10 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   scannedDocPlaceholderIcon: {
-    fontSize: 32,
+    marginBottom: spacing.xs,
   },
   scannedDocPlaceholderMethod: {
-    fontSize: 20,
+    marginTop: spacing.xs,
   },
   scannedDocInfo: {
     flex: 1,
@@ -8334,13 +9353,13 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     gap: spacing.xs,
   },
-  scannedDocTypeIcon: {
-    fontSize: 16,
-  },
   scannedDocTypeLabel: {
     ...typography.sm,
     fontWeight: '600',
     color: colors.foreground,
+  },
+  scannedDocTypeIcon: {
+    marginRight: 0, // Spacing handled by parent gap
   },
   scannedDocTimestamp: {
     ...typography.sm,
@@ -8359,9 +9378,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  scannedDocDeleteBtnText: {
-    fontSize: 20,
-  },
   scannedDocsEmptyState: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -8369,7 +9385,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   scannedDocsEmptyIcon: {
-    fontSize: 64,
     opacity: 0.5,
   },
   scannedDocsEmptyTitle: {
@@ -8425,6 +9440,511 @@ const styles = StyleSheet.create({
   documentPreviewImage: {
     width: '100%',
     height: '80%',
+  },
+  deleteButton: {
+    backgroundColor: colors.destructive,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    marginTop: spacing.sm,
+  },
+  deleteButtonText: {
+    ...typography.sm,
+    color: colors.destructiveForeground,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  // Job Notes Modal Styles
+  jobNotesModalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  jobNotesModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  jobNotesModalTitle: {
+    ...typography['2xl'],
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  jobNotesModalCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.secondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  jobNotesModalScroll: {
+    flex: 1,
+  },
+  jobNotesModalContent: {
+    padding: spacing.lg,
+  },
+  jobNotesCard: {
+    marginBottom: spacing.md,
+  },
+  jobNotesSafetyCard: {
+    marginBottom: spacing.md,
+    backgroundColor: colors.destructive + '10',
+    borderWidth: 2,
+    borderColor: colors.destructive,
+  },
+  jobNotesSafetyTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  jobNotesSafetyIcon: {
+    marginRight: spacing.xs / 2,
+  },
+  jobNotesSafetyTitle: {
+    color: colors.destructive,
+    fontWeight: '700',
+  },
+  cardTitleText: {
+    ...typography.xl,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  jobNotesText: {
+    ...typography.base,
+    color: colors.foreground,
+    lineHeight: 24,
+  },
+  safetyWarningItem: {
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.destructive + '30',
+  },
+  safetyWarningText: {
+    ...typography.base,
+    color: colors.destructive,
+    fontWeight: '600',
+    lineHeight: 24,
+  },
+  previousNoteItem: {
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  previousNoteHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  previousNoteDate: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontWeight: '600',
+  },
+  previousNoteTechnician: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontStyle: 'italic',
+  },
+  previousNoteText: {
+    ...typography.base,
+    color: colors.foreground,
+    lineHeight: 22,
+  },
+  jobNotesAcknowledgment: {
+    marginTop: spacing.xl,
+    paddingTop: spacing.lg,
+    borderTopWidth: 2,
+    borderTopColor: colors.border,
+  },
+  acknowledgmentCheckbox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+    gap: spacing.md,
+  },
+  checkbox: {
+    width: 28,
+    height: 28,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    borderRadius: borderRadius.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+  },
+  checkboxChecked: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  acknowledgmentText: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '500',
+    flex: 1,
+  },
+  // Validation Modal Styles
+  validationModalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  validationModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  validationModalTitle: {
+    ...typography['2xl'],
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  validationModalCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.secondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  validationModalScroll: {
+    flex: 1,
+  },
+  validationModalContent: {
+    padding: spacing.lg,
+  },
+  validationNoIssues: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.xxl * 2,
+    gap: spacing.md,
+  },
+  validationNoIssuesText: {
+    ...typography.lg,
+    color: colors.mutedForeground,
+    fontWeight: '500',
+  },
+  validationSection: {
+    marginBottom: spacing.xl,
+  },
+  validationSectionTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.md,
+  },
+  validationIssueItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+  },
+  validationIssueError: {
+    backgroundColor: colors.destructive + '10',
+    borderColor: colors.destructive + '40',
+  },
+  validationIssueWarning: {
+    backgroundColor: colors.warning + '10',
+    borderColor: colors.warning + '40',
+  },
+  validationIssueContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    flex: 1,
+    gap: spacing.sm,
+  },
+  validationIssueIcon: {
+    marginTop: 2,
+  },
+  validationIssueText: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  validationIssueMessage: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  validationIssueDescription: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: spacing.xs / 2,
+  },
+  validationIssueScreen: {
+    ...typography.xs,
+    color: colors.primary,
+    marginTop: spacing.xs,
+    fontWeight: '500',
+  },
+  // Offline Warning Banners
+  offlineWarningBanner: {
+    backgroundColor: colors.warning + '20',
+    borderBottomWidth: 2,
+    borderBottomColor: colors.warning,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  offlineOrangeBanner: {
+    backgroundColor: '#FF6B35' + '20',
+    borderBottomWidth: 2,
+    borderBottomColor: '#FF6B35',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  offlineCriticalBanner: {
+    backgroundColor: colors.destructive + '20',
+    borderBottomWidth: 2,
+    borderBottomColor: colors.destructive,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  offlineWarningBannerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  offlineWarningBannerText: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+    flex: 1,
+  },
+  // Offline Blocked Modal
+  offlineBlockedModalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  offlineBlockedModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  offlineBlockedModalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  offlineBlockedModalTitle: {
+    ...typography.xl,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  offlineBlockedModalCloseButton: {
+    padding: spacing.xs,
+  },
+  offlineBlockedModalContent: {
+    flex: 1,
+    padding: spacing.lg,
+    gap: spacing.lg,
+  },
+  offlineBlockedModalMessage: {
+    ...typography.base,
+    color: colors.foreground,
+    lineHeight: 24,
+  },
+  offlineBlockedModalDetails: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: spacing.sm,
+  },
+  offlineBlockedModalActions: {
+    marginTop: spacing.lg,
+  },
+  // Service Center Modal Styles
+  serviceCenterModalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  serviceCenterModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  serviceCenterModalTitle: {
+    ...typography.xl,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  serviceCenterModalCloseButton: {
+    padding: spacing.xs,
+  },
+  serviceCenterModalScroll: {
+    flex: 1,
+  },
+  serviceCenterModalContent: {
+    padding: spacing.lg,
+  },
+  serviceCenterCard: {
+    marginBottom: spacing.md,
+  },
+  serviceCenterName: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  serviceCenterAddress: {
+    ...typography.base,
+    color: colors.foreground,
+    lineHeight: 24,
+  },
+  serviceCenterUpdateDate: {
+    ...typography.base,
+    color: colors.mutedForeground,
+  },
+  serviceCenterNotificationOverlay: {
+    position: 'absolute',
+    top: 80,
+    right: spacing.lg,
+    zIndex: 1000,
+  },
+  serviceCenterNotificationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    paddingRight: spacing.lg,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    minWidth: 280,
+  },
+  serviceCenterNotificationIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.primary + '15',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
+  },
+  serviceCenterNotificationContent: {
+    flex: 1,
+  },
+  serviceCenterNotificationTitle: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: 2,
+  },
+  serviceCenterNotificationSubtitle: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  // Photo Gallery Modal Styles
+  photoGalleryModalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  photoGalleryModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.card,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  photoGalleryModalTitle: {
+    ...typography.xl,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  photoGalleryModalCloseButton: {
+    padding: spacing.xs,
+  },
+  photoGalleryScroll: {
+    flex: 1,
+  },
+  photoGalleryContent: {
+    padding: spacing.lg,
+  },
+  photoGalleryEmpty: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: spacing.xxl * 2,
+    gap: spacing.md,
+  },
+  photoGalleryEmptyText: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  photoGalleryEmptySubtext: {
+    ...typography.base,
+    color: colors.mutedForeground,
+  },
+  photoCard: {
+    marginBottom: spacing.md,
+  },
+  photoCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: spacing.sm,
+  },
+  photoCardInfo: {
+    flex: 1,
+  },
+  photoCardCategory: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.xs / 2,
+  },
+  photoCardTimestamp: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  photoCardCaption: {
+    ...typography.base,
+    color: colors.foreground,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  photoPlaceholder: {
+    width: '100%',
+    height: 200,
+    backgroundColor: colors.muted + '20',
+    borderRadius: borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+  },
+  photoPlaceholderText: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    textAlign: 'center',
   },
 });
 

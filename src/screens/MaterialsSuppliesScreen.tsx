@@ -1,6 +1,7 @@
 import React from 'react';
 import {View, Text, StyleSheet, SafeAreaView, TouchableOpacity} from 'react-native';
 import {colors, typography, spacing} from '../styles/theme';
+import {Icon} from '../components/Icon';
 
 type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings';
 
@@ -16,7 +17,8 @@ const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = ({onNavi
         style={styles.backButton}
         onPress={onGoBack}
         activeOpacity={0.7}>
-        <Text style={styles.backButtonText}>← Back</Text>
+        <Icon name="arrow-back" size={20} color={colors.foreground} style={styles.backButtonIcon} />
+        <Text style={styles.backButtonText}>Back</Text>
       </TouchableOpacity>
 
       <View style={styles.content}>

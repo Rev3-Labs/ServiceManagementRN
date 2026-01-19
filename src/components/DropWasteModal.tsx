@@ -13,6 +13,7 @@ import {
   TextInput,
 } from 'react-native';
 import {Button} from './Button';
+import {Icon} from './Icon';
 import {
   colors,
   spacing,
@@ -125,7 +126,7 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
           <TouchableOpacity
             onPress={handleClose}
             style={styles.closeBtn}>
-            <Text style={styles.closeBtnText}>✕</Text>
+            <Icon name="close" size={20} color={colors.foreground} />
           </TouchableOpacity>
         </View>
 
@@ -150,7 +151,7 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
                 ]}>
                 {transferLocation || 'Select transfer location'}
               </Text>
-              <Text style={styles.dropdownArrow}>▼</Text>
+              <Icon name="keyboard-arrow-down" size={20} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
 
@@ -203,7 +204,7 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
                 <TouchableOpacity
                   onPress={() => setShowLocationPicker(false)}
                   style={styles.modalCloseBtn}>
-                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                  <Icon name="close" size={20} color={colors.foreground} />
                 </TouchableOpacity>
               </View>
               <FlatList
@@ -215,7 +216,7 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
                     onPress={() => handleLocationSelect(item)}>
                     <Text style={styles.locationItemText}>{item}</Text>
                     {transferLocation === item && (
-                      <Text style={styles.locationItemCheck}>✓</Text>
+                      <Icon name="check" size={20} color={colors.primary} />
                     )}
                   </TouchableOpacity>
                 )}
@@ -272,11 +273,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  closeBtnText: {
-    ...typography.xl,
-    color: colors.foreground,
-    fontWeight: '600',
-  },
   content: {
     flex: 1,
   },
@@ -316,11 +312,6 @@ const styles = StyleSheet.create({
   },
   dropdownPlaceholder: {
     color: colors.mutedForeground,
-  },
-  dropdownArrow: {
-    ...typography.sm,
-    color: colors.mutedForeground,
-    marginLeft: spacing.sm,
   },
   input: {
     backgroundColor: colors.card,
@@ -400,11 +391,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalCloseBtnText: {
-    ...typography.xl,
-    color: colors.foreground,
-    fontWeight: '600',
-  },
   locationList: {
     maxHeight: 400,
   },
@@ -421,12 +407,6 @@ const styles = StyleSheet.create({
     ...typography.base,
     color: colors.foreground,
     flex: 1,
-  },
-  locationItemCheck: {
-    ...typography.base,
-    color: colors.primary,
-    fontWeight: '600',
-    marginLeft: spacing.md,
   },
 });
 

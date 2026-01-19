@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Dimensions,
 } from 'react-native';
+import {Icon} from './Icon';
 
 interface SignatureCanvasProps {
   onOK?: (signature: string) => void;
@@ -81,7 +82,8 @@ const SignatureCanvas = React.forwardRef<any, SignatureCanvasProps>(
         ))}
         {hasDrawn && touchPoints.length === 0 && (
           <View style={styles.signedIndicator}>
-            <Text style={styles.signedText}>✓ Signature Area</Text>
+            <Icon name="check" size={18} color="#65B230" style={styles.signedIcon} />
+            <Text style={styles.signedText}>Signature Area</Text>
           </View>
         )}
       </View>
@@ -109,7 +111,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   signedIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     padding: 20,
+  },
+  signedIcon: {
+    marginRight: 4,
   },
   signedText: {
     color: '#65B230',

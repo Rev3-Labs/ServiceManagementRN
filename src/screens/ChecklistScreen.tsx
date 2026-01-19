@@ -12,6 +12,7 @@ import {
 import {Button} from '../components/Button';
 import {Input} from '../components/Input';
 import {Card, CardContent, CardTitle, CardTitleText} from '../components/Card';
+import {Icon} from '../components/Icon';
 import {colors, spacing, typography, borderRadius, touchTargets} from '../styles/theme';
 import {
   Checklist,
@@ -708,7 +709,8 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
 
                 {isAnswered && isCurrentQuestion && currentQuestionIndex < flatQuestions.length - 1 && (
                   <View style={styles.answeredIndicator}>
-                    <Text style={styles.answeredText}>✓ Answered</Text>
+                    <Icon name="check" size={16} color={colors.success} style={styles.answeredIcon} />
+                    <Text style={styles.answeredText}>Answered</Text>
                   </View>
                 )}
               </CardContent>
@@ -896,13 +898,18 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   answeredIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: spacing.md,
     paddingTop: spacing.sm,
-    alignItems: 'flex-end',
+    gap: spacing.xs,
+  },
+  answeredIcon: {
+    marginRight: spacing.xs / 2,
   },
   answeredText: {
     ...typography.sm,
-    color: colors.primary,
+    color: colors.success,
     fontWeight: '600',
   },
   content: {

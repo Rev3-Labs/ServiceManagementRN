@@ -1,4 +1,5 @@
 import {safeAsyncStorage} from '../utils/storage';
+import {offlineTrackingService} from './offlineTrackingService';
 
 // Mock network state - assume always online (NetInfo not working)
 console.log('[SyncService] Using mock network state (always online)');
@@ -145,6 +146,8 @@ class SyncService {
         
         if (success) {
           await this.removePendingOperation(operation.id);
+          // Notify offline tracking service of successful sync
+          await offlineTrackingService.onSyncComplete();
         } else {
           // Increment retry count
           operation.retries += 1;
