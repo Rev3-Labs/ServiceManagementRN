@@ -12,6 +12,7 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  Pressable,
   Dimensions,
   Modal,
   FlatList,
@@ -86,6 +87,9 @@ import {MATERIALS_CATALOG} from '../data/materialsCatalog';
 import {PersistentOrderHeader} from '../components/PersistentOrderHeader';
 import {PhotoCaptureButton} from '../components/PhotoCaptureButton';
 import {photoService} from '../services/photoService';
+import {pListedAuthorizationService, PListedCode} from '../services/pListedAuthorizationService';
+import {serviceTypeService} from '../services/serviceTypeService';
+import {serviceTypeTimeService, ServiceTypeTimeEntry} from '../services/serviceTypeTimeService';
 
 const {width, height} = Dimensions.get('window');
 const gridColumns = getGridColumns();
@@ -124,6 +128,31 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [orderPhotos, setOrderPhotos] = useState(
     selectedOrderData ? photoService.getPhotosForOrder(selectedOrderData.orderNumber) : []
   );
+  const [showPListedAuthModal, setShowPListedAuthModal] = useState(false);
+  const [pendingStreamSelection, setPendingStreamSelection] = useState<WasteStream | null>(null);
+  const [pListedAuthAcknowledged, setPListedAuthAcknowledged] = useState(false);
+  const [pListedAuthResult, setPListedAuthResult] = useState<{
+    authorized: boolean;
+    authorization: any;
+    failureReason?: string;
+    pCodes: PListedCode[];
+  } | null>(null);
+  const [pListedAuthCode, setPListedAuthCode] = useState('');
+  const [pListedAuthCodeValid, setPListedAuthCodeValid] = useState(false);
+  const [expandedServiceTypes, setExpandedServiceTypes] = useState<Set<string>>(new Set());
+  const [serviceTypeTimeEntries, setServiceTypeTimeEntries] = useState<Map<string, ServiceTypeTimeEntry>>(new Map());
+  const [showServiceTypeSelectionModal, setShowServiceTypeSelectionModal] = useState(false);
+  const [pendingOrderForServiceTypeSelection, setPendingOrderForServiceTypeSelection] = useState<OrderData | null>(null);
+  const isSelectingServiceTypeRef = useRef(false);
+  const [activeServiceTypeTimer, setActiveServiceTypeTimer] = useState<string | null>(null); // serviceTypeId that's currently timing
+  const [showTimeEditModal, setShowTimeEditModal] = useState(false);
+  const [editingServiceTypeId, setEditingServiceTypeId] = useState<string | null>(null);
+  const [editingTimeField, setEditingTimeField] = useState<'start' | 'end' | null>(null);
+  const [editingTimeValue, setEditingTimeValue] = useState({hours: '12', minutes: '00', ampm: 'AM'});
+  const [showServiceTypeTimeAdjustmentModal, setShowServiceTypeTimeAdjustmentModal] = useState(false);
+  const [adjustingServiceTypeId, setAdjustingServiceTypeId] = useState<string | null>(null);
+  const [adjustingStartTime, setAdjustingStartTime] = useState({hours: '12', minutes: '00', ampm: 'AM'});
+  const [adjustingEndTime, setAdjustingEndTime] = useState({hours: '12', minutes: '00', ampm: 'PM'});
   const [selectedStream, setSelectedStream] = useState('Hazardous Waste');
   const [selectedStreamCode, setSelectedStreamCode] = useState('D001');
   const [selectedStreamId, setSelectedStreamId] = useState('D001');
@@ -287,6 +316,28 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
     return unsubscribe;
   }, [selectedOrderData?.orderNumber]);
+
+  // Load service type time entries when order changes
+  useEffect(() => {
+    if (!selectedOrderData || !username) {
+      setServiceTypeTimeEntries(new Map());
+      setExpandedServiceTypes(new Set());
+      return;
+    }
+
+    const entries = new Map<string, ServiceTypeTimeEntry>();
+    selectedOrderData.programs.forEach(serviceTypeId => {
+      const entry = serviceTypeTimeService.getTimeEntry(
+        selectedOrderData.orderNumber,
+        serviceTypeId,
+      );
+      if (entry) {
+        entries.set(serviceTypeId, entry);
+      }
+    });
+    setServiceTypeTimeEntries(entries);
+  }, [selectedOrderData, username]);
+
   const [truckId, setTruckId] = useState<string>(''); // Keep for backward compatibility
   const [selectedTruck, setSelectedTruck] = useState<{number: string; description?: string} | null>(null);
   const [selectedTrailer, setSelectedTrailer] = useState<{number: string; description?: string} | null>(null);
@@ -457,6 +508,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return () => clearInterval(interval);
   }, [currentOrderTimeTracking]);
 
+  // Update active service type timer display every minute
+  useEffect(() => {
+    if (!activeServiceTypeTimer || !selectedOrderData) {
+      return;
+    }
+
+    const timeEntry = serviceTypeTimeEntries.get(activeServiceTypeTimer);
+    if (!timeEntry || !timeEntry.startTime || timeEntry.endTime) {
+      return;
+    }
+
+    // Force re-render of service type rows to update elapsed time
+    const interval = setInterval(() => {
+      // Trigger re-render by updating a dummy state or reloading entries
+      const updated = new Map(serviceTypeTimeEntries);
+      setServiceTypeTimeEntries(updated);
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, [activeServiceTypeTimer, selectedOrderData, serviceTypeTimeEntries]);
+
 
   // Helper function to get order status (checks both original status and completed state)
   const getOrderStatus = useCallback(
@@ -521,7 +593,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   // Proceed with starting service after acknowledgment
   const proceedWithStartService = useCallback(async (order: OrderData) => {
     try {
-      // Start time tracking for this order
+      // Start order-level time tracking (overall order time)
       await startTimeTracking(order.orderNumber, truckId, username);
       
       // Load the active tracking to update UI
@@ -534,6 +606,35 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       if (orderTracking && !orderTracking.endTime) {
         setElapsedTimeDisplay(formatElapsedTime(orderTracking.startTime));
       }
+      
+      // Start the service type (should already be selected at this point)
+      const serviceTypes = order.programs || [];
+      if (serviceTypes.length === 1 && username) {
+        // Single service type - start it immediately
+        await serviceTypeTimeService.startServiceType(
+          order.orderNumber,
+          serviceTypes[0],
+          username,
+        );
+        setActiveServiceTypeTimer(serviceTypes[0]);
+        // Reload service type time entries
+        const entries = new Map<string, ServiceTypeTimeEntry>();
+        const entry = serviceTypeTimeService.getTimeEntry(
+          order.orderNumber,
+          serviceTypes[0],
+        );
+        if (entry) {
+          entries.set(serviceTypes[0], entry);
+        }
+        setServiceTypeTimeEntries(entries);
+        
+        // Reset containers, materials, and equipment for new service type
+        setAddedContainers([]);
+        setMaterialsSupplies([]);
+        setEquipmentPPE([]);
+      }
+      // Note: For multiple service types, the service type should already be started
+      // via the selection modal before this function is called
       
       // Set selected order and navigate to stream selection
       setSelectedOrderData(order);
@@ -563,13 +664,23 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return false;
   }, [offlineStatus.isBlocked]);
 
-  // Handle starting service - shows job notes modal first if notes exist
+  // Handle starting service - shows service type selection first if multiple service types
   const handleStartService = useCallback(async (order: OrderData) => {
     // Check if blocked due to offline limit
     if (checkOfflineBlock()) {
       return;
     }
 
+    // Check if order has multiple service types - show selection modal first
+    const serviceTypes = order.programs || [];
+    if (serviceTypes.length > 1) {
+      // Show service type selection modal on dashboard
+      setPendingOrderForServiceTypeSelection(order);
+      setShowServiceTypeSelectionModal(true);
+      return;
+    }
+    
+    // Single service type or no service types - proceed with normal flow
     // Check if order has job notes that need acknowledgment
     const hasJobNotes = 
       order.customerSpecialInstructions ||
@@ -581,7 +692,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const isAcknowledged = acknowledgedOrders.has(order.orderNumber);
     
     if (hasJobNotes && !isAcknowledged) {
-      // Show job notes modal first
+      // Show job notes modal
       setPendingOrderToStart(order);
       setShowJobNotesModal(true);
       setJobNotesAcknowledged(false);
@@ -910,6 +1021,21 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       containerCount: 5,
       allowedContainers: ['30G', '55G', '85G'],
       requiresCylinderCount: true, // Example: This profile requires cylinder count
+    },
+    {
+      id: 'P001',
+      profileName: 'P-Listed Acute Hazardous Waste',
+      profileNumber: '245010010',
+      category: 'Acute Hazardous',
+      hazardClass: 'Class 6.1',
+      consolidationAllowed: false,
+      accumulationsApply: true,
+      specialInstructions: 'P-Listed waste - requires special authorization',
+      flags: ['P-Listed', 'Acute Hazardous', 'Toxic'],
+      containerCount: 2,
+      allowedContainers: ['30G', '55G'],
+      requiresCylinderCount: false,
+      wasteCodes: ['P001', 'P012'], // P-Listed codes
     },
     {
       id: 'U001',
@@ -1706,16 +1832,20 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       </View>
                     )}
                     <View style={[styles.detailRow, styles.programsDetailRow]}>
-                      <Text style={styles.detailLabel}>Programs:</Text>
+                      <Text style={styles.detailLabel}>Service Types:</Text>
                       <View style={styles.programsContainerInline}>
-                        {selectedOrder.programs.map((program, i) => (
-                          <Badge
-                            key={i}
-                            variant="secondary"
-                            style={styles.programBadge}>
-                            {program}
-                          </Badge>
-                        ))}
+                        {selectedOrder.programs.map((program, i) => {
+                          const formatted = serviceTypeService.formatForOrderDetails(program);
+                          return (
+                            <Badge
+                              key={i}
+                              variant="secondary"
+                              style={styles.programBadge}
+                              title={serviceTypeService.getServiceTypeName(program)}>
+                              {serviceTypeService.formatForBadge(program)}
+                            </Badge>
+                          );
+                        })}
                       </View>
                     </View>
                   </CardContent>
@@ -1923,14 +2053,18 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     </Text>
                     <Text style={styles.serviceDate}>{order.serviceDate}</Text>
                     <View style={styles.programsContainer}>
-                      {order.programs.map((program, i) => (
-                        <Badge
-                          key={i}
-                          variant="secondary"
-                          style={styles.programBadge}>
-                          {program}
-                        </Badge>
-                      ))}
+                      {order.programs.map((program, i) => {
+                        const serviceType = serviceTypeService.getServiceType(program);
+                        return (
+                          <Badge
+                            key={i}
+                            variant="secondary"
+                            style={styles.programBadge}
+                            title={serviceType?.name || program}>
+                            {serviceTypeService.formatForBadge(program)}
+                          </Badge>
+                        );
+                      })}
                     </View>
                   </View>
                 </TouchableOpacity>
@@ -2126,6 +2260,33 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       return;
                     }
 
+                    // Check for P-Listed waste codes
+                    const pCodes = pListedAuthorizationService.extractPListedCodes(stream);
+                    if (pCodes.length > 0 && selectedOrderData && username) {
+                      // Get generator ID from order (using EPA ID or customer ID)
+                      const generatorId = String(
+                        selectedOrderData.epaId || selectedOrderData.customer || ''
+                      );
+                      
+                      // Validate authorization
+                      const authResult = pListedAuthorizationService.validateAuthorization(
+                        username,
+                        generatorId,
+                        pCodes,
+                      );
+                      
+                      // Store pending selection and auth result
+                      setPendingStreamSelection(stream);
+                      setPListedAuthResult({
+                        ...authResult,
+                        pCodes,
+                      });
+                      setPListedAuthAcknowledged(false);
+                      setShowPListedAuthModal(true);
+                      return;
+                    }
+
+                    // No P-Listed codes or authorization passed - proceed normally
                     // Track recently used profile
                     setRecentlyUsedProfiles(prev => {
                       // Remove if already exists, then add to front
@@ -2970,64 +3131,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   </View>
                 </View>
 
-                {/* Programs Section */}
-                <View style={styles.programsSection}>
-                  <Text style={styles.sectionTitle}>Program Selection</Text>
-                  <Text style={styles.sectionDescription}>
-                    Toggle each program to Ship or No Ship
-                  </Text>
-
-                  {orderPrograms.length > 0 ? (
-                    orderPrograms.map(program => {
-                      const isShip = selectedPrograms[program] === 'ship';
-                      const isNoShip = selectedPrograms[program] === 'noship';
-                      const toggleValue = isShip; // true = ship, false = noship (or undefined)
-
-                      return (
-                        <View key={program} style={styles.programSelectionRow}>
-                          <Text style={styles.programName}>{program}</Text>
-                          <View style={styles.programToggleContainer}>
-                            <Text style={styles.programStatusLabel}>
-                              {isShip
-                                ? 'Ship'
-                                : isNoShip
-                                  ? 'No Ship'
-                                  : 'No Ship'}
-                            </Text>
-                            <Switch
-                              value={toggleValue}
-                              disabled={isCurrentOrderCompleted}
-                              onValueChange={async value => {
-                                if (isCurrentOrderCompleted) return;
-                                const action: 'ship' | 'noship' = value
-                                  ? 'ship'
-                                  : 'noship';
-                                const updated = {
-                                  ...selectedPrograms,
-                                  [program]: action,
-                                };
-                                setSelectedPrograms(updated);
-                                // Queue for sync
-                                await syncService.addPendingOperation(
-                                  'manifest',
-                                  {
-                                    orderId: selectedOrderData?.orderNumber,
-                                    program,
-                                    action,
-                                  },
-                                );
-                              }}
-                            />
-                          </View>
-                        </View>
-                      );
-                    })
-                  ) : (
-                    <Text style={styles.emptyStateText}>
-                      No programs found for this order
-                    </Text>
-                  )}
-                </View>
+                {/* Programs Section - REMOVED: Program selection (Ship/No Ship) moved to dashboard */}
 
                 {/* Scanned Document Indicator */}
                 {manifestData?.scannedImageUri && (
@@ -4256,6 +4360,26 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const programsToShip = Object.values(selectedPrograms).filter(
       p => p === 'ship',
     ).length;
+    
+    // Get service type time entries for this order
+    const serviceTypeTimeEntriesForOrder = selectedOrderData
+      ? serviceTypeTimeService.getTimeEntriesForOrder(selectedOrderData.orderNumber)
+      : [];
+    const totalServiceTimeMinutes = selectedOrderData
+      ? serviceTypeTimeService.getTotalDurationForOrder(selectedOrderData.orderNumber)
+      : 0;
+    
+    // Check if all service types are complete
+    const allServiceTypesComplete = selectedOrderData
+      ? selectedOrderData.programs.every(serviceTypeId => {
+          const entry = serviceTypeTimeService.getTimeEntry(
+            selectedOrderData.orderNumber,
+            serviceTypeId,
+          );
+          return entry?.startTime != null && entry?.endTime != null;
+        })
+      : false;
+    
     const [customerFirstName, setCustomerFirstName] = useState('');
     const [customerLastName, setCustomerLastName] = useState('');
     const [customerEmail, setCustomerEmail] = useState('');
@@ -4321,7 +4445,47 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         return;
       }
 
-      if (selectedOrderData) {
+      if (!selectedOrderData) return;
+
+      // Store the service type that's being completed (before ending it)
+      const completingServiceTypeId = activeServiceTypeTimer;
+
+      // If there's an active service type timer, end it first
+      if (activeServiceTypeTimer) {
+        try {
+          await serviceTypeTimeService.endServiceType(
+            selectedOrderData.orderNumber,
+            activeServiceTypeTimer,
+          );
+          
+          // Reload service type time entries
+          const entries = new Map<string, ServiceTypeTimeEntry>();
+          selectedOrderData.programs.forEach(stId => {
+            const entry = serviceTypeTimeService.getTimeEntry(
+              selectedOrderData.orderNumber,
+              stId,
+            );
+            if (entry) {
+              entries.set(stId, entry);
+            }
+          });
+          setServiceTypeTimeEntries(entries);
+          setActiveServiceTypeTimer(null);
+        } catch (error) {
+          console.error('Error ending service type time tracking:', error);
+          Alert.alert('Error', 'Failed to end service type time tracking');
+          return;
+        }
+      }
+
+      // Check if all service types are complete
+      const allServiceTypesComplete = selectedOrderData.programs.every(serviceTypeId => {
+        const entry = serviceTypeTimeEntries.get(serviceTypeId);
+        return entry?.startTime != null && entry?.endTime != null;
+      });
+
+      if (allServiceTypesComplete) {
+        // All service types are complete - complete the entire order
         // Queue order completion for sync
         await syncService.addPendingOperation('order', {
           orderNumber: selectedOrderData.orderNumber,
@@ -4340,7 +4504,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           },
         });
 
-        // Stop time tracking for this order
+        // Stop overall order time tracking
         try {
           await stopTimeTracking(selectedOrderData.orderNumber);
           // Clear active tracking if this was the active order
@@ -4374,8 +4538,72 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         setCustomerFirstName('');
         setCustomerLastName('');
         setCustomerEmail('');
+        setCurrentStep('dashboard');
+      } else {
+        // Not all service types are complete - just complete the current service type
+        // Reload service type time entries to reflect the updated state
+        const entries = new Map<string, ServiceTypeTimeEntry>();
+        selectedOrderData.programs.forEach(stId => {
+          const entry = serviceTypeTimeService.getTimeEntry(
+            selectedOrderData.orderNumber,
+            stId,
+          );
+          if (entry) {
+            entries.set(stId, entry);
+          }
+        });
+        setServiceTypeTimeEntries(entries);
+        
+        // Get the completed service type entry to pre-populate time adjustment modal
+        // Use the service type that was just completed (stored before ending)
+        const completedServiceTypeId = completingServiceTypeId || selectedOrderData.programs.find(stId => {
+          const entry = entries.get(stId);
+          return entry?.startTime != null && entry?.endTime != null;
+        });
+        
+        if (completedServiceTypeId) {
+          const completedEntry = entries.get(completedServiceTypeId);
+          if (completedEntry) {
+            // Pre-populate start time
+            if (completedEntry.startTime) {
+              const startDate = new Date(completedEntry.startTime);
+              const startHours24 = startDate.getHours();
+              const startHours12 = startHours24 === 0 ? 12 : startHours24 > 12 ? startHours24 - 12 : startHours24;
+              const startMinutes = startDate.getMinutes();
+              setAdjustingStartTime({
+                hours: startHours12.toString().padStart(2, '0'),
+                minutes: startMinutes.toString().padStart(2, '0'),
+                ampm: startHours24 >= 12 ? 'PM' : 'AM',
+              });
+            }
+            
+            // Pre-populate end time
+            if (completedEntry.endTime) {
+              const endDate = new Date(completedEntry.endTime);
+              const endHours24 = endDate.getHours();
+              const endHours12 = endHours24 === 0 ? 12 : endHours24 > 12 ? endHours24 - 12 : endHours24;
+              const endMinutes = endDate.getMinutes();
+              setAdjustingEndTime({
+                hours: endHours12.toString().padStart(2, '0'),
+                minutes: endMinutes.toString().padStart(2, '0'),
+                ampm: endHours24 >= 12 ? 'PM' : 'AM',
+              });
+            }
+            
+            // Show time adjustment modal before navigating to dashboard
+            setAdjustingServiceTypeId(completedServiceTypeId);
+            setShowServiceTypeTimeAdjustmentModal(true);
+          } else {
+            // No entry found, navigate directly to dashboard
+            setCurrentStep('dashboard');
+          }
+        } else {
+          // No completed service type found, navigate directly to dashboard
+          setCurrentStep('dashboard');
+        }
+        // Keep the order selected so user can start the next service type
+        // Don't clear selectedOrderData - let user see the order and start next service type
       }
-      setCurrentStep('dashboard');
     };
 
     // Customer Acknowledgment View
@@ -4504,6 +4732,57 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   </View>
                 </View>
               </View>
+
+              {/* SERVICE TYPE TIME BREAKDOWN Section */}
+              {serviceTypeTimeEntriesForOrder.length > 0 && (
+                <View style={styles.serviceSummarySection}>
+                  <View style={styles.serviceSummarySectionHeader}>
+                    <Text style={styles.serviceSummarySectionHeaderText}>SERVICE TYPE TIME BREAKDOWN</Text>
+                  </View>
+                  {serviceTypeTimeEntriesForOrder.map((entry, index) => {
+                    const serviceType = serviceTypeService.getServiceType(entry.serviceTypeId);
+                    return (
+                      <View key={entry.serviceTypeId} style={styles.serviceSummaryTimeRow}>
+                        <View style={styles.serviceSummaryTimeServiceType}>
+                          <Text style={styles.serviceSummaryTimeServiceTypeName}>
+                            {serviceType?.name || entry.serviceTypeId}:
+                          </Text>
+                        </View>
+                        <View style={styles.serviceSummaryTimeDetails}>
+                          <Text style={styles.serviceSummaryTimeText}>
+                            {entry.startTime
+                              ? serviceTypeTimeService.formatTime(entry.startTime)
+                              : 'N/A'}{' '}
+                            –{' '}
+                            {entry.endTime
+                              ? serviceTypeTimeService.formatTime(entry.endTime)
+                              : 'In Progress'}{' '}
+                            ({entry.durationMinutes !== null && entry.durationMinutes !== undefined
+                              ? serviceTypeTimeService.formatDuration(entry.durationMinutes)
+                              : 'N/A'})
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                  {totalServiceTimeMinutes > 0 && (
+                    <View style={styles.serviceSummaryTimeTotal}>
+                      <Text style={styles.serviceSummaryTimeTotalLabel}>Total Service Time:</Text>
+                      <Text style={styles.serviceSummaryTimeTotalValue}>
+                        {serviceTypeTimeService.formatDuration(totalServiceTimeMinutes)}
+                      </Text>
+                    </View>
+                  )}
+                  {currentOrderTimeTracking && (
+                    <View style={styles.serviceSummaryTimeTotal}>
+                      <Text style={styles.serviceSummaryTimeTotalLabel}>Order Time (Total On-Site):</Text>
+                      <Text style={styles.serviceSummaryTimeTotalValue}>
+                        {elapsedTimeDisplay || 'N/A'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
 
               {/* WORK PERFORMED Section */}
               <View style={styles.serviceSummarySection}>
@@ -4858,7 +5137,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             }}
           />
           <Button
-            title="Acknowledge & Complete"
+            title={allServiceTypesComplete ? "Acknowledge & Complete Order" : "Acknowledge & Complete Service Type"}
             variant="primary"
             size="md"
             onPress={handleCompleteOrder}
@@ -6306,6 +6585,1062 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         </Modal>
       )}
       
+      {/* P-Listed Authorization Modal */}
+      {pendingStreamSelection && pListedAuthResult && (
+        <Modal
+          visible={showPListedAuthModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {
+            setShowPListedAuthModal(false);
+            setPendingStreamSelection(null);
+            setPListedAuthResult(null);
+            setPListedAuthAcknowledged(false);
+            setPListedAuthCode('');
+            setPListedAuthCodeValid(false);
+          }}>
+          <View style={styles.pListedAuthModalOverlay}>
+            <View style={styles.pListedAuthModalContainer}>
+              <View style={styles.pListedAuthModalHeader}>
+                <View style={styles.pListedAuthModalTitleRow}>
+                  <Icon name="warning" size={24} color={colors.warning} />
+                  <Text style={styles.pListedAuthModalTitle}>
+                    P-LISTED WASTE AUTHORIZATION REQUIRED
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowPListedAuthModal(false);
+                    setPendingStreamSelection(null);
+                    setPListedAuthResult(null);
+                    setPListedAuthAcknowledged(false);
+                    setPListedAuthCode('');
+                    setPListedAuthCodeValid(false);
+                  }}
+                  style={styles.pListedAuthModalCloseButton}>
+                  <Icon name="close" size={20} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                style={styles.pListedAuthModalScroll}
+                contentContainerStyle={styles.pListedAuthModalContent}>
+                <Text style={styles.pListedAuthWarningText}>
+                  This profile contains acute hazardous waste requiring special authorization.
+                </Text>
+
+                <Card style={styles.pListedAuthCard}>
+                  <CardHeader>
+                    <CardTitle>
+                      <CardTitleText>P-Listed Codes</CardTitleText>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <View style={styles.pListedCodesContainer}>
+                      {pListedAuthResult.pCodes.map((code: PListedCode) => (
+                        <Badge
+                          key={code}
+                          variant="outline"
+                          style={styles.pListedCodeBadge}>
+                          {code}
+                        </Badge>
+                      ))}
+                    </View>
+                  </CardContent>
+                </Card>
+
+                <Card style={styles.pListedAuthCard}>
+                  <CardHeader>
+                    <CardTitle>
+                      <CardTitleText>Authorization Status</CardTitleText>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <View style={styles.pListedAuthStatusRow}>
+                      <View
+                        style={[
+                          styles.pListedAuthStatusIndicator,
+                          pListedAuthResult.authorized
+                            ? styles.pListedAuthStatusAuthorized
+                            : styles.pListedAuthStatusNotAuthorized,
+                        ]}>
+                        <Icon
+                          name={pListedAuthResult.authorized ? 'check-circle' : 'error'}
+                          size={20}
+                          color={
+                            pListedAuthResult.authorized
+                              ? colors.success
+                              : colors.destructive
+                          }
+                        />
+                        <Text
+                          style={[
+                            styles.pListedAuthStatusText,
+                            pListedAuthResult.authorized
+                              ? styles.pListedAuthStatusTextAuthorized
+                              : styles.pListedAuthStatusTextNotAuthorized,
+                          ]}>
+                          {pListedAuthResult.authorized
+                            ? 'Authorized'
+                            : 'Not Authorized'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {pListedAuthResult.authorized && pListedAuthResult.authorization && (
+                      <View style={styles.pListedAuthDetails}>
+                        <View style={styles.pListedAuthDetailRow}>
+                          <Text style={styles.pListedAuthDetailLabel}>
+                            Authorization ID:
+                          </Text>
+                          <Text style={styles.pListedAuthDetailValue}>
+                            {pListedAuthResult.authorization.id}
+                          </Text>
+                        </View>
+                        <View style={styles.pListedAuthDetailRow}>
+                          <Text style={styles.pListedAuthDetailLabel}>
+                            Expiration Date:
+                          </Text>
+                          <Text style={styles.pListedAuthDetailValue}>
+                            {new Date(
+                              pListedAuthResult.authorization.expirationDate,
+                            ).toLocaleDateString()}
+                          </Text>
+                        </View>
+                        <View style={styles.pListedAuthDetailRow}>
+                          <Text style={styles.pListedAuthDetailLabel}>
+                            Authorized P-Codes:
+                          </Text>
+                          <View style={styles.pListedAuthCodesList}>
+                            {pListedAuthResult.authorization.pCodes.map((code: PListedCode) => (
+                              <Text
+                                key={code}
+                                style={styles.pListedAuthCodeItem}>
+                                {code}
+                              </Text>
+                            ))}
+                          </View>
+                        </View>
+                      </View>
+                    )}
+
+                    {!pListedAuthResult.authorized && pListedAuthResult.failureReason && (
+                      <View style={styles.pListedAuthError}>
+                        <Text style={styles.pListedAuthErrorText}>
+                          {pListedAuthResult.failureReason}
+                        </Text>
+                      </View>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Authorization Code Bypass */}
+                <Card style={styles.pListedAuthCard}>
+                  <CardHeader>
+                    <CardTitle>
+                      <CardTitleText>Authorization Code (Optional)</CardTitleText>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Text style={styles.pListedAuthCodeDescription}>
+                      Enter an authorization code to proceed if you have been granted special authorization.
+                    </Text>
+                    <Input
+                      placeholder="Enter authorization code"
+                      value={pListedAuthCode}
+                      onChangeText={(text) => {
+                        setPListedAuthCode(text);
+                        // Validate against dummy code (for simulation)
+                        // In production, this would validate against backend
+                        const isValid = text.trim().toUpperCase() === 'BYPASS2024';
+                        setPListedAuthCodeValid(isValid);
+                        if (isValid) {
+                          // Auto-acknowledge when valid code is entered
+                          setPListedAuthAcknowledged(true);
+                        }
+                      }}
+                      containerStyle={styles.pListedAuthCodeInput}
+                      secureTextEntry={false}
+                    />
+                    {!pListedAuthCodeValid && (
+                      <Text style={styles.pListedAuthCodeHelpText}>
+                        Test code: BYPASS2024
+                      </Text>
+                    )}
+                    {pListedAuthCodeValid && (
+                      <View style={styles.pListedAuthCodeValidIndicator}>
+                        <Icon name="check-circle" size={16} color={colors.success} />
+                        <Text style={styles.pListedAuthCodeValidText}>
+                          Authorization code accepted
+                        </Text>
+                      </View>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {pListedAuthResult.authorized && (
+                  <View style={styles.pListedAuthAcknowledgment}>
+                    <TouchableOpacity
+                      style={styles.pListedAuthCheckbox}
+                      onPress={() =>
+                        setPListedAuthAcknowledged(!pListedAuthAcknowledged)
+                      }
+                      activeOpacity={0.7}
+                      disabled={pListedAuthCodeValid}>
+                      <View
+                        style={[
+                          styles.pListedAuthCheckboxBox,
+                          (pListedAuthAcknowledged || pListedAuthCodeValid) &&
+                            styles.pListedAuthCheckboxBoxChecked,
+                        ]}>
+                        {(pListedAuthAcknowledged || pListedAuthCodeValid) && (
+                          <Icon
+                            name="check"
+                            size={16}
+                            color={colors.primaryForeground}
+                          />
+                        )}
+                      </View>
+                      <Text style={styles.pListedAuthCheckboxText}>
+                        I confirm I am authorized to handle this P-Listed waste
+                        and will follow restricted waste protocols.
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </ScrollView>
+
+              <View style={styles.pListedAuthModalFooter}>
+                <Button
+                  title="Cancel"
+                  variant="outline"
+                  size="md"
+                  onPress={() => {
+                    setShowPListedAuthModal(false);
+                    setPendingStreamSelection(null);
+                    setPListedAuthResult(null);
+                    setPListedAuthAcknowledged(false);
+                    setPListedAuthCode('');
+                    setPListedAuthCodeValid(false);
+                  }}
+                  style={styles.pListedAuthCancelButton}
+                />
+                {(pListedAuthResult.authorized || pListedAuthCodeValid) && (
+                  <Button
+                    title="Proceed"
+                    variant="primary"
+                    size="md"
+                    onPress={() => {
+                      if (pendingStreamSelection) {
+                        // Track recently used profile
+                        setRecentlyUsedProfiles(prev => {
+                          const filtered = prev.filter(
+                            id => id !== pendingStreamSelection.id,
+                          );
+                          return [
+                            pendingStreamSelection.id,
+                            ...filtered,
+                          ].slice(0, 5);
+                        });
+
+                        setSelectedStream(pendingStreamSelection.profileName);
+                        setSelectedStreamCode(
+                          pendingStreamSelection.profileNumber,
+                        );
+                        setSelectedStreamId(pendingStreamSelection.id);
+                        setCylinderCount('');
+                        setCurrentStep('container-selection');
+                      }
+
+                      setShowPListedAuthModal(false);
+                      setPendingStreamSelection(null);
+                      setPListedAuthResult(null);
+                      setPListedAuthAcknowledged(false);
+                      setPListedAuthCode('');
+                      setPListedAuthCodeValid(false);
+                    }}
+                    disabled={!pListedAuthAcknowledged && !pListedAuthCodeValid}
+                    style={styles.pListedAuthProceedButton}
+                  />
+                )}
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Service Type Selection Modal */}
+      {pendingOrderForServiceTypeSelection && (
+        <Modal
+          visible={showServiceTypeSelectionModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {
+            setShowServiceTypeSelectionModal(false);
+            setPendingOrderForServiceTypeSelection(null);
+          }}>
+          <View style={styles.serviceTypeSelectionModalOverlay} pointerEvents="box-none">
+            <View style={styles.serviceTypeSelectionModalContainer} pointerEvents="auto">
+                <View style={styles.serviceTypeSelectionModalHeader}>
+                <Text style={styles.serviceTypeSelectionModalTitle}>
+                  Select Service Type to Start
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowServiceTypeSelectionModal(false);
+                    setPendingOrderForServiceTypeSelection(null);
+                  }}
+                  style={styles.serviceTypeSelectionModalCloseButton}>
+                  <Icon name="close" size={20} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                style={styles.serviceTypeSelectionModalScroll}
+                contentContainerStyle={styles.serviceTypeSelectionModalContent}
+                nestedScrollEnabled={true}
+                keyboardShouldPersistTaps="handled">
+                <Text style={styles.serviceTypeSelectionModalDescription}>
+                  This order has multiple service types. Select which service type you're starting work on.
+                </Text>
+
+                {pendingOrderForServiceTypeSelection.programs.map((serviceTypeId) => {
+                  const serviceType = serviceTypeService.getServiceType(serviceTypeId);
+                  const timeEntry = serviceTypeTimeEntries.get(serviceTypeId);
+                  const isActive = activeServiceTypeTimer === serviceTypeId;
+                  const hasStartTime = timeEntry != null && timeEntry.startTime != null;
+                  const hasEndTime = timeEntry != null && timeEntry.endTime != null;
+
+                  return (
+                    <TouchableOpacity
+                      key={serviceTypeId}
+                      style={[
+                        styles.serviceTypeSelectionItem,
+                        isActive && styles.serviceTypeSelectionItemActive,
+                      ]}
+                      onPress={async () => {
+                        if (!username) return;
+
+                        try {
+                          const order = pendingOrderForServiceTypeSelection;
+                          if (!order) return;
+
+                          // If already has start time and no end time, resume
+                          if (hasStartTime && !hasEndTime) {
+                            setActiveServiceTypeTimer(serviceTypeId);
+                            setShowServiceTypeSelectionModal(false);
+                            setPendingOrderForServiceTypeSelection(null);
+                            
+                            // Continue with normal flow (check job notes, then proceed)
+                            const hasJobNotes = 
+                              order.customerSpecialInstructions ||
+                              order.siteAccessNotes ||
+                              (order.safetyWarnings && order.safetyWarnings.length > 0) ||
+                              (order.previousServiceNotes && order.previousServiceNotes.length > 0);
+                            
+                            const isAcknowledged = acknowledgedOrders.has(order.orderNumber);
+                            
+                            if (hasJobNotes && !isAcknowledged) {
+                              setPendingOrderToStart(order);
+                              setShowJobNotesModal(true);
+                              setJobNotesAcknowledged(false);
+                            } else {
+                              await proceedWithStartService(order);
+                            }
+                            return;
+                          }
+
+                          // If already completed, show alert
+                          if (hasStartTime && hasEndTime) {
+                            Alert.alert(
+                              'Service Type Already Completed',
+                              'This service type has already been started and ended. You cannot restart it.',
+                              [{text: 'OK'}],
+                            );
+                            return;
+                          }
+
+                          // Start new service type
+                          await serviceTypeTimeService.startServiceType(
+                            order.orderNumber,
+                            serviceTypeId,
+                            username,
+                          );
+                          setActiveServiceTypeTimer(serviceTypeId);
+                          
+                          // Reload service type time entries
+                          const entries = new Map<string, ServiceTypeTimeEntry>();
+                          order.programs.forEach(stId => {
+                            const entry = serviceTypeTimeService.getTimeEntry(
+                              order.orderNumber,
+                              stId,
+                            );
+                            if (entry) {
+                              entries.set(stId, entry);
+                            }
+                          });
+                          setServiceTypeTimeEntries(entries);
+                          
+                          // Reset containers, materials, and equipment for new service type
+                          setAddedContainers([]);
+                          setMaterialsSupplies([]);
+                          setEquipmentPPE([]);
+
+                          setShowServiceTypeSelectionModal(false);
+                          setPendingOrderForServiceTypeSelection(null);
+                          
+                          // Continue with normal flow (check job notes, then proceed)
+                          const hasJobNotes = 
+                            order.customerSpecialInstructions ||
+                            order.siteAccessNotes ||
+                            (order.safetyWarnings && order.safetyWarnings.length > 0) ||
+                            (order.previousServiceNotes && order.previousServiceNotes.length > 0);
+                          
+                          const isAcknowledged = acknowledgedOrders.has(order.orderNumber);
+                          
+                          if (hasJobNotes && !isAcknowledged) {
+                            setPendingOrderToStart(order);
+                            setShowJobNotesModal(true);
+                            setJobNotesAcknowledged(false);
+                          } else {
+                            await proceedWithStartService(order);
+                          }
+                        } catch (error) {
+                          Alert.alert('Error', 'Failed to start service type time tracking');
+                        }
+                      }}
+                      activeOpacity={0.7}
+                      disabled={hasStartTime && hasEndTime}
+                      hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                      <View style={styles.serviceTypeSelectionItemContent}>
+                        <View style={styles.serviceTypeSelectionItemLeft}>
+                          <Text style={styles.serviceTypeSelectionItemName}>
+                            {serviceTypeService.formatForOrderDetails(serviceTypeId)}
+                          </Text>
+                          {timeEntry?.durationMinutes !== null && timeEntry?.durationMinutes !== undefined && (
+                            <Badge variant="outline" style={styles.serviceTypeSelectionDurationBadge}>
+                              {serviceTypeTimeService.formatDuration(timeEntry.durationMinutes)}
+                            </Badge>
+                          )}
+                          {isActive && (
+                            <Badge variant="secondary" style={styles.serviceTypeSelectionActiveBadge}>
+                              Active
+                            </Badge>
+                          )}
+                          {hasStartTime && hasEndTime && (
+                            <Badge variant="default" style={styles.serviceTypeSelectionCompletedBadge}>
+                              Completed
+                            </Badge>
+                          )}
+                        </View>
+                        <Icon
+                          name="arrow-forward"
+                          size={20}
+                          color={colors.mutedForeground}
+                        />
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Service Type Time Adjustment Modal - shown after completing a service type */}
+      {showServiceTypeTimeAdjustmentModal && adjustingServiceTypeId && selectedOrderData && (
+        <Modal
+          visible={showServiceTypeTimeAdjustmentModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {
+            // Allow closing without saving - just navigate to dashboard
+            setShowServiceTypeTimeAdjustmentModal(false);
+            setAdjustingServiceTypeId(null);
+            setCurrentStep('dashboard');
+          }}>
+          <View style={styles.timeEditModalOverlay}>
+            <View style={styles.timeEditModalContainer}>
+              <View style={styles.timeEditModalHeader}>
+                <Text style={styles.timeEditModalTitle}>
+                  Adjust Service Type Times
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowServiceTypeTimeAdjustmentModal(false);
+                    setAdjustingServiceTypeId(null);
+                    setCurrentStep('dashboard');
+                  }}
+                  style={styles.timeEditModalCloseButton}>
+                  <Icon name="close" size={20} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.timeEditModalContent}>
+                <Text style={styles.serviceTypeTimeAdjustmentServiceTypeName}>
+                  {serviceTypeService.formatForOrderDetails(adjustingServiceTypeId)}
+                </Text>
+                <Text style={styles.serviceTypeTimeAdjustmentDescription}>
+                  Adjust the start and end times for this service type
+                </Text>
+
+                {/* Inline Time Entry */}
+                <View style={styles.serviceTypeTimeAdjustmentInlineContainer}>
+                  {/* Start Time Row */}
+                  <View style={styles.serviceTypeTimeAdjustmentTimeRow}>
+                    <Text style={styles.serviceTypeTimeAdjustmentTimeLabel}>Start Time</Text>
+                    <View style={styles.serviceTypeTimeAdjustmentTimeInputs}>
+                      <View style={styles.serviceTypeTimeAdjustmentTimeInputGroup}>
+                        <Input
+                          value={adjustingStartTime.hours}
+                          onChangeText={(text) => {
+                            const numericText = text.replace(/[^0-9]/g, '');
+                            if (numericText.length <= 2) {
+                              setAdjustingStartTime({...adjustingStartTime, hours: numericText});
+                            }
+                          }}
+                          onBlur={() => {
+                            const num = parseInt(adjustingStartTime.hours);
+                            if (!isNaN(num) && num >= 1 && num <= 12) {
+                              setAdjustingStartTime({...adjustingStartTime, hours: num.toString().padStart(2, '0')});
+                            } else if (adjustingStartTime.hours === '') {
+                              setAdjustingStartTime({...adjustingStartTime, hours: '12'});
+                            } else {
+                              const lastValid = parseInt(adjustingStartTime.hours);
+                              if (!isNaN(lastValid) && lastValid >= 1 && lastValid <= 12) {
+                                setAdjustingStartTime({...adjustingStartTime, hours: lastValid.toString().padStart(2, '0')});
+                              } else {
+                                setAdjustingStartTime({...adjustingStartTime, hours: '12'});
+                              }
+                            }
+                          }}
+                          keyboardType="numeric"
+                          maxLength={2}
+                          containerStyle={styles.serviceTypeTimeAdjustmentTimeInput}
+                          placeholder="12"
+                        />
+                      </View>
+                      <Text style={styles.serviceTypeTimeAdjustmentTimeSeparator}>:</Text>
+                      <View style={styles.serviceTypeTimeAdjustmentTimeInputGroup}>
+                        <Input
+                          value={adjustingStartTime.minutes}
+                          onChangeText={(text) => {
+                            const numericText = text.replace(/[^0-9]/g, '');
+                            if (numericText.length <= 2) {
+                              setAdjustingStartTime({...adjustingStartTime, minutes: numericText});
+                            }
+                          }}
+                          onBlur={() => {
+                            const num = parseInt(adjustingStartTime.minutes);
+                            if (!isNaN(num) && num >= 0 && num <= 59) {
+                              setAdjustingStartTime({...adjustingStartTime, minutes: num.toString().padStart(2, '0')});
+                            } else if (adjustingStartTime.minutes === '') {
+                              setAdjustingStartTime({...adjustingStartTime, minutes: '00'});
+                            } else {
+                              const lastValid = parseInt(adjustingStartTime.minutes);
+                              if (!isNaN(lastValid) && lastValid >= 0 && lastValid <= 59) {
+                                setAdjustingStartTime({...adjustingStartTime, minutes: lastValid.toString().padStart(2, '0')});
+                              } else {
+                                setAdjustingStartTime({...adjustingStartTime, minutes: '00'});
+                              }
+                            }
+                          }}
+                          keyboardType="numeric"
+                          maxLength={2}
+                          containerStyle={styles.serviceTypeTimeAdjustmentTimeInput}
+                          placeholder="00"
+                        />
+                      </View>
+                      <View style={styles.serviceTypeTimeAdjustmentAmpmContainer}>
+                        <TouchableOpacity
+                          style={[
+                            styles.serviceTypeTimeAdjustmentAmpmButton,
+                            adjustingStartTime.ampm === 'AM' && styles.serviceTypeTimeAdjustmentAmpmButtonActive,
+                          ]}
+                          onPress={() => setAdjustingStartTime({...adjustingStartTime, ampm: 'AM'})}>
+                          <Text
+                            style={[
+                              styles.serviceTypeTimeAdjustmentAmpmText,
+                              adjustingStartTime.ampm === 'AM' && styles.serviceTypeTimeAdjustmentAmpmTextActive,
+                            ]}>
+                            AM
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.serviceTypeTimeAdjustmentAmpmButton,
+                            adjustingStartTime.ampm === 'PM' && styles.serviceTypeTimeAdjustmentAmpmButtonActive,
+                          ]}
+                          onPress={() => setAdjustingStartTime({...adjustingStartTime, ampm: 'PM'})}>
+                          <Text
+                            style={[
+                              styles.serviceTypeTimeAdjustmentAmpmText,
+                              adjustingStartTime.ampm === 'PM' && styles.serviceTypeTimeAdjustmentAmpmTextActive,
+                            ]}>
+                            PM
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* End Time Row */}
+                  <View style={styles.serviceTypeTimeAdjustmentTimeRow}>
+                    <Text style={styles.serviceTypeTimeAdjustmentTimeLabel}>End Time</Text>
+                    <View style={styles.serviceTypeTimeAdjustmentTimeInputs}>
+                      <View style={styles.serviceTypeTimeAdjustmentTimeInputGroup}>
+                        <Input
+                          value={adjustingEndTime.hours}
+                          onChangeText={(text) => {
+                            const numericText = text.replace(/[^0-9]/g, '');
+                            if (numericText.length <= 2) {
+                              setAdjustingEndTime({...adjustingEndTime, hours: numericText});
+                            }
+                          }}
+                          onBlur={() => {
+                            const num = parseInt(adjustingEndTime.hours);
+                            if (!isNaN(num) && num >= 1 && num <= 12) {
+                              setAdjustingEndTime({...adjustingEndTime, hours: num.toString().padStart(2, '0')});
+                            } else if (adjustingEndTime.hours === '') {
+                              setAdjustingEndTime({...adjustingEndTime, hours: '12'});
+                            } else {
+                              const lastValid = parseInt(adjustingEndTime.hours);
+                              if (!isNaN(lastValid) && lastValid >= 1 && lastValid <= 12) {
+                                setAdjustingEndTime({...adjustingEndTime, hours: lastValid.toString().padStart(2, '0')});
+                              } else {
+                                setAdjustingEndTime({...adjustingEndTime, hours: '12'});
+                              }
+                            }
+                          }}
+                          keyboardType="numeric"
+                          maxLength={2}
+                          containerStyle={styles.serviceTypeTimeAdjustmentTimeInput}
+                          placeholder="12"
+                        />
+                      </View>
+                      <Text style={styles.serviceTypeTimeAdjustmentTimeSeparator}>:</Text>
+                      <View style={styles.serviceTypeTimeAdjustmentTimeInputGroup}>
+                        <Input
+                          value={adjustingEndTime.minutes}
+                          onChangeText={(text) => {
+                            const numericText = text.replace(/[^0-9]/g, '');
+                            if (numericText.length <= 2) {
+                              setAdjustingEndTime({...adjustingEndTime, minutes: numericText});
+                            }
+                          }}
+                          onBlur={() => {
+                            const num = parseInt(adjustingEndTime.minutes);
+                            if (!isNaN(num) && num >= 0 && num <= 59) {
+                              setAdjustingEndTime({...adjustingEndTime, minutes: num.toString().padStart(2, '0')});
+                            } else if (adjustingEndTime.minutes === '') {
+                              setAdjustingEndTime({...adjustingEndTime, minutes: '00'});
+                            } else {
+                              const lastValid = parseInt(adjustingEndTime.minutes);
+                              if (!isNaN(lastValid) && lastValid >= 0 && lastValid <= 59) {
+                                setAdjustingEndTime({...adjustingEndTime, minutes: lastValid.toString().padStart(2, '0')});
+                              } else {
+                                setAdjustingEndTime({...adjustingEndTime, minutes: '00'});
+                              }
+                            }
+                          }}
+                          keyboardType="numeric"
+                          maxLength={2}
+                          containerStyle={styles.serviceTypeTimeAdjustmentTimeInput}
+                          placeholder="00"
+                        />
+                      </View>
+                      <View style={styles.serviceTypeTimeAdjustmentAmpmContainer}>
+                        <TouchableOpacity
+                          style={[
+                            styles.serviceTypeTimeAdjustmentAmpmButton,
+                            adjustingEndTime.ampm === 'AM' && styles.serviceTypeTimeAdjustmentAmpmButtonActive,
+                          ]}
+                          onPress={() => setAdjustingEndTime({...adjustingEndTime, ampm: 'AM'})}>
+                          <Text
+                            style={[
+                              styles.serviceTypeTimeAdjustmentAmpmText,
+                              adjustingEndTime.ampm === 'AM' && styles.serviceTypeTimeAdjustmentAmpmTextActive,
+                            ]}>
+                            AM
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.serviceTypeTimeAdjustmentAmpmButton,
+                            adjustingEndTime.ampm === 'PM' && styles.serviceTypeTimeAdjustmentAmpmButtonActive,
+                          ]}
+                          onPress={() => setAdjustingEndTime({...adjustingEndTime, ampm: 'PM'})}>
+                          <Text
+                            style={[
+                              styles.serviceTypeTimeAdjustmentAmpmText,
+                              adjustingEndTime.ampm === 'PM' && styles.serviceTypeTimeAdjustmentAmpmTextActive,
+                            ]}>
+                            PM
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.timeEditModalFooter}>
+                  <Button
+                    title="Skip"
+                    variant="outline"
+                    size="md"
+                    onPress={() => {
+                      setShowServiceTypeTimeAdjustmentModal(false);
+                      setAdjustingServiceTypeId(null);
+                      setCurrentStep('dashboard');
+                    }}
+                    style={styles.timeEditCancelButton}
+                  />
+                  <Button
+                    title="Save & Continue"
+                    variant="primary"
+                    size="md"
+                    onPress={async () => {
+                      if (!selectedOrderData || !adjustingServiceTypeId || !username) return;
+                      
+                      // Convert start time to timestamp
+                      const startHours24 = adjustingStartTime.ampm === 'PM' && parseInt(adjustingStartTime.hours) !== 12
+                        ? parseInt(adjustingStartTime.hours) + 12
+                        : adjustingStartTime.ampm === 'AM' && parseInt(adjustingStartTime.hours) === 12
+                        ? 0
+                        : parseInt(adjustingStartTime.hours);
+                      const startMinutes = parseInt(adjustingStartTime.minutes);
+                      
+                      // Convert end time to timestamp
+                      const endHours24 = adjustingEndTime.ampm === 'PM' && parseInt(adjustingEndTime.hours) !== 12
+                        ? parseInt(adjustingEndTime.hours) + 12
+                        : adjustingEndTime.ampm === 'AM' && parseInt(adjustingEndTime.hours) === 12
+                        ? 0
+                        : parseInt(adjustingEndTime.hours);
+                      const endMinutes = parseInt(adjustingEndTime.minutes);
+                      
+                      // Get order date
+                      const orderDate = selectedOrderData.serviceDate 
+                        ? new Date(selectedOrderData.serviceDate) 
+                        : new Date();
+                      
+                      const startDate = new Date(orderDate);
+                      startDate.setHours(startHours24, startMinutes, 0, 0);
+                      const startTimestamp = startDate.getTime();
+                      
+                      const endDate = new Date(orderDate);
+                      endDate.setHours(endHours24, endMinutes, 0, 0);
+                      const endTimestamp = endDate.getTime();
+                      
+                      // Validate times
+                      const otherEntries = serviceTypeTimeService.getTimeEntriesForOrder(selectedOrderData.orderNumber)
+                        .filter(e => e.serviceTypeId !== adjustingServiceTypeId);
+                      
+                      const validation = serviceTypeTimeService.validateTimeEntry(
+                        startTimestamp,
+                        endTimestamp,
+                        orderDate,
+                        otherEntries,
+                      );
+                      
+                      if (!validation.valid) {
+                        Alert.alert('Validation Error', validation.errors.join('\n'));
+                        return;
+                      }
+                      
+                      if (validation.warnings.length > 0) {
+                        Alert.alert('Warning', validation.warnings.join('\n'), [
+                          {text: 'Cancel', style: 'cancel'},
+                          {text: 'Continue', onPress: async () => {
+                            try {
+                              const entry = await serviceTypeTimeService.updateTimeEntry(
+                                selectedOrderData.orderNumber,
+                                adjustingServiceTypeId,
+                                {
+                                  startTime: startTimestamp,
+                                  endTime: endTimestamp,
+                                },
+                              );
+                              
+                              if (entry) {
+                                const updated = new Map(serviceTypeTimeEntries);
+                                updated.set(adjustingServiceTypeId, entry);
+                                setServiceTypeTimeEntries(updated);
+                              }
+                              
+                              setShowServiceTypeTimeAdjustmentModal(false);
+                              setAdjustingServiceTypeId(null);
+                              setCurrentStep('dashboard');
+                            } catch (error) {
+                              Alert.alert('Error', 'Failed to update times');
+                            }
+                          }},
+                        ]);
+                        return;
+                      }
+                      
+                      // Save the time updates
+                      try {
+                        const entry = await serviceTypeTimeService.updateTimeEntry(
+                          selectedOrderData.orderNumber,
+                          adjustingServiceTypeId,
+                          {
+                            startTime: startTimestamp,
+                            endTime: endTimestamp,
+                          },
+                        );
+                        
+                        if (entry) {
+                          const updated = new Map(serviceTypeTimeEntries);
+                          updated.set(adjustingServiceTypeId, entry);
+                          setServiceTypeTimeEntries(updated);
+                        }
+                        
+                        setShowServiceTypeTimeAdjustmentModal(false);
+                        setAdjustingServiceTypeId(null);
+                        setCurrentStep('dashboard');
+                      } catch (error) {
+                        Alert.alert('Error', 'Failed to update times');
+                      }
+                    }}
+                    style={styles.timeEditSaveButton}
+                  />
+                </View>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Time Edit Modal */}
+      {showTimeEditModal && editingServiceTypeId && editingTimeField && (
+        <Modal
+          visible={showTimeEditModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {
+            setShowTimeEditModal(false);
+            setEditingServiceTypeId(null);
+            setEditingTimeField(null);
+          }}>
+          <View style={styles.timeEditModalOverlay}>
+            <View style={styles.timeEditModalContainer}>
+              <View style={styles.timeEditModalHeader}>
+                <Text style={styles.timeEditModalTitle}>
+                  Edit {editingTimeField === 'start' ? 'Start' : 'End'} Time
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowTimeEditModal(false);
+                    setEditingServiceTypeId(null);
+                    setEditingTimeField(null);
+                  }}
+                  style={styles.timeEditModalCloseButton}>
+                  <Icon name="close" size={20} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.timeEditModalContent}>
+                <Text style={styles.timeEditModalDescription}>
+                  {serviceTypeService.formatForOrderDetails(editingServiceTypeId)}
+                </Text>
+
+                <View style={styles.timeEditInputRow}>
+                  <View style={styles.timeEditInputGroup}>
+                    <Text style={styles.timeEditInputLabel}>Hour</Text>
+                    <Input
+                      value={editingTimeValue.hours}
+                      onChangeText={(text) => {
+                        const num = parseInt(text);
+                        if (!isNaN(num) && num >= 1 && num <= 12) {
+                          setEditingTimeValue({...editingTimeValue, hours: text.padStart(2, '0')});
+                        } else if (text === '') {
+                          setEditingTimeValue({...editingTimeValue, hours: ''});
+                        }
+                      }}
+                      keyboardType="numeric"
+                      maxLength={2}
+                      containerStyle={styles.timeEditInput}
+                    />
+                  </View>
+                  <Text style={styles.timeEditSeparator}>:</Text>
+                  <View style={styles.timeEditInputGroup}>
+                    <Text style={styles.timeEditInputLabel}>Minute</Text>
+                    <Input
+                      value={editingTimeValue.minutes}
+                      onChangeText={(text) => {
+                        const num = parseInt(text);
+                        if (!isNaN(num) && num >= 0 && num <= 59) {
+                          setEditingTimeValue({...editingTimeValue, minutes: text.padStart(2, '0')});
+                        } else if (text === '') {
+                          setEditingTimeValue({...editingTimeValue, minutes: ''});
+                        }
+                      }}
+                      keyboardType="numeric"
+                      maxLength={2}
+                      containerStyle={styles.timeEditInput}
+                    />
+                  </View>
+                  <View style={styles.timeEditInputGroup}>
+                    <Text style={styles.timeEditInputLabel}>AM/PM</Text>
+                    <View style={styles.timeEditAmpmContainer}>
+                      <TouchableOpacity
+                        style={[
+                          styles.timeEditAmpmButton,
+                          editingTimeValue.ampm === 'AM' && styles.timeEditAmpmButtonActive,
+                        ]}
+                        onPress={() => setEditingTimeValue({...editingTimeValue, ampm: 'AM'})}>
+                        <Text
+                          style={[
+                            styles.timeEditAmpmText,
+                            editingTimeValue.ampm === 'AM' && styles.timeEditAmpmTextActive,
+                          ]}>
+                          AM
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.timeEditAmpmButton,
+                          editingTimeValue.ampm === 'PM' && styles.timeEditAmpmButtonActive,
+                        ]}
+                        onPress={() => setEditingTimeValue({...editingTimeValue, ampm: 'PM'})}>
+                        <Text
+                          style={[
+                            styles.timeEditAmpmText,
+                            editingTimeValue.ampm === 'PM' && styles.timeEditAmpmTextActive,
+                          ]}>
+                          PM
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.timeEditModalFooter}>
+                  <Button
+                    title="Cancel"
+                    variant="outline"
+                    size="md"
+                    onPress={() => {
+                      setShowTimeEditModal(false);
+                      setEditingServiceTypeId(null);
+                      setEditingTimeField(null);
+                    }}
+                    style={styles.timeEditCancelButton}
+                  />
+                  <Button
+                    title="Save"
+                    variant="primary"
+                    size="md"
+                    onPress={async () => {
+                      if (!selectedOrderData || !editingServiceTypeId || !editingTimeField || !username) return;
+                      
+                      // Convert time input to timestamp
+                      const hours24 = editingTimeValue.ampm === 'PM' && parseInt(editingTimeValue.hours) !== 12
+                        ? parseInt(editingTimeValue.hours) + 12
+                        : editingTimeValue.ampm === 'AM' && parseInt(editingTimeValue.hours) === 12
+                        ? 0
+                        : parseInt(editingTimeValue.hours);
+                      const minutes = parseInt(editingTimeValue.minutes);
+                      
+                      // Get order date (use serviceDate or current date)
+                      const orderDate = selectedOrderData.serviceDate 
+                        ? new Date(selectedOrderData.serviceDate) 
+                        : new Date();
+                      orderDate.setHours(hours24, minutes, 0, 0);
+                      const timestamp = orderDate.getTime();
+                      
+                      // Validate time
+                      const otherEntries = serviceTypeTimeService.getTimeEntriesForOrder(selectedOrderData.orderNumber)
+                        .filter(e => e.serviceTypeId !== editingServiceTypeId);
+                      const currentEntry = serviceTypeTimeEntries.get(editingServiceTypeId);
+                      const startTime = editingTimeField === 'start' ? timestamp : (currentEntry?.startTime || null);
+                      const endTime = editingTimeField === 'end' ? timestamp : (currentEntry?.endTime || null);
+                      
+                      const validation = serviceTypeTimeService.validateTimeEntry(
+                        startTime,
+                        endTime,
+                        orderDate,
+                        otherEntries,
+                      );
+                      
+                      if (!validation.valid) {
+                        Alert.alert('Validation Error', validation.errors.join('\n'));
+                        return;
+                      }
+                      
+                      if (validation.warnings.length > 0) {
+                        Alert.alert('Warning', validation.warnings.join('\n'), [
+                          {text: 'Cancel', style: 'cancel'},
+                          {text: 'Continue', onPress: async () => {
+                            try {
+                              const updates: {startTime?: number | null; endTime?: number | null} = {};
+                              if (editingTimeField === 'start') {
+                                updates.startTime = timestamp;
+                              } else {
+                                updates.endTime = timestamp;
+                              }
+                              
+                              const entry = await serviceTypeTimeService.updateTimeEntry(
+                                selectedOrderData.orderNumber,
+                                editingServiceTypeId,
+                                updates,
+                              );
+                              
+                              if (entry) {
+                                const updated = new Map(serviceTypeTimeEntries);
+                                updated.set(editingServiceTypeId, entry);
+                                setServiceTypeTimeEntries(updated);
+                              }
+                              
+                              setShowTimeEditModal(false);
+                              setEditingServiceTypeId(null);
+                              setEditingTimeField(null);
+                            } catch (error) {
+                              Alert.alert('Error', 'Failed to update time');
+                            }
+                          }},
+                        ]);
+                        return;
+                      }
+                      
+                      // Save the time update
+                      try {
+                        const updates: {startTime?: number | null; endTime?: number | null} = {};
+                        if (editingTimeField === 'start') {
+                          updates.startTime = timestamp;
+                        } else {
+                          updates.endTime = timestamp;
+                        }
+                        
+                        const entry = await serviceTypeTimeService.updateTimeEntry(
+                          selectedOrderData.orderNumber,
+                          editingServiceTypeId,
+                          updates,
+                        );
+                        
+                        if (entry) {
+                          const updated = new Map(serviceTypeTimeEntries);
+                          updated.set(editingServiceTypeId, entry);
+                          setServiceTypeTimeEntries(updated);
+                        }
+                        
+                        setShowTimeEditModal(false);
+                        setEditingServiceTypeId(null);
+                        setEditingTimeField(null);
+                      } catch (error) {
+                        Alert.alert('Error', 'Failed to update time');
+                      }
+                    }}
+                    style={styles.timeEditSaveButton}
+                  />
+                </View>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
       {/* Drop Waste Modal */}
       <DropWasteModal
         visible={showDropWasteModal}
@@ -7584,10 +8919,280 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  programNameContainer: {
+    flex: 1,
+  },
   programName: {
     ...typography.base,
     color: colors.foreground,
     fontWeight: '500',
+    flex: 1,
+  },
+  serviceTypeRow: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
+    marginBottom: spacing.xs,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+  },
+  serviceTypeRowHeader: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  serviceTypeRowHeaderContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  serviceTypeRowHeaderLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  serviceTypeDurationBadge: {
+    borderColor: colors.primary,
+  },
+  serviceTypeActiveBadge: {
+    backgroundColor: colors.success + '20',
+  },
+  expandIcon: {
+    marginLeft: spacing.sm,
+  },
+  serviceTypeTimeSection: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.background,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  serviceTypeTimeActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  serviceTypeTimeButton: {
+    flex: 1,
+  },
+  serviceTypeTimeFields: {
+    gap: spacing.sm,
+  },
+  serviceTypeTimeField: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+  },
+  serviceTypeTimeLabel: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontWeight: '500',
+  },
+  serviceTypeTimeValue: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '600',
+  },
+  serviceTypeTimeValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  serviceTypeSelectionModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  serviceTypeSelectionModalContainer: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    maxWidth: 600,
+    width: '100%',
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  serviceTypeSelectionModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  serviceTypeSelectionModalTitle: {
+    ...typography.xl,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  serviceTypeSelectionModalCloseButton: {
+    padding: spacing.xs,
+  },
+  serviceTypeSelectionModalScroll: {
+    maxHeight: 400,
+  },
+  serviceTypeSelectionModalContent: {
+    padding: spacing.lg,
+  },
+  serviceTypeSelectionModalDescription: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    marginBottom: spacing.md,
+    lineHeight: 24,
+  },
+  serviceTypeSelectionItem: {
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  serviceTypeSelectionItemActive: {
+    borderColor: colors.primary,
+    borderWidth: 2,
+    backgroundColor: colors.primary + '10',
+  },
+  serviceTypeSelectionItemContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  serviceTypeSelectionItemLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  serviceTypeSelectionItemName: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '600',
+  },
+  serviceTypeSelectionDurationBadge: {
+    borderColor: colors.primary,
+  },
+  serviceTypeSelectionActiveBadge: {
+    // Use Badge's default secondary variant styling
+  },
+  serviceTypeSelectionCompletedBadge: {
+    // Use Badge's default variant styling
+  },
+  timeEditModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  timeEditModalContainer: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    maxWidth: 500,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  timeEditModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  timeEditModalTitle: {
+    ...typography.xl,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  timeEditModalCloseButton: {
+    padding: spacing.xs,
+  },
+  timeEditModalContent: {
+    padding: spacing.lg,
+  },
+  timeEditModalDescription: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    marginBottom: spacing.lg,
+    textAlign: 'center',
+  },
+  timeEditInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  timeEditInputGroup: {
+    alignItems: 'center',
+  },
+  timeEditInputLabel: {
+    ...typography.xs,
+    color: colors.mutedForeground,
+    marginBottom: spacing.xs,
+    fontWeight: '500',
+  },
+  timeEditInput: {
+    width: 80,
+  },
+  timeEditSeparator: {
+    ...typography['2xl'],
+    color: colors.foreground,
+    fontWeight: '600',
+    marginBottom: spacing.md,
+  },
+  timeEditAmpmContainer: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  timeEditAmpmButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  timeEditAmpmButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  timeEditAmpmText: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '600',
+  },
+  timeEditAmpmTextActive: {
+    color: colors.primaryForeground,
+  },
+  timeEditModalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  timeEditCancelButton: {
+    flex: 1,
+  },
+  timeEditSaveButton: {
     flex: 1,
   },
   programToggleContainer: {
@@ -9064,6 +10669,47 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#333333',
   },
+  serviceSummaryTimeRow: {
+    flexDirection: 'row',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border + '40',
+  },
+  serviceSummaryTimeServiceType: {
+    flex: 1,
+    paddingRight: spacing.md,
+  },
+  serviceSummaryTimeServiceTypeName: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '600',
+  },
+  serviceSummaryTimeDetails: {
+    flex: 2,
+  },
+  serviceSummaryTimeText: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  serviceSummaryTimeTotal: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    marginTop: spacing.sm,
+    borderTopWidth: 2,
+    borderTopColor: colors.border,
+  },
+  serviceSummaryTimeTotalLabel: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '600',
+  },
+  serviceSummaryTimeTotalValue: {
+    ...typography.base,
+    color: colors.primary,
+    fontWeight: '700',
+  },
   serviceSummaryAcknowledgement: {
     flexDirection: 'row',
     padding: spacing.md,
@@ -9986,6 +11632,312 @@ const styles = StyleSheet.create({
     ...typography.sm,
     color: colors.mutedForeground,
     textAlign: 'center',
+  },
+  // P-Listed Authorization Modal Styles
+  pListedAuthModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  pListedAuthModalContainer: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    maxWidth: 600,
+    width: '100%',
+    maxHeight: '90%',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  pListedAuthModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  pListedAuthModalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flex: 1,
+  },
+  pListedAuthModalTitle: {
+    ...typography.xl,
+    fontWeight: '700',
+    color: colors.foreground,
+    flex: 1,
+  },
+  pListedAuthModalCloseButton: {
+    padding: spacing.xs,
+  },
+  pListedAuthModalScroll: {
+    maxHeight: 400,
+  },
+  pListedAuthModalContent: {
+    padding: spacing.lg,
+  },
+  pListedAuthWarningText: {
+    ...typography.base,
+    color: colors.foreground,
+    marginBottom: spacing.md,
+    lineHeight: 24,
+  },
+  pListedAuthCard: {
+    marginBottom: spacing.md,
+  },
+  pListedCodesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  pListedCodeBadge: {
+    borderColor: colors.warning,
+  },
+  pListedAuthStatusRow: {
+    marginBottom: spacing.md,
+  },
+  pListedAuthStatusIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+  },
+  pListedAuthStatusAuthorized: {
+    backgroundColor: colors.success + '15',
+    borderWidth: 1,
+    borderColor: colors.success,
+  },
+  pListedAuthStatusNotAuthorized: {
+    backgroundColor: colors.destructive + '15',
+    borderWidth: 1,
+    borderColor: colors.destructive,
+  },
+  pListedAuthStatusText: {
+    ...typography.base,
+    fontWeight: '600',
+  },
+  pListedAuthStatusTextAuthorized: {
+    color: colors.success,
+  },
+  pListedAuthStatusTextNotAuthorized: {
+    color: colors.destructive,
+  },
+  pListedAuthDetails: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: spacing.sm,
+  },
+  pListedAuthDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: spacing.sm,
+  },
+  pListedAuthDetailLabel: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontWeight: '500',
+    flex: 1,
+  },
+  pListedAuthDetailValue: {
+    ...typography.sm,
+    color: colors.foreground,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'right',
+  },
+  pListedAuthCodesList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  pListedAuthCodeItem: {
+    ...typography.sm,
+    color: colors.foreground,
+    fontWeight: '600',
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs / 2,
+    backgroundColor: colors.muted + '20',
+    borderRadius: borderRadius.sm,
+  },
+  pListedAuthError: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.destructive + '15',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.destructive,
+  },
+  pListedAuthErrorText: {
+    ...typography.base,
+    color: colors.destructive,
+    fontWeight: '600',
+  },
+  pListedAuthAcknowledgment: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pListedAuthCheckbox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  pListedAuthCheckboxBox: {
+    width: 24,
+    height: 24,
+    borderRadius: borderRadius.sm,
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  pListedAuthCheckboxBoxChecked: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  pListedAuthCheckboxText: {
+    ...typography.base,
+    color: colors.foreground,
+    flex: 1,
+    lineHeight: 24,
+  },
+  pListedAuthModalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  pListedAuthCancelButton: {
+    flex: 1,
+  },
+  pListedAuthProceedButton: {
+    flex: 1,
+  },
+  pListedAuthCodeDescription: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginBottom: spacing.md,
+    lineHeight: 20,
+  },
+  pListedAuthCodeInput: {
+    marginBottom: spacing.xs,
+  },
+  pListedAuthCodeHelpText: {
+    ...typography.xs,
+    color: colors.mutedForeground,
+    fontStyle: 'italic',
+    marginTop: spacing.xs / 2,
+    opacity: 0.7,
+  },
+  pListedAuthCodeValidIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  pListedAuthCodeValidText: {
+    ...typography.sm,
+    color: colors.success,
+    fontWeight: '600',
+  },
+  // Service Type Time Adjustment Modal Styles
+  serviceTypeTimeAdjustmentServiceTypeName: {
+    ...typography.lg,
+    fontWeight: '700',
+    color: colors.foreground,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
+  serviceTypeTimeAdjustmentDescription: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    marginBottom: spacing.xl,
+    textAlign: 'center',
+  },
+  serviceTypeTimeAdjustmentInlineContainer: {
+    gap: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  serviceTypeTimeAdjustmentTimeRow: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  serviceTypeTimeAdjustmentTimeLabel: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.md,
+  },
+  serviceTypeTimeAdjustmentTimeInputs: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    justifyContent: 'center',
+  },
+  serviceTypeTimeAdjustmentTimeInputGroup: {
+    width: 70,
+  },
+  serviceTypeTimeAdjustmentTimeInput: {
+    width: 70,
+    marginBottom: 0,
+  },
+  serviceTypeTimeAdjustmentTimeSeparator: {
+    ...typography.xl,
+    color: colors.foreground,
+    fontWeight: '700',
+    marginHorizontal: spacing.xs,
+  },
+  serviceTypeTimeAdjustmentAmpmContainer: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  serviceTypeTimeAdjustmentAmpmButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    minWidth: 55,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  serviceTypeTimeAdjustmentAmpmButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  serviceTypeTimeAdjustmentAmpmText: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '600',
+  },
+  serviceTypeTimeAdjustmentAmpmTextActive: {
+    color: colors.primaryForeground,
   },
 });
 

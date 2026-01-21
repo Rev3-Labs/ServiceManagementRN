@@ -6,7 +6,7 @@ export const MATERIALS_CATALOG = [
   // Administrative Fees
   {itemNumber: 'ADMCOST-092', description: 'Third Party Cost Plus %'},
   {itemNumber: 'ADMPROF-002', description: 'Profile Administration Fee'},
-  {itemNumber: 'ADMSETUP-002', description: 'Set up fee for Healthcare/retail'},
+  {itemNumber: 'ADMSETUP-002', description: 'Set up fee for Healthcare/Waste Services'},
   {itemNumber: 'ADMSUP48-001', description: 'Priority Supply drop 24-48 hours'},
   
   // Cylinders

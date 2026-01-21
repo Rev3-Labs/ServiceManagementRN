@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
 import {View} from 'react-native';
+import {SafeAreaProvider} from 'react-native-safe-area-context';
 import LoginScreen from './src/screens/LoginScreen';
 import ManifestScreen from './src/screens/ManifestScreen';
 import WasteCollectionScreen from './src/screens/WasteCollectionScreen';
@@ -93,7 +94,11 @@ function App(): React.JSX.Element {
     }
   };
 
-  return <View style={{flex: 1}}>{renderScreen()}</View>;
+  return (
+    <SafeAreaProvider>
+      <View style={{flex: 1}}>{renderScreen()}</View>
+    </SafeAreaProvider>
+  );
 }
 
 export default App;

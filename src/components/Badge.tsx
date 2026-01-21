@@ -7,6 +7,7 @@ interface BadgeProps {
   variant?: 'default' | 'secondary' | 'outline' | 'destructive';
   style?: ViewStyle;
   textStyle?: TextStyle;
+  title?: string; // Tooltip/accessibility label
 }
 
 export const Badge: React.FC<BadgeProps> = ({
@@ -14,9 +15,12 @@ export const Badge: React.FC<BadgeProps> = ({
   variant = 'default',
   style,
   textStyle,
+  title,
 }) => {
   return (
-    <View style={[styles.badge, styles[`badge_${variant}`], style]}>
+    <View 
+      style={[styles.badge, styles[`badge_${variant}`], style]}
+      accessibilityLabel={title || undefined}>
       <Text style={[styles.text, styles[`text_${variant}`], textStyle]}>{children}</Text>
     </View>
   );

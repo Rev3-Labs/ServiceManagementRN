@@ -53,6 +53,7 @@ export interface WasteStream {
   allowedContainers: string[];
   isDEARegulated?: boolean;
   requiresCylinderCount?: boolean; // Whether this profile requires cylinder count entry
+  wasteCodes?: string[]; // Waste codes including P-Listed codes (P001-P205)
 }
 
 export interface ContainerType {
