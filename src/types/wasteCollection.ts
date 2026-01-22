@@ -24,7 +24,7 @@ export interface OrderData {
   requiredDate?: string; // MM/DD/YYYY format
   generatorStatus?: 'LQG' | 'SQG' | 'CESQG' | 'VSQG'; // Large Quantity Generator, Small Quantity Generator, etc.
   epaId?: boolean; // Whether EPA ID is present
-  status: 'Not Started' | 'In Progress' | 'Blocked' | 'Completed';
+  status: 'Scheduled' | 'Partial' | 'In Progress' | 'Blocked' | 'Completed';
   primaryContactName?: string;
   primaryContactPhone?: string; // Format: 10 digits or with formatting
   primaryContactEmail?: string;

@@ -129,7 +129,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     selectedOrderData ? photoService.getPhotosForOrder(selectedOrderData.orderNumber) : []
   );
   const [showPListedAuthModal, setShowPListedAuthModal] = useState(false);
-  const [pendingStreamSelection, setPendingStreamSelection] = useState<WasteStream | null>(null);
   const [pListedAuthAcknowledged, setPListedAuthAcknowledged] = useState(false);
   const [pListedAuthResult, setPListedAuthResult] = useState<{
     authorized: boolean;
@@ -536,7 +535,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       if (completedOrders.includes(order.orderNumber)) {
         return 'Completed';
       }
-      return orderStatuses[order.orderNumber] || order.status;
+      return orderStatuses[order.orderNumber] || order.status || 'Scheduled';
     },
     [completedOrders, orderStatuses],
   );
@@ -639,6 +638,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       // Set selected order and navigate to stream selection
       setSelectedOrderData(order);
       setCurrentStep('stream-selection');
+      
+      // Update order status to "Partial" when starting
+      setOrderStatuses(prev => ({
+        ...prev,
+        [order.orderNumber]: 'Partial',
+      }));
       
       // Close modal if open
       setShowJobNotesModal(false);
@@ -1403,9 +1408,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const SyncStatusIndicator: React.FC<{
     status: SyncStatus;
     pendingCount: number;
-  }> = ({status, pendingCount}) => {
+    offlineStatus?: OfflineStatus;
+  }> = ({status, pendingCount, offlineStatus}) => {
+    // Override status to "offline" if device is offline (for offline testing simulation)
+    const effectiveStatus = offlineStatus && !offlineStatus.isOnline ? 'offline' : status;
     const getStatusStyle = () => {
-      switch (status) {
+      switch (effectiveStatus) {
         case 'synced':
           return styles.syncStatusSynced;
         case 'syncing':
@@ -1422,7 +1430,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     };
 
     const getDotStyle = () => {
-      switch (status) {
+      switch (effectiveStatus) {
         case 'synced':
           return styles.syncDotSynced;
         case 'syncing':
@@ -1456,7 +1464,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     };
 
     const getStatusText = () => {
-      switch (status) {
+      switch (effectiveStatus) {
         case 'synced':
           return 'Synced';
         case 'syncing':
@@ -1499,6 +1507,54 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       ? isOrderCompleted(selectedOrder.orderNumber)
       : false;
 
+    // Get offline limit warning message for header
+    const getOfflineLimitMessage = () => {
+      if (offlineStatus.isOnline) return null;
+
+      const {warningLevel, offlineDurationMs} = offlineStatus;
+      if (warningLevel === 'blocked') return null; // Modal handles this
+
+      let messageText = '';
+      let messageStyle = styles.offlineLimitMessage;
+      let iconColor = colors.warning;
+
+      if (warningLevel === 'critical') {
+        const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
+        const remainingMinutes = Math.floor(remainingMs / (60 * 1000));
+        if (remainingMinutes < 60) {
+          messageText = `Critical: ${remainingMinutes} min remaining`;
+        } else {
+          const remainingHours = Math.floor(remainingMinutes / 60);
+          const remainingMins = remainingMinutes % 60;
+          messageText = `Critical: ${remainingHours} hr ${remainingMins} min remaining`;
+        }
+        messageStyle = styles.offlineLimitMessageCritical;
+        iconColor = colors.destructive;
+      } else if (warningLevel === 'orange') {
+        const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
+        const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
+        const remainingMins = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
+        messageText = `Warning: ${remainingHours} hr ${remainingMins} min remaining`;
+        messageStyle = styles.offlineLimitMessageOrange;
+        iconColor = '#FF6B35';
+      } else if (warningLevel === 'warning') {
+        const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
+        const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
+        messageText = `Warning: ${remainingHours} hr${remainingHours !== 1 ? 's' : ''} remaining`;
+        messageStyle = styles.offlineLimitMessageWarning;
+        iconColor = colors.warning;
+      }
+
+      if (!messageText) return null;
+
+      return (
+        <View style={messageStyle}>
+          <Icon name="warning" size={14} color={iconColor} />
+          <Text style={styles.offlineLimitMessageText}>{messageText}</Text>
+        </View>
+      );
+    };
+
     return (
       <View style={styles.container}>
         <View style={styles.header}>
@@ -1538,11 +1594,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 </Text>
               </TouchableOpacity>
             )}
+            {getOfflineLimitMessage()}
           </View>
           <View style={styles.headerActions}>
             <SyncStatusIndicator
               status={syncStatus}
               pendingCount={pendingSyncCount}
+              offlineStatus={offlineStatus}
             />
             {filteredOrders.filter(order => isOrderCompleted(order.orderNumber)).length > 0 && (
               <Button
@@ -1560,12 +1618,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               onPress={handleManualSync}
               disabled={syncStatus === 'syncing' || syncStatus === 'offline'}
             />
-            <Button
-              title="Full Screen"
-              variant="ghost"
-              size="sm"
-              onPress={() => setUseMasterDetail(false)}
-            />
             {onLogout && (
               <Button
                 title="Logout"
@@ -1581,7 +1633,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           {/* Master Pane - Orders List */}
           <View style={styles.masterPane}>
             <View style={styles.masterPaneHeader}>
-              <Text style={styles.masterPaneTitle}>Today's Orders</Text>
+              <Text style={styles.masterPaneTitle}>Upcoming Orders</Text>
               <Text style={styles.masterPaneSubtitle}>
                 {filteredOrders.length} orders scheduled
               </Text>
@@ -1612,13 +1664,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       </Text>
                       <Badge
                         variant={
-                          getOrderStatus(order) === 'Not Started'
+                          getOrderStatus(order) === 'Scheduled'
                             ? 'secondary'
-                            : getOrderStatus(order) === 'In Progress'
+                            : getOrderStatus(order) === 'Partial'
                               ? 'default'
-                              : getOrderStatus(order) === 'Completed'
+                              : getOrderStatus(order) === 'In Progress'
                                 ? 'default'
-                                : 'destructive'
+                                : getOrderStatus(order) === 'Completed'
+                                  ? 'default'
+                                  : 'destructive'
                         }
                         style={styles.masterOrderBadge}>
                         {getOrderStatus(order)}
@@ -1635,11 +1689,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     </Text>
                     {order.genNumber && (
                       <View style={styles.masterOrderBadges}>
-                        <Badge
-                          variant="outline"
-                          style={styles.masterOrderMetaBadge}>
-                          {order.genNumber}
-                        </Badge>
                         {order.orderType && (
                           <Badge
                             variant="outline"
@@ -1676,13 +1725,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   </Text>
                   <Badge
                     variant={
-                      getOrderStatus(selectedOrder) === 'Not Started'
+                      getOrderStatus(selectedOrder) === 'Scheduled'
                         ? 'secondary'
-                        : getOrderStatus(selectedOrder) === 'In Progress'
+                        : getOrderStatus(selectedOrder) === 'Partial'
                           ? 'default'
-                          : getOrderStatus(selectedOrder) === 'Completed'
+                          : getOrderStatus(selectedOrder) === 'In Progress'
                             ? 'default'
-                            : 'destructive'
+                            : getOrderStatus(selectedOrder) === 'Completed'
+                              ? 'default'
+                              : 'destructive'
                     }>
                     {getOrderStatus(selectedOrder)}
                   </Badge>
@@ -1756,12 +1807,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                               );
                             }}
                             activeOpacity={0.7}>
-                            <View style={styles.viewAllContactsRow}>
-                              <Text style={styles.viewAllContactsText}>
-                                View All Contacts
-                              </Text>
-                              <Icon name="arrow-forward" size={16} color={colors.primary} />
-                            </View>
+  
                           </TouchableOpacity>
                         )}
                       </>
@@ -1804,25 +1850,19 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     <View style={styles.detailRow}>
                       <Text style={styles.detailLabel}>Location:</Text>
                       <Text style={styles.detailValue}>
-                        {selectedOrder.city}, {selectedOrder.state}
+                        {selectedOrder.site}
+                        {selectedOrder.city && `, ${selectedOrder.city}`}
+                        {selectedOrder.state && `, ${selectedOrder.state}`}
+                        {selectedOrder.zip && ` ${selectedOrder.zip}`}
                       </Text>
                     </View>
                     <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Service Date:</Text>
+                      <Text style={styles.detailLabel}>Expected Date:</Text>
                       <Text style={styles.detailValue}>
                         {selectedOrder.serviceDate}
                       </Text>
                     </View>
-                    {selectedOrder.genNumber && (
-                      <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>
-                          Generator Number:
-                        </Text>
-                        <Text style={styles.detailValue}>
-                          {selectedOrder.genNumber}
-                        </Text>
-                      </View>
-                    )}
+
                     {selectedOrder.orderType && (
                       <View style={styles.detailRow}>
                         <Text style={styles.detailLabel}>Order Type:</Text>
@@ -1892,6 +1932,54 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
     const completedOrdersList = allOrders.filter(order => isOrderCompleted(order.orderNumber));
 
+    // Get offline limit warning message for header
+    const getOfflineLimitMessage = () => {
+      if (offlineStatus.isOnline) return null;
+
+      const {warningLevel, offlineDurationMs} = offlineStatus;
+      if (warningLevel === 'blocked') return null; // Modal handles this
+
+      let messageText = '';
+      let messageStyle = styles.offlineLimitMessage;
+      let iconColor = colors.warning;
+
+      if (warningLevel === 'critical') {
+        const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
+        const remainingMinutes = Math.floor(remainingMs / (60 * 1000));
+        if (remainingMinutes < 60) {
+          messageText = `Critical: ${remainingMinutes} min remaining`;
+        } else {
+          const remainingHours = Math.floor(remainingMinutes / 60);
+          const remainingMins = remainingMinutes % 60;
+          messageText = `Critical: ${remainingHours} hr ${remainingMins} min remaining`;
+        }
+        messageStyle = styles.offlineLimitMessageCritical;
+        iconColor = colors.destructive;
+      } else if (warningLevel === 'orange') {
+        const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
+        const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
+        const remainingMins = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
+        messageText = `Warning: ${remainingHours} hr ${remainingMins} min remaining`;
+        messageStyle = styles.offlineLimitMessageOrange;
+        iconColor = '#FF6B35';
+      } else if (warningLevel === 'warning') {
+        const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
+        const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
+        messageText = `Warning: ${remainingHours} hr${remainingHours !== 1 ? 's' : ''} remaining`;
+        messageStyle = styles.offlineLimitMessageWarning;
+        iconColor = colors.warning;
+      }
+
+      if (!messageText) return null;
+
+      return (
+        <View style={messageStyle}>
+          <Icon name="warning" size={14} color={iconColor} />
+          <Text style={styles.offlineLimitMessageText}>{messageText}</Text>
+        </View>
+      );
+    };
+
     return (
       <View style={styles.container}>
         <View style={styles.header}>
@@ -1931,11 +2019,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 <Text style={styles.headerSubtitle}>Set Vehicle</Text>
               )}
           </TouchableOpacity>
+            {getOfflineLimitMessage()}
           </View>
           <View style={styles.headerActions}>
             <SyncStatusIndicator
               status={syncStatus}
               pendingCount={pendingSyncCount}
+              offlineStatus={offlineStatus}
             />
             {completedOrdersList.length > 0 && (
               <Button
@@ -2026,20 +2116,20 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       <Text style={styles.orderNumber}>
                         {order.orderNumber}
                       </Text>
-                      {order.genNumber && (
-                        <Badge variant="outline">{order.genNumber}</Badge>
-                      )}
+                     
                       {order.orderType && (
                         <Badge variant="outline">{order.orderType}</Badge>
                       )}
                     </View>
                     <Badge
                       variant={
-                        getOrderStatus(order) === 'Not Started'
+                        getOrderStatus(order) === 'Scheduled'
                           ? 'secondary'
-                          : getOrderStatus(order) === 'In Progress'
+                          : getOrderStatus(order) === 'Partial'
                             ? 'default'
-                            : 'destructive'
+                            : getOrderStatus(order) === 'In Progress'
+                              ? 'default'
+                              : 'destructive'
                       }>
                       {getOrderStatus(order)}
                     </Badge>
@@ -2232,6 +2322,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
           truckNumber={selectedTruck?.number || truckId || undefined}
           trailerNumber={selectedTrailer?.number || null}
+          syncStatus={syncStatus}
+          pendingSyncCount={pendingSyncCount}
+          onSync={handleManualSync}
         />
 
         <ScrollView
@@ -2260,33 +2353,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       return;
                     }
 
-                    // Check for P-Listed waste codes
-                    const pCodes = pListedAuthorizationService.extractPListedCodes(stream);
-                    if (pCodes.length > 0 && selectedOrderData && username) {
-                      // Get generator ID from order (using EPA ID or customer ID)
-                      const generatorId = String(
-                        selectedOrderData.epaId || selectedOrderData.customer || ''
-                      );
-                      
-                      // Validate authorization
-                      const authResult = pListedAuthorizationService.validateAuthorization(
-                        username,
-                        generatorId,
-                        pCodes,
-                      );
-                      
-                      // Store pending selection and auth result
-                      setPendingStreamSelection(stream);
-                      setPListedAuthResult({
-                        ...authResult,
-                        pCodes,
-                      });
-                      setPListedAuthAcknowledged(false);
-                      setShowPListedAuthModal(true);
-                      return;
-                    }
-
-                    // No P-Listed codes or authorization passed - proceed normally
+                    // No P-Listed check here - moved to "Continue to Manifest"
                     // Track recently used profile
                     setRecentlyUsedProfiles(prev => {
                       // Remove if already exists, then add to front
@@ -2375,6 +2442,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
           truckNumber={selectedTruck?.number || truckId || undefined}
           trailerNumber={selectedTrailer?.number || null}
+          syncStatus={syncStatus}
+          pendingSyncCount={pendingSyncCount}
+          onSync={handleManualSync}
         />
 
         <ScrollView
@@ -2523,6 +2593,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
           truckNumber={selectedTruck?.number || truckId || undefined}
           trailerNumber={selectedTrailer?.number || null}
+          syncStatus={syncStatus}
+          pendingSyncCount={pendingSyncCount}
+          onSync={handleManualSync}
         />
 
         <ScrollView
@@ -2868,6 +2941,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
           truckNumber={selectedTruck?.number || truckId || undefined}
           trailerNumber={selectedTrailer?.number || null}
+          syncStatus={syncStatus}
+          pendingSyncCount={pendingSyncCount}
+          onSync={handleManualSync}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -2987,6 +3063,54 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             disabled={addedContainers.length === 0 || isCurrentOrderCompleted}
             onPress={() => {
               if (!isCurrentOrderCompleted) {
+                // Check for P-Listed waste codes in all added containers
+                const allPCodes: PListedCode[] = [];
+                const streamsWithPCodes: WasteStream[] = [];
+                
+                // Collect all P-Listed codes from all added containers
+                addedContainers.forEach(container => {
+                  // Find the stream that matches this container
+                  const stream = wasteStreams.find(
+                    s => s.profileName === container.streamName || s.profileNumber === container.streamCode
+                  );
+                  if (stream) {
+                    const pCodes = pListedAuthorizationService.extractPListedCodes(stream);
+                    if (pCodes.length > 0) {
+                      allPCodes.push(...pCodes);
+                      if (!streamsWithPCodes.find(s => s.id === stream.id)) {
+                        streamsWithPCodes.push(stream);
+                      }
+                    }
+                  }
+                });
+                
+                // If P-Listed codes found, validate authorization
+                if (allPCodes.length > 0 && selectedOrderData && username) {
+                  // Get generator ID from order
+                  const generatorId = String(
+                    selectedOrderData.genNumber || selectedOrderData.customer || ''
+                  );
+                  
+                  // Validate authorization for all P-Listed codes
+                  const authResult = pListedAuthorizationService.validateAuthorization(
+                    username,
+                    generatorId,
+                    allPCodes,
+                  );
+                  
+                  // Store auth result
+                  setPListedAuthResult({
+                    ...authResult,
+                    pCodes: allPCodes,
+                  });
+                  setPListedAuthAcknowledged(false);
+                  setPListedAuthCode('');
+                  setPListedAuthCodeValid(false);
+                  setShowPListedAuthModal(true);
+                  return; // Don't proceed to manifest until authorized
+                }
+                
+                // No P-Listed codes or authorization passed - proceed to manifest
                 setCurrentStep('manifest-management');
               }
             }}
@@ -3073,6 +3197,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
           truckNumber={selectedTruck?.number || truckId || undefined}
           trailerNumber={selectedTrailer?.number || null}
+          syncStatus={syncStatus}
+          pendingSyncCount={pendingSyncCount}
+          onSync={handleManualSync}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -3870,6 +3997,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
           truckNumber={selectedTruck?.number || truckId || undefined}
           trailerNumber={selectedTrailer?.number || null}
+          syncStatus={syncStatus}
+          pendingSyncCount={pendingSyncCount}
+          onSync={handleManualSync}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -4097,6 +4227,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
           truckNumber={selectedTruck?.number || truckId || undefined}
           trailerNumber={selectedTrailer?.number || null}
+          syncStatus={syncStatus}
+          pendingSyncCount={pendingSyncCount}
+          onSync={handleManualSync}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -4554,6 +4687,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         });
         setServiceTypeTimeEntries(entries);
         
+        // Update order status to "Partial" (not all service types complete yet)
+        setOrderStatuses(prev => ({
+          ...prev,
+          [selectedOrderData.orderNumber]: 'Partial',
+        }));
+        
         // Get the completed service type entry to pre-populate time adjustment modal
         // Use the service type that was just completed (stored before ending)
         const completedServiceTypeId = completingServiceTypeId || selectedOrderData.programs.find(stId => {
@@ -4627,6 +4766,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onViewServiceCenter={() => setShowServiceCenterModal(true)}
           truckNumber={selectedTruck?.number || truckId || undefined}
           trailerNumber={selectedTrailer?.number || null}
+          syncStatus={syncStatus}
+          pendingSyncCount={pendingSyncCount}
+          onSync={handleManualSync}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -6586,14 +6728,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       )}
       
       {/* P-Listed Authorization Modal */}
-      {pendingStreamSelection && pListedAuthResult && (
+      {pListedAuthResult && (
         <Modal
           visible={showPListedAuthModal}
           transparent
           animationType="fade"
           onRequestClose={() => {
             setShowPListedAuthModal(false);
-            setPendingStreamSelection(null);
             setPListedAuthResult(null);
             setPListedAuthAcknowledged(false);
             setPListedAuthCode('');
@@ -6611,7 +6752,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 <TouchableOpacity
                   onPress={() => {
                     setShowPListedAuthModal(false);
-                    setPendingStreamSelection(null);
                     setPListedAuthResult(null);
                     setPListedAuthAcknowledged(false);
                     setPListedAuthCode('');
@@ -6626,7 +6766,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 style={styles.pListedAuthModalScroll}
                 contentContainerStyle={styles.pListedAuthModalContent}>
                 <Text style={styles.pListedAuthWarningText}>
-                  This profile contains acute hazardous waste requiring special authorization.
+                  One or more containers contain acute hazardous waste (P-Listed) requiring special authorization.
                 </Text>
 
                 <Card style={styles.pListedAuthCard}>
@@ -6817,7 +6957,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   size="md"
                   onPress={() => {
                     setShowPListedAuthModal(false);
-                    setPendingStreamSelection(null);
                     setPListedAuthResult(null);
                     setPListedAuthAcknowledged(false);
                     setPListedAuthCode('');
@@ -6827,37 +6966,19 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 />
                 {(pListedAuthResult.authorized || pListedAuthCodeValid) && (
                   <Button
-                    title="Proceed"
+                    title="Proceed to Manifest"
                     variant="primary"
                     size="md"
                     onPress={() => {
-                      if (pendingStreamSelection) {
-                        // Track recently used profile
-                        setRecentlyUsedProfiles(prev => {
-                          const filtered = prev.filter(
-                            id => id !== pendingStreamSelection.id,
-                          );
-                          return [
-                            pendingStreamSelection.id,
-                            ...filtered,
-                          ].slice(0, 5);
-                        });
-
-                        setSelectedStream(pendingStreamSelection.profileName);
-                        setSelectedStreamCode(
-                          pendingStreamSelection.profileNumber,
-                        );
-                        setSelectedStreamId(pendingStreamSelection.id);
-                        setCylinderCount('');
-                        setCurrentStep('container-selection');
-                      }
-
+                      // Clear modal state
                       setShowPListedAuthModal(false);
-                      setPendingStreamSelection(null);
                       setPListedAuthResult(null);
                       setPListedAuthAcknowledged(false);
                       setPListedAuthCode('');
                       setPListedAuthCodeValid(false);
+                      
+                      // Proceed to manifest management
+                      setCurrentStep('manifest-management');
                     }}
                     disabled={!pListedAuthAcknowledged && !pListedAuthCodeValid}
                     style={styles.pListedAuthProceedButton}
@@ -7977,6 +8098,59 @@ const styles = StyleSheet.create({
     ...typography.sm,
     fontWeight: '600',
     color: colors.primary,
+  },
+  offlineLimitMessage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.warning + '20',
+    borderWidth: 1,
+    borderColor: colors.warning + '60',
+    marginLeft: spacing.sm,
+  },
+  offlineLimitMessageWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.warning + '20',
+    borderWidth: 1,
+    borderColor: colors.warning + '60',
+    marginLeft: spacing.sm,
+  },
+  offlineLimitMessageOrange: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.md,
+    backgroundColor: '#FF6B35' + '20',
+    borderWidth: 1,
+    borderColor: '#FF6B35' + '60',
+    marginLeft: spacing.sm,
+  },
+  offlineLimitMessageCritical: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.destructive + '20',
+    borderWidth: 1,
+    borderColor: colors.destructive + '60',
+    marginLeft: spacing.sm,
+  },
+  offlineLimitMessageText: {
+    ...typography.xs,
+    fontWeight: '600',
+    color: colors.foreground,
   },
   headerTitle: {
     ...typography.xl,

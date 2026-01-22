@@ -1,11 +1,12 @@
 import React, {useState, useEffect} from 'react';
-import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
+import {View, Text, TouchableOpacity, StyleSheet, ActivityIndicator} from 'react-native';
 import {Badge} from './Badge';
 import {Icon} from './Icon';
 import {OrderData} from '../types/wasteCollection';
 import {colors, spacing, typography, borderRadius} from '../styles/theme';
 import {offlineTrackingService, OfflineStatus} from '../services/offlineTrackingService';
 import {serviceCenterService} from '../services/serviceCenterService';
+import {SyncStatus} from '../services/syncService';
 
 interface PersistentOrderHeaderProps {
   orderData: OrderData;
@@ -23,6 +24,9 @@ interface PersistentOrderHeaderProps {
   onViewServiceCenter?: () => void;
   truckNumber?: string;
   trailerNumber?: string | null;
+  syncStatus?: SyncStatus;
+  pendingSyncCount?: number;
+  onSync?: () => void;
 }
 
 export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
@@ -38,6 +42,9 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
   onViewServiceCenter,
   truckNumber,
   trailerNumber,
+  syncStatus = 'synced',
+  pendingSyncCount = 0,
+  onSync,
 }) => {
   const [offlineStatus, setOfflineStatus] = useState<OfflineStatus>(
     offlineTrackingService.getStatus(),
@@ -333,13 +340,37 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
             </View>
           )}
 
-          {/* Last Sync Info */}
+          {/* Sync Information */}
           {!isCollapsed && (
-            <View style={styles.lastSyncRow}>
-              <Text style={styles.lastSyncLabel}>Last sync:</Text>
-              <Text style={styles.lastSyncValue}>
-                {offlineStatus.lastSyncFormatted}
-              </Text>
+            <View style={styles.syncInfoRow}>
+              <View style={styles.syncInfoLeft}>
+                <Text style={styles.lastSyncLabel}>Last sync:</Text>
+                <Text style={styles.lastSyncValue}>
+                  {offlineStatus.lastSyncFormatted || 'Never synced'}
+                </Text>
+              </View>
+              {onSync && (
+                <TouchableOpacity
+                  onPress={onSync}
+                  disabled={syncStatus === 'syncing' || offlineStatus.isBlocked}
+                  style={[
+                    styles.syncButton,
+                    (syncStatus === 'syncing' || offlineStatus.isBlocked) && styles.syncButtonDisabled
+                  ]}
+                  activeOpacity={0.7}>
+                  {syncStatus === 'syncing' ? (
+                    <ActivityIndicator size="small" color={colors.primaryForeground} />
+                  ) : (
+                    <Icon name="sync" size={16} color={colors.primaryForeground} />
+                  )}
+                  <Text style={styles.syncButtonText}>Sync</Text>
+                  {pendingSyncCount > 0 && (
+                    <Badge variant="secondary" style={styles.syncButtonBadge}>
+                      {pendingSyncCount}
+                    </Badge>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>
@@ -544,14 +575,20 @@ const styles = StyleSheet.create({
     color: colors.destructive,
     fontWeight: '700',
   },
-  lastSyncRow: {
+  syncInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    justifyContent: 'space-between',
     marginTop: spacing.sm,
     paddingTop: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
+  },
+  syncInfoLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flex: 1,
   },
   lastSyncLabel: {
     ...typography.xs,
@@ -561,6 +598,30 @@ const styles = StyleSheet.create({
     ...typography.xs,
     color: colors.foreground,
     fontWeight: '500',
+  },
+  syncButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  syncButtonDisabled: {
+    opacity: 0.5,
+    backgroundColor: colors.muted,
+    borderColor: colors.border,
+  },
+  syncButtonText: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.primaryForeground,
+  },
+  syncButtonBadge: {
+    marginLeft: spacing.xs,
   },
   serviceCenterBadge: {
     flexDirection: 'row',
