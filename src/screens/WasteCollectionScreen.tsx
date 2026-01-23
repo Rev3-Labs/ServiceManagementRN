@@ -1618,6 +1618,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               onPress={handleManualSync}
               disabled={syncStatus === 'syncing' || syncStatus === 'offline'}
             />
+            <Button
+              title="Full Screen"
+              variant="ghost"
+              size="sm"
+              onPress={() => setUseMasterDetail(false)}
+            />
             {onLogout && (
               <Button
                 title="Logout"
@@ -2035,12 +2041,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 onPress={() => setShowDropWasteModal(true)}
               />
             )}
-            <Button
-              title="Service Closeout"
-              variant="outline"
-              size="md"
-              onPress={() => onNavigate?.('ServiceCloseout')}
-            />
             <Button
               title="Sync"
               variant="outline"
