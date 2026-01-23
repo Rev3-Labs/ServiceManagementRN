@@ -72,7 +72,12 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
     const parts = [orderData.site, orderData.city, orderData.state].filter(
       Boolean,
     );
-    return parts.join(', ');
+    const address = parts.join(', ');
+    // Add ZIP code if available
+    if (orderData.zip) {
+      return `${address} ${orderData.zip}`;
+    }
+    return address;
   };
 
   const getStatusBadgeVariant = (status: OrderData['status']) => {
@@ -124,18 +129,8 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               <Text style={styles.persistentHeaderOrderNumber}>
                 {orderData.orderNumber}
               </Text>
-              {subtitle && !isCollapsed && (
-                <Text style={styles.persistentHeaderSubtitle}>
-                  {subtitle}
-                </Text>
-              )}
+
             </View>
-            <Icon
-              name={isCollapsed ? 'keyboard-arrow-down' : 'keyboard-arrow-up'}
-              size={20}
-              color={colors.mutedForeground}
-              style={styles.persistentHeaderToggleIcon}
-            />
           </View>
         </TouchableOpacity>
         <View style={styles.persistentHeaderRightActions}>
@@ -191,11 +186,6 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               <Icon name="assignment" size={20} color={colors.foreground} />
             </TouchableOpacity>
           )}
-          {elapsedTimeDisplay && !isCollapsed && (
-            <View style={styles.timeTrackingBadge}>
-              <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
-            </View>
-          )}
           {/* Connection Status Indicator - Always Visible */}
           <TouchableOpacity
             style={[
@@ -249,11 +239,35 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               </View>
             )}
           </TouchableOpacity>
+          {/* Collapse/Expand Toggle Icon - Far Right */}
+          <TouchableOpacity
+            onPress={onToggleCollapse}
+            style={styles.persistentHeaderToggleIconButton}
+            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+            activeOpacity={0.7}>
+            <Icon
+              name={isCollapsed ? 'keyboard-arrow-down' : 'keyboard-arrow-up'}
+              size={20}
+              color={colors.mutedForeground}
+            />
+          </TouchableOpacity>
         </View>
       </View>
 
       {!isCollapsed && (
         <View style={styles.persistentHeaderContent}>
+          {/* Elapsed Time Display */}
+          {elapsedTimeDisplay && (
+            <View style={styles.persistentHeaderRow}>
+              <View style={styles.persistentHeaderItem}>
+                <Text style={styles.persistentHeaderLabel}>Elapsed Time</Text>
+                <View style={styles.timeTrackingBadge}>
+                  <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+                </View>
+              </View>
+            </View>
+          )}
+          
           <View style={styles.persistentHeaderRow}>
             <View style={styles.persistentHeaderItem}>
               <Text style={styles.persistentHeaderLabel}>Required Date</Text>
@@ -265,12 +279,6 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               <Text style={styles.persistentHeaderLabel}>Address</Text>
               <Text style={styles.persistentHeaderValue}>
                 {formatAddress()}
-              </Text>
-            </View>
-            <View style={styles.persistentHeaderItem}>
-              <Text style={styles.persistentHeaderLabel}>ZIP</Text>
-              <Text style={styles.persistentHeaderValue}>
-                {orderData.zip || 'N/A'}
               </Text>
             </View>
           </View>
@@ -419,6 +427,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs / 2,
   },
   persistentHeaderToggleIcon: {
+    marginLeft: spacing.sm,
+  },
+  persistentHeaderToggleIconButton: {
+    padding: spacing.xs,
     marginLeft: spacing.sm,
   },
   timeTrackingBadge: {

@@ -71,6 +71,8 @@ import {
   getGridColumns,
   getResponsiveValue,
   isTablet,
+  isLandscape,
+  getSidebarWidth,
 } from '../utils/responsive';
 import {
   FlowStep,
@@ -549,8 +551,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   );
 
   // Initialize master-detail view: auto-select first order if using master-detail and no order is selected
+  // Only in landscape mode for better UX
   useEffect(() => {
-    if (useMasterDetail && isTablet() && !dashboardSelectedOrder && currentStep === 'dashboard') {
+    if (useMasterDetail && isTablet() && isLandscape() && !dashboardSelectedOrder && currentStep === 'dashboard') {
       const allOrders = MOCK_ORDERS || orders || [];
       const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
       if (activeOrders.length > 0) {
@@ -1637,7 +1640,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
         <View style={styles.masterDetailContainer}>
           {/* Master Pane - Orders List */}
-          <View style={styles.masterPane}>
+          <View style={[styles.masterPane, {width: getSidebarWidth()}]}>
             <View style={styles.masterPaneHeader}>
               <Text style={styles.masterPaneTitle}>Upcoming Orders</Text>
               <Text style={styles.masterPaneSubtitle}>
@@ -2048,7 +2051,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               onPress={handleManualSync}
               disabled={syncStatus === 'syncing' || syncStatus === 'offline'}
             />
-            {isTablet() && (
+            {isTablet() && isLandscape() && (
               <Button
                 title="Master-Detail"
                 variant="ghost"
@@ -6049,8 +6052,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const renderScreen = () => {
     switch (currentStep) {
       case 'dashboard':
-        // Use master-detail on tablets if enabled, otherwise use full-screen
-        if (isTablet() && useMasterDetail) {
+        // Use master-detail on tablets in landscape mode if enabled, otherwise use full-screen
+        // In portrait mode, always use full-screen for better UX
+        if (isTablet() && useMasterDetail && isLandscape()) {
           return <DashboardScreenMasterDetail />;
         }
         return <DashboardScreen />;
@@ -6071,7 +6075,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       case 'order-service':
         return <OrderServiceScreen />;
       default:
-        if (isTablet() && useMasterDetail) {
+        // In portrait mode, always use full-screen for better UX
+        if (isTablet() && useMasterDetail && isLandscape()) {
           return <DashboardScreenMasterDetail />;
         }
         return <DashboardScreen />;
@@ -9881,8 +9886,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   masterPane: {
-    width: 400,
-    minWidth: 320,
+    minWidth: 280,
     maxWidth: 480,
     backgroundColor: colors.card,
     borderRightWidth: 2,
