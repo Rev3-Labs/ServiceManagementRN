@@ -9,78 +9,54 @@ export interface ServiceType {
   description?: string;
 }
 
-// HCS (Healthcare Services) Service Types
-export const HCS_SERVICE_TYPES: Record<string, ServiceType> = {
-  'HCS-RMW': {
-    id: 'HCS-RMW',
-    name: 'HCS - Regulated Medical Waste',
-    description: 'Collection and disposal of regulated medical waste (biohazard, sharps, pathological)',
+/**
+ * Canonical Service Type IDs (program codes)
+ *
+ * Per UI requirements: use these codes as the IDs everywhere.
+ */
+export const SERVICE_TYPES: Record<string, ServiceType> = {
+  RX: {
+    id: 'RX',
+    name: 'Regulated Medical Waste',
+    description:
+      'Collection and disposal of regulated medical waste (biohazard, sharps, pathological)',
   },
-  'HCS-PHARM': {
-    id: 'HCS-PHARM',
-    name: 'HCS - Pharmaceutical Waste',
-    description: 'Non-controlled pharmaceutical waste collection',
-  },
-  'HCS-CTRL': {
-    id: 'HCS-CTRL',
-    name: 'HCS - Controlled Substances',
-    description: 'DEA-regulated controlled substance destruction (replaces DEA type)',
-  },
-  'HCS-CHEMO': {
-    id: 'HCS-CHEMO',
-    name: 'HCS - Chemotherapy Waste',
-    description: 'Hazardous pharmaceutical/chemotherapy waste',
-  },
-  'HCS-PATH': {
-    id: 'HCS-PATH',
-    name: 'HCS - Pathological Waste',
-    description: 'Anatomical and pathological waste handling',
-  },
-  'HCS-SHARPS': {
-    id: 'HCS-SHARPS',
-    name: 'HCS - Sharps Management',
-    description: 'Sharps container exchange and disposal',
-  },
-};
-
-// WS (Waste Services) Service Types
-export const WS_SERVICE_TYPES: Record<string, ServiceType> = {
-  'WS-HAZ': {
-    id: 'WS-HAZ',
-    name: 'WS - Hazardous Waste',
+  HZ: {
+    id: 'HZ',
+    name: 'Hazardous Waste',
     description: 'General hazardous waste pickup and disposal',
   },
-  'WS-NHAZ': {
-    id: 'WS-NHAZ',
-    name: 'WS - Non-Hazardous Waste',
-    description: 'Non-hazardous industrial waste services',
+  CX: {
+    id: 'CX',
+    name: 'Chemotherapy Waste',
+    description: 'Hazardous pharmaceutical/chemotherapy waste',
   },
-  'WS-UNIV': {
-    id: 'WS-UNIV',
-    name: 'WS - Universal Waste',
-    description: 'Batteries, lamps, electronics, mercury devices',
+  HD: {
+    id: 'HD',
+    name: 'High-Difficulty / Specialty Handling',
+    description:
+      'Special handling workflows (e.g., lab pack, emergency response, specialty pickups)',
   },
-  'WS-RETAIL': {
-    id: 'WS-RETAIL',
-    name: 'WS - Retail Waste Services',
-    description: 'Retail location waste management (replaces RETAIL type)',
+  FC: {
+    id: 'FC',
+    name: 'Facility Cleanup / Container Service',
+    description: 'Sharps/container exchange and related container service work',
   },
-  'WS-LABPACK': {
-    id: 'WS-LABPACK',
-    name: 'WS - Lab Pack Services',
-    description: 'Laboratory chemical consolidation and disposal',
+  PH: {
+    id: 'PH',
+    name: 'Pharmaceutical Waste',
+    description: 'Non-controlled pharmaceutical waste collection',
   },
-  'WS-EMERG': {
-    id: 'WS-EMERG',
-    name: 'WS - Emergency Response',
-    description: 'Spill response and emergency waste services',
+  DE: {
+    id: 'DE',
+    name: 'DEA / Controlled Substances',
+    description: 'DEA-regulated controlled substance destruction',
   },
-};
-
-// Combined service types map
-export const SERVICE_TYPES: Record<string, ServiceType> = {
-  ...HCS_SERVICE_TYPES,
-  ...WS_SERVICE_TYPES,
+  RE: {
+    id: 'RE',
+    name: 'Retail Waste Services',
+    description: 'Retail location waste management services',
+  },
 };
 
 class ServiceTypeService {

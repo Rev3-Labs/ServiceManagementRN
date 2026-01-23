@@ -1885,13 +1885,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       <View style={styles.programsContainerInline}>
                         {selectedOrder.programs.map((program, i) => {
                           const formatted = serviceTypeService.formatForOrderDetails(program);
+                          const serviceOrderNumber = selectedOrder.serviceOrderNumbers?.[program];
                           return (
                             <Badge
                               key={i}
                               variant="secondary"
                               style={styles.programBadge}
                               title={serviceTypeService.getServiceTypeName(program)}>
-                              {serviceTypeService.formatForBadge(program)}
+                              {serviceOrderNumber 
+                                ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
+                                : serviceTypeService.formatForBadge(program)}
                             </Badge>
                           );
                         })}
@@ -2148,13 +2151,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     <View style={styles.programsContainer}>
                       {order.programs.map((program, i) => {
                         const serviceType = serviceTypeService.getServiceType(program);
+                        const serviceOrderNumber = order.serviceOrderNumbers?.[program];
                         return (
                           <Badge
                             key={i}
                             variant="secondary"
                             style={styles.programBadge}
                             title={serviceType?.name || program}>
-                            {serviceTypeService.formatForBadge(program)}
+                            {serviceOrderNumber 
+                              ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
+                              : serviceTypeService.formatForBadge(program)}
                           </Badge>
                         );
                       })}
@@ -8453,8 +8459,20 @@ const styles = StyleSheet.create({
   programsDetailRow: {
     alignItems: 'flex-start',
   },
+  programBadgeContainer: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    marginRight: spacing.sm,
+    marginBottom: spacing.xs,
+  },
   programBadge: {
-    marginRight: spacing.xs,
+    marginBottom: spacing.xs / 2,
+  },
+  serviceOrderNumber: {
+    ...typography.xs,
+    color: colors.mutedForeground,
+    fontWeight: '500',
+    marginTop: spacing.xs / 2,
   },
   screenHeader: {
     flexDirection: 'row',

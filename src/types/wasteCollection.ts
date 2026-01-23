@@ -20,6 +20,7 @@ export interface OrderData {
   genNumber?: string;
   orderType?: string;
   programs: string[];
+  serviceOrderNumbers?: Record<string, string>; // Maps program ID to service order number (e.g., "SR12345678")
   serviceDate: string;
   requiredDate?: string; // MM/DD/YYYY format
   generatorStatus?: 'LQG' | 'SQG' | 'CESQG' | 'VSQG'; // Large Quantity Generator, Small Quantity Generator, etc.
