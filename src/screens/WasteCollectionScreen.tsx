@@ -1034,7 +1034,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       id: 'P001',
       profileName: 'P-Listed Acute Hazardous Waste',
       profileNumber: '245010010',
-      category: 'Acute Hazardous',
+      category: 'Hazardous',
       hazardClass: 'Class 6.1',
       consolidationAllowed: false,
       accumulationsApply: true,
@@ -1062,7 +1062,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       id: 'N001',
       profileName: 'Non-Hazardous Solid Waste',
       profileNumber: '242050003',
-      category: 'Non-Hazardous',
+      category: 'Non-Haz',
       consolidationAllowed: true,
       accumulationsApply: false,
       specialInstructions: 'Regular disposal',
@@ -1075,7 +1075,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       id: 'HT001',
       profileName: 'Helium Tank',
       profileNumber: '244500004',
-      category: 'Compressed Gas',
+      category: 'Hazardous',
       hazardClass: 'Class 2.2',
       consolidationAllowed: false,
       accumulationsApply: true,
@@ -1185,7 +1185,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       id: 'N002',
       profileName: 'Office Paper Waste',
       profileNumber: '242050012',
-      category: 'Non-Hazardous',
+      category: 'Non-Haz',
       consolidationAllowed: true,
       accumulationsApply: false,
       specialInstructions: 'Standard recycling procedures',
@@ -1198,7 +1198,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       id: 'N003',
       profileName: 'Cardboard Waste',
       profileNumber: '243030013',
-      category: 'Non-Hazardous',
+      category: 'Non-Haz',
       consolidationAllowed: true,
       accumulationsApply: false,
       specialInstructions: 'Flatten cardboard before disposal',
@@ -1211,7 +1211,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       id: 'N004',
       profileName: 'Food Waste',
       profileNumber: '241010014',
-      category: 'Non-Hazardous',
+      category: 'Non-Haz',
       consolidationAllowed: true,
       accumulationsApply: false,
       specialInstructions: 'Compostable organic waste',
@@ -1224,7 +1224,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       id: 'N005',
       profileName: 'Plastic Waste',
       profileNumber: '242050015',
-      category: 'Non-Hazardous',
+      category: 'Non-Haz',
       consolidationAllowed: true,
       accumulationsApply: false,
       specialInstructions: 'Separate by plastic type when possible',
@@ -1233,11 +1233,68 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       allowedContainers: ['30G', '55G', '95T', 'BULK'],
       requiresCylinderCount: false,
     },
+    // DEA Controlled Substance Waste Profiles
+    {
+      id: 'DEA001',
+      profileName: 'DEA Controlled Substances - Schedule II',
+      profileNumber: '245030017',
+      category: 'DEA',
+      consolidationAllowed: false,
+      accumulationsApply: false,
+      specialInstructions: 'DEA regulated controlled substances - requires DEA Form 41 and proper chain of custody documentation. Must be witnessed and documented at time of destruction.',
+      flags: ['DEA Regulated', 'Controlled Substance', 'Schedule II'],
+      containerCount: 2,
+      allowedContainers: ['5G', '30G'],
+      requiresCylinderCount: false,
+      isDEARegulated: true,
+    },
+    {
+      id: 'DEA002',
+      profileName: 'DEA Controlled Substances - Schedule III/IV',
+      profileNumber: '245030018',
+      category: 'DEA',
+      consolidationAllowed: false,
+      accumulationsApply: false,
+      specialInstructions: 'DEA regulated controlled substances - Schedule III/IV medications. Requires DEA Form 41 and proper documentation.',
+      flags: ['DEA Regulated', 'Controlled Substance', 'Schedule III', 'Schedule IV'],
+      containerCount: 3,
+      allowedContainers: ['5G', '30G', '55G'],
+      requiresCylinderCount: false,
+      isDEARegulated: true,
+    },
+    {
+      id: 'DEA003',
+      profileName: 'DEA Controlled Substances - Narcotics',
+      profileNumber: '245030019',
+      category: 'DEA',
+      consolidationAllowed: false,
+      accumulationsApply: false,
+      specialInstructions: 'DEA regulated narcotic controlled substances. Requires two-person verification, DEA Form 41, and witnessed destruction documentation.',
+      flags: ['DEA Regulated', 'Controlled Substance', 'Narcotic', 'Schedule II'],
+      containerCount: 1,
+      allowedContainers: ['5G', '30G'],
+      requiresCylinderCount: false,
+      isDEARegulated: true,
+    },
+    {
+      id: 'DEA004',
+      profileName: 'DEA Controlled Substances - Mixed Schedule',
+      profileNumber: '245030020',
+      category: 'DEA',
+      consolidationAllowed: false,
+      accumulationsApply: false,
+      specialInstructions: 'Mixed schedule controlled substances. All schedules must be documented separately. Requires complete DEA Form 41 documentation.',
+      flags: ['DEA Regulated', 'Controlled Substance', 'Mixed Schedule'],
+      containerCount: 4,
+      allowedContainers: ['5G', '30G', '55G'],
+      requiresCylinderCount: false,
+      isDEARegulated: true,
+    },
     {
       id: 'CG001',
       profileName: 'Nitrogen Tank',
       profileNumber: '244500016',
-      category: 'Compressed Gas',
+      category: 'Hazardous',
       hazardClass: 'Class 2.2',
       consolidationAllowed: false,
       accumulationsApply: true,
@@ -1251,7 +1308,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       id: 'CG002',
       profileName: 'Oxygen Tank',
       profileNumber: '241270017',
-      category: 'Compressed Gas',
+      category: 'Hazardous',
       hazardClass: 'Class 2.2',
       consolidationAllowed: false,
       accumulationsApply: true,
@@ -1265,7 +1322,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       id: 'CG003',
       profileName: 'Acetylene Tank',
       profileNumber: '243080018',
-      category: 'Compressed Gas',
+      category: 'Hazardous',
       hazardClass: 'Class 2.1',
       consolidationAllowed: false,
       accumulationsApply: true,
@@ -1321,7 +1378,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       id: 'N006',
       profileName: 'Metal Scrap',
       profileNumber: '241010022',
-      category: 'Non-Hazardous',
+      category: 'Non-Haz',
       consolidationAllowed: true,
       accumulationsApply: false,
       specialInstructions: 'Separate ferrous and non-ferrous metals',
@@ -1334,7 +1391,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       id: 'N007',
       profileName: 'Glass Waste',
       profileNumber: '242050023',
-      category: 'Non-Hazardous',
+      category: 'Non-Haz',
       consolidationAllowed: true,
       accumulationsApply: false,
       specialInstructions: 'Separate by color when possible',
@@ -2378,6 +2435,46 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   }
                 };
 
+                // Get category badge variant and style
+                // Only 4 valid categories: Hazardous (red), Non-Haz (green), Universal (yellow), DEA (blue)
+                const getCategoryBadgeConfig = (category: string) => {
+                  const categoryLower = category.toLowerCase().trim();
+                  // Check Non-Haz first to avoid any potential matching issues
+                  if (categoryLower === 'non-haz') {
+                    return {
+                      variant: 'outline' as const,
+                      style: styles.categoryBadgeGreen,
+                      textStyle: styles.categoryBadgeTextWhite,
+                    };
+                  } else if (categoryLower === 'hazardous') {
+                    return {
+                      variant: 'outline' as const,
+                      style: styles.categoryBadgeRed,
+                      textStyle: styles.categoryBadgeTextWhite,
+                    };
+                  } else if (categoryLower === 'universal') {
+                    return {
+                      variant: 'outline' as const,
+                      style: styles.categoryBadgeYellow,
+                      textStyle: styles.categoryBadgeTextWhite,
+                    };
+                  } else if (categoryLower === 'dea') {
+                    return {
+                      variant: 'outline' as const,
+                      style: styles.categoryBadgeBlue,
+                      textStyle: styles.categoryBadgeTextWhite,
+                    };
+                  }
+                  // Default fallback (should not happen with valid categories)
+                  return {
+                    variant: 'secondary' as const,
+                    style: undefined,
+                    textStyle: undefined,
+                  };
+                };
+
+                const categoryBadgeConfig = getCategoryBadgeConfig(stream.category);
+
                 return (
                   <TouchableOpacity
                     key={stream.id}
@@ -2398,12 +2495,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   <Text style={styles.streamCardTitle}>
                     {stream.profileName}
                   </Text>
-                  <Text style={styles.streamCardProfileNumber}>
-                    {stream.profileNumber}
-                  </Text>
-                  <Text style={styles.streamCardDescription}>
+                  <Badge
+                    variant={categoryBadgeConfig.variant}
+                    style={categoryBadgeConfig.style}
+                    textStyle={categoryBadgeConfig.textStyle}>
                     {stream.category}
-                  </Text>
+                  </Badge>
                 </TouchableOpacity>
                 );
               })}
@@ -8561,6 +8658,21 @@ const styles = StyleSheet.create({
   streamCardDescription: {
     ...typography.sm,
     color: colors.mutedForeground,
+  },
+  categoryBadgeGreen: {
+    backgroundColor: 'rgba(5, 150, 105, 0.3)', // colors.success with 50% opacity
+  },
+  categoryBadgeYellow: {
+    backgroundColor: 'rgba(217, 119, 6, 0.3)', // colors.warning with 50% opacity
+  },
+  categoryBadgeBlue: {
+    backgroundColor: 'rgba(37, 99, 235, 0.3)', // colors.info with 50% opacity
+  },
+  categoryBadgeRed: {
+    backgroundColor: 'rgba(220, 38, 38, 0.3)', // colors.destructive with 50% opacity
+  },
+  categoryBadgeTextWhite: {
+    color: colors.foreground, // Black text for better contrast with transparent backgrounds
   },
   streamCardCategory: {
     ...typography.base,
