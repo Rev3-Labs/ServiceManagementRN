@@ -34,6 +34,9 @@ const iconMap: Record<string, string> = {
   'security': '🛡️',
   'delete': '🗑️',
   'business': '🏢',
+  'pause': '⏸',
+  'play-arrow': '▶',
+  'sync': '🔄',
 };
 
 export const Icon: React.FC<IconProps> = ({

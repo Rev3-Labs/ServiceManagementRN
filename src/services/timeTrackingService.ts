@@ -8,6 +8,9 @@ export interface TimeTrackingRecord {
   duration?: number; // Duration in milliseconds (calculated when completed)
   truckId?: string; // Truck ID at time of service
   username?: string; // Username at time of service
+  pausedAt?: number; // Unix timestamp in milliseconds when paused
+  totalPausedMs?: number; // Total paused duration in milliseconds
+  pauseReason?: string; // Most recent pause reason
 }
 
 const TIME_TRACKING_KEY_PREFIX = 'time_tracking_';
@@ -31,6 +34,7 @@ export const startTimeTracking = async (
       startTime,
       truckId,
       username,
+      totalPausedMs: 0,
     };
 
     // Store active tracking
@@ -64,12 +68,19 @@ export const stopTimeTracking = async (
 
     const record: TimeTrackingRecord = JSON.parse(stored);
     const endTime = Date.now();
-    const duration = endTime - record.startTime;
+    const pausedAt = record.pausedAt;
+    const pausedMs = record.totalPausedMs || 0;
+    const additionalPausedMs = pausedAt ? endTime - pausedAt : 0;
+    const totalPausedMs = pausedMs + additionalPausedMs;
+    const duration = Math.max(0, endTime - record.startTime - totalPausedMs);
 
     const completedRecord: TimeTrackingRecord = {
       ...record,
       endTime,
       duration,
+      pausedAt: undefined,
+      pauseReason: undefined,
+      totalPausedMs,
     };
 
     // Update stored record
@@ -87,6 +98,101 @@ export const stopTimeTracking = async (
     return completedRecord;
   } catch (error) {
     console.error('Error stopping time tracking:', error);
+    throw error;
+  }
+};
+
+/**
+ * Pause time tracking for an order and record a reason
+ * @param orderNumber - The order number to pause
+ * @param reason - Reason for pausing
+ * @returns The updated time tracking record
+ */
+export const pauseTimeTracking = async (
+  orderNumber: string,
+  reason: string,
+): Promise<TimeTrackingRecord | null> => {
+  try {
+    const orderKey = `${TIME_TRACKING_KEY_PREFIX}${orderNumber}`;
+    const stored = await safeAsyncStorage.getItem(orderKey);
+    if (!stored) {
+      console.warn(`No time tracking record found for order ${orderNumber}`);
+      return null;
+    }
+
+    const record: TimeTrackingRecord = JSON.parse(stored);
+    if (record.endTime || record.pausedAt) {
+      return record;
+    }
+
+    const updated: TimeTrackingRecord = {
+      ...record,
+      pausedAt: Date.now(),
+      pauseReason: reason,
+    };
+
+    await safeAsyncStorage.setItem(orderKey, JSON.stringify(updated));
+
+    const activeTracking = await safeAsyncStorage.getItem(ACTIVE_TRACKING_KEY);
+    if (activeTracking) {
+      const active: TimeTrackingRecord = JSON.parse(activeTracking);
+      if (active.orderNumber === orderNumber) {
+        await safeAsyncStorage.setItem(ACTIVE_TRACKING_KEY, JSON.stringify(updated));
+      }
+    }
+
+    return updated;
+  } catch (error) {
+    console.error('Error pausing time tracking:', error);
+    throw error;
+  }
+};
+
+/**
+ * Resume time tracking for an order
+ * @param orderNumber - The order number to resume
+ * @returns The updated time tracking record
+ */
+export const resumeTimeTracking = async (
+  orderNumber: string,
+): Promise<TimeTrackingRecord | null> => {
+  try {
+    const orderKey = `${TIME_TRACKING_KEY_PREFIX}${orderNumber}`;
+    const stored = await safeAsyncStorage.getItem(orderKey);
+    if (!stored) {
+      console.warn(`No time tracking record found for order ${orderNumber}`);
+      return null;
+    }
+
+    const record: TimeTrackingRecord = JSON.parse(stored);
+    if (!record.pausedAt) {
+      return record;
+    }
+
+    const now = Date.now();
+    const pausedMs = record.totalPausedMs || 0;
+    const totalPausedMs = pausedMs + (now - record.pausedAt);
+
+    const updated: TimeTrackingRecord = {
+      ...record,
+      pausedAt: undefined,
+      pauseReason: undefined,
+      totalPausedMs,
+    };
+
+    await safeAsyncStorage.setItem(orderKey, JSON.stringify(updated));
+
+    const activeTracking = await safeAsyncStorage.getItem(ACTIVE_TRACKING_KEY);
+    if (activeTracking) {
+      const active: TimeTrackingRecord = JSON.parse(activeTracking);
+      if (active.orderNumber === orderNumber) {
+        await safeAsyncStorage.setItem(ACTIVE_TRACKING_KEY, JSON.stringify(updated));
+      }
+    }
+
+    return updated;
+  } catch (error) {
+    console.error('Error resuming time tracking:', error);
     throw error;
   }
 };

@@ -15,6 +15,9 @@ interface PersistentOrderHeaderProps {
   onBackPress?: () => void;
   subtitle?: string;
   elapsedTimeDisplay?: string;
+  isPaused?: boolean;
+  onPause?: () => void;
+  onResume?: () => void;
   onViewNotes?: () => void;
   validationState?: {
     state: 'none' | 'warning' | 'error';
@@ -36,6 +39,9 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
   onBackPress,
   subtitle,
   elapsedTimeDisplay,
+  isPaused = false,
+  onPause,
+  onResume,
   onViewNotes,
   validationState,
   onViewValidation,
@@ -261,8 +267,33 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
             <View style={styles.persistentHeaderRow}>
               <View style={styles.persistentHeaderItem}>
                 <Text style={styles.persistentHeaderLabel}>Elapsed Time</Text>
-                <View style={styles.timeTrackingBadge}>
-                  <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+                <View style={styles.timeTrackingRow}>
+                  <View style={styles.timeTrackingBadge}>
+                    <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+                  </View>
+                  {(onPause || onResume) && (
+                    <TouchableOpacity
+                      onPress={isPaused ? onResume : onPause}
+                      style={[
+                        styles.pauseButton,
+                        isPaused && styles.pauseButtonActive,
+                      ]}
+                      hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+                      activeOpacity={0.7}>
+                      <Icon
+                        name={isPaused ? 'play-arrow' : 'pause'}
+                        size={16}
+                        color={isPaused ? colors.primaryForeground : colors.primary}
+                      />
+                      <Text
+                        style={[
+                          styles.pauseButtonText,
+                          isPaused && styles.pauseButtonTextActive,
+                        ]}>
+                        {isPaused ? 'Continue' : 'Pause'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             </View>
@@ -441,10 +472,39 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  timeTrackingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
   timeTrackingText: {
     ...typography.sm,
     color: colors.mutedForeground,
     fontWeight: '500',
+  },
+  pauseButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + '10',
+  },
+  pauseButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  pauseButtonText: {
+    ...typography.sm,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  pauseButtonTextActive: {
+    color: colors.primaryForeground,
   },
   persistentHeaderContent: {
     paddingTop: spacing.md,

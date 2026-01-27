@@ -57,7 +57,9 @@ import {
   stopTimeTracking,
   getActiveTimeTracking,
   getTimeTrackingForOrder,
-  formatElapsedTime,
+  formatDuration,
+  pauseTimeTracking,
+  resumeTimeTracking,
   TimeTrackingRecord,
 } from '../services/timeTrackingService';
 import {
@@ -111,9 +113,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   );
   const [isOrderHeaderCollapsed, setIsOrderHeaderCollapsed] = useState(true);
   const [showJobNotesModal, setShowJobNotesModal] = useState(false);
-  const [pendingOrderToStart, setPendingOrderToStart] = useState<OrderData | null>(null);
-  const [jobNotesAcknowledged, setJobNotesAcknowledged] = useState(false);
-  const [acknowledgedOrders, setAcknowledgedOrders] = useState<Set<string>>(new Set());
+  const [showAllNotesModal, setShowAllNotesModal] = useState(false);
   const [showValidationModal, setShowValidationModal] = useState(false);
   const [showOfflineBlockedModal, setShowOfflineBlockedModal] = useState(false);
   const [persistedValidationIssues, setPersistedValidationIssues] = useState<ValidationIssue[]>([]);
@@ -345,6 +345,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [activeTimeTracking, setActiveTimeTracking] = useState<TimeTrackingRecord | null>(null);
   const [currentOrderTimeTracking, setCurrentOrderTimeTracking] = useState<TimeTrackingRecord | null>(null);
   const [elapsedTimeDisplay, setElapsedTimeDisplay] = useState<string>('');
+  const [showPauseReasonModal, setShowPauseReasonModal] = useState(false);
+  const [pauseReasonSelection, setPauseReasonSelection] = useState('');
+  const [isTimeTrackingPaused, setIsTimeTrackingPaused] = useState(false);
+  const [activePauseReason, setActivePauseReason] = useState('');
 
   // Use the mock orders
   const orders = MOCK_ORDERS;
@@ -423,6 +427,23 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       console.error('Error loading truck ID:', error);
     }
   }, [username]);
+
+  const getElapsedTimeDisplay = useCallback((record?: TimeTrackingRecord | null) => {
+    if (!record) return '';
+    const now = record.pausedAt ? record.pausedAt : Date.now();
+    const pausedMs = record.totalPausedMs || 0;
+    const elapsedMs = Math.max(0, now - record.startTime - pausedMs);
+    return formatDuration(elapsedMs);
+  }, []);
+
+  const pauseReasonOptions = [
+    'Break/Lunch',
+    'Waiting on access',
+    'Equipment issue',
+    'Traffic/Delay',
+    'Safety concern',
+    'Other',
+  ];
   
   // Load truck and time tracking on mount and when username changes
   useEffect(() => {
@@ -444,18 +465,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     try {
       const active = await getActiveTimeTracking();
       setActiveTimeTracking(active);
+      setIsTimeTrackingPaused(Boolean(active?.pausedAt));
+      setActivePauseReason(active?.pauseReason || '');
       if (active) {
-        setElapsedTimeDisplay(formatElapsedTime(active.startTime));
+        setElapsedTimeDisplay(getElapsedTimeDisplay(active));
+      } else {
+        setElapsedTimeDisplay('');
       }
     } catch (error) {
       console.error('Error loading active time tracking:', error);
     }
-  }, []);
+  }, [getElapsedTimeDisplay]);
 
   // Load active time tracking on mount
   useEffect(() => {
     loadActiveTimeTracking();
   }, [loadActiveTimeTracking]);
+
+  useEffect(() => {
+    setIsTimeTrackingPaused(Boolean(activeTimeTracking?.pausedAt));
+    setActivePauseReason(activeTimeTracking?.pauseReason || '');
+  }, [activeTimeTracking]);
 
   // Load time tracking for current order (selectedOrderData or dashboardSelectedOrder)
   const loadCurrentOrderTimeTracking = useCallback(async () => {
@@ -472,7 +502,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       setCurrentOrderTimeTracking(tracking);
       if (tracking && !tracking.endTime) {
         // Only show if still active (no endTime means still in progress)
-        setElapsedTimeDisplay(formatElapsedTime(tracking.startTime));
+        setElapsedTimeDisplay(getElapsedTimeDisplay(tracking));
       } else {
         setCurrentOrderTimeTracking(null);
         setElapsedTimeDisplay('');
@@ -482,7 +512,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       setCurrentOrderTimeTracking(null);
       setElapsedTimeDisplay('');
     }
-  }, [selectedOrderData, dashboardSelectedOrder]);
+  }, [selectedOrderData, dashboardSelectedOrder, getElapsedTimeDisplay]);
 
   // Load time tracking when order changes
   useEffect(() => {
@@ -497,17 +527,21 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }
 
     // Update immediately
-    setElapsedTimeDisplay(formatElapsedTime(currentOrderTimeTracking.startTime));
+    setElapsedTimeDisplay(getElapsedTimeDisplay(currentOrderTimeTracking));
+
+    if (currentOrderTimeTracking.pausedAt) {
+      return;
+    }
 
     // Update every minute
     const interval = setInterval(() => {
       if (currentOrderTimeTracking && !currentOrderTimeTracking.endTime) {
-        setElapsedTimeDisplay(formatElapsedTime(currentOrderTimeTracking.startTime));
+        setElapsedTimeDisplay(getElapsedTimeDisplay(currentOrderTimeTracking));
       }
     }, 60000); // Update every minute
 
     return () => clearInterval(interval);
-  }, [currentOrderTimeTracking]);
+  }, [currentOrderTimeTracking, getElapsedTimeDisplay]);
 
   // Update active service type timer display every minute
   useEffect(() => {
@@ -549,6 +583,24 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     },
     [completedOrders],
   );
+
+  const hasOrderNotes = useCallback((order: OrderData): boolean => {
+    return Boolean(
+      order.customerSpecialInstructions ||
+        order.siteAccessNotes ||
+        (order.safetyWarnings && order.safetyWarnings.length > 0) ||
+        (order.previousServiceNotes && order.previousServiceNotes.length > 0),
+    );
+  }, []);
+
+  const upcomingOrders = useMemo(() => {
+    const allOrders = MOCK_ORDERS || orders || [];
+    return allOrders.filter(order => !isOrderCompleted(order.orderNumber));
+  }, [orders, isOrderCompleted]);
+
+  const upcomingOrdersWithNotes = useMemo(() => {
+    return upcomingOrders.filter(order => hasOrderNotes(order));
+  }, [upcomingOrders, hasOrderNotes]);
 
   // Initialize master-detail view: auto-select first order if using master-detail and no order is selected
   // Only in landscape mode for better UX
@@ -606,7 +658,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       const orderTracking = await getTimeTrackingForOrder(order.orderNumber);
       setCurrentOrderTimeTracking(orderTracking);
       if (orderTracking && !orderTracking.endTime) {
-        setElapsedTimeDisplay(formatElapsedTime(orderTracking.startTime));
+        setElapsedTimeDisplay(getElapsedTimeDisplay(orderTracking));
       }
       
       // Start the service type (should already be selected at this point)
@@ -650,16 +702,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       
       // Close modal if open
       setShowJobNotesModal(false);
-      setPendingOrderToStart(null);
-      setJobNotesAcknowledged(false);
     } catch (error) {
       console.error('Error starting time tracking:', error);
       // Still allow navigation even if tracking fails
       setSelectedOrderData(order);
       setCurrentStep('stream-selection');
       setShowJobNotesModal(false);
-      setPendingOrderToStart(null);
-      setJobNotesAcknowledged(false);
     }
   }, [truckId, username]);
 
@@ -689,39 +737,84 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }
     
     // Single service type or no service types - proceed with normal flow
-    // Check if order has job notes that need acknowledgment
-    const hasJobNotes = 
-      order.customerSpecialInstructions ||
-      order.siteAccessNotes ||
-      (order.safetyWarnings && order.safetyWarnings.length > 0) ||
-      (order.previousServiceNotes && order.previousServiceNotes.length > 0);
-    
-    // Check if already acknowledged
-    const isAcknowledged = acknowledgedOrders.has(order.orderNumber);
-    
-    if (hasJobNotes && !isAcknowledged) {
-      // Show job notes modal
-      setPendingOrderToStart(order);
-      setShowJobNotesModal(true);
-      setJobNotesAcknowledged(false);
+    await proceedWithStartService(order);
+  }, [truckId, username, proceedWithStartService, offlineStatus.isBlocked, checkOfflineBlock]);
+
+  const handleRequestPause = useCallback(() => {
+    if (isTimeTrackingPaused) {
+      Alert.alert('Already Paused', 'Time tracking is already paused.');
       return;
     }
-    
-    // Proceed with starting service
-    await proceedWithStartService(order);
-  }, [truckId, username, acknowledgedOrders, proceedWithStartService, offlineStatus.isBlocked, checkOfflineBlock]);
+    if (!activeTimeTracking && !currentOrderTimeTracking) {
+      Alert.alert('No Active Timer', 'There is no active time tracking to pause.');
+      return;
+    }
+    setPauseReasonSelection('');
+    setShowPauseReasonModal(true);
+  }, [activeTimeTracking, currentOrderTimeTracking, isTimeTrackingPaused]);
 
-  // Handle job notes acknowledgment
-  const handleJobNotesAcknowledge = useCallback(() => {
-    if (!pendingOrderToStart) return;
-    
-    // Mark as acknowledged
-    setAcknowledgedOrders(prev => new Set(prev).add(pendingOrderToStart.orderNumber));
-    setJobNotesAcknowledged(true);
-    
-    // Proceed with starting service
-    proceedWithStartService(pendingOrderToStart);
-  }, [pendingOrderToStart, proceedWithStartService]);
+  const handleConfirmPause = useCallback(async () => {
+    const reason = pauseReasonSelection.trim();
+    if (!reason) {
+      Alert.alert('Reason Required', 'Please select a reason for pausing.');
+      return;
+    }
+
+    const orderNumber =
+      activeTimeTracking?.orderNumber || currentOrderTimeTracking?.orderNumber;
+    if (!orderNumber) {
+      Alert.alert('Unable to Pause', 'No active time tracking found.');
+      return;
+    }
+
+    try {
+      const updated = await pauseTimeTracking(orderNumber, reason);
+      if (updated) {
+        setActiveTimeTracking(updated);
+        if (currentOrderTimeTracking?.orderNumber === orderNumber) {
+          setCurrentOrderTimeTracking(updated);
+        }
+        setElapsedTimeDisplay(getElapsedTimeDisplay(updated));
+        setIsTimeTrackingPaused(true);
+        setActivePauseReason(reason);
+      }
+      setShowPauseReasonModal(false);
+      setPauseReasonSelection('');
+    } catch (error) {
+      console.error('Error pausing time tracking:', error);
+      Alert.alert('Error', 'Failed to pause time tracking.');
+    }
+  }, [
+    pauseReasonSelection,
+    activeTimeTracking,
+    currentOrderTimeTracking,
+    getElapsedTimeDisplay,
+  ]);
+
+  const handleResumeTracking = useCallback(async () => {
+    const orderNumber =
+      activeTimeTracking?.orderNumber || currentOrderTimeTracking?.orderNumber;
+    if (!orderNumber) {
+      Alert.alert('Unable to Continue', 'No active time tracking found.');
+      return;
+    }
+
+    try {
+      const updated = await resumeTimeTracking(orderNumber);
+      if (updated) {
+        setActiveTimeTracking(updated);
+        if (currentOrderTimeTracking?.orderNumber === orderNumber) {
+          setCurrentOrderTimeTracking(updated);
+        }
+        setElapsedTimeDisplay(getElapsedTimeDisplay(updated));
+      }
+      setIsTimeTrackingPaused(false);
+      setActivePauseReason('');
+    } catch (error) {
+      console.error('Error resuming time tracking:', error);
+      Alert.alert('Error', 'Failed to resume time tracking.');
+    }
+  }, [activeTimeTracking, currentOrderTimeTracking, getElapsedTimeDisplay]);
 
   // Generate unique shipping label barcode
   // Format: I-8digitssalesorder-001 (e.g., I-20241234-001)
@@ -1566,6 +1659,17 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const isSelectedOrderCompleted = selectedOrder
       ? isOrderCompleted(selectedOrder.orderNumber)
       : false;
+    const hasDetailNotes = Boolean(
+      selectedOrder && (
+        selectedOrder.customerSpecialInstructions ||
+        selectedOrder.siteAccessNotes ||
+        (selectedOrder.safetyWarnings && selectedOrder.safetyWarnings.length > 0) ||
+        (selectedOrder.previousServiceNotes && selectedOrder.previousServiceNotes.length > 0)
+      ),
+    );
+    const detailLastThreeNotes = selectedOrder?.previousServiceNotes
+      ? selectedOrder.previousServiceNotes.slice(0, 3)
+      : [];
 
     // Get offline limit warning message for header
     const getOfflineLimitMessage = () => {
@@ -1699,7 +1803,19 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           {/* Master Pane - Orders List */}
           <View style={[styles.masterPane, {width: getSidebarWidth()}]}>
             <View style={styles.masterPaneHeader}>
-              <Text style={styles.masterPaneTitle}>Upcoming Orders</Text>
+              <View style={styles.masterPaneHeaderRow}>
+                <Text style={styles.masterPaneTitle}>Upcoming Orders</Text>
+                <Button
+                  title={
+                    upcomingOrdersWithNotes.length > 0
+                      ? `View Notes (${upcomingOrdersWithNotes.length})`
+                      : 'View Notes'
+                  }
+                  variant="outline"
+                  size="sm"
+                  onPress={() => setShowAllNotesModal(true)}
+                />
+              </View>
               <Text style={styles.masterPaneSubtitle}>
                 {filteredOrders.length} orders scheduled
               </Text>
@@ -1960,6 +2076,107 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   </CardContent>
                 </Card>
 
+                <View style={styles.detailNotesSection}>
+                  <View style={styles.detailNotesHeader}>
+                    <Text style={styles.detailNotesTitle}>Service Notes</Text>
+                    {hasDetailNotes && (
+                      <Badge variant="secondary" style={styles.detailNotesBadge}>
+                        Review
+                      </Badge>
+                    )}
+                  </View>
+                  {hasDetailNotes ? (
+                    <>
+                      {selectedOrder.customerSpecialInstructions && (
+                        <Card style={styles.jobNotesCard}>
+                          <CardHeader>
+                            <CardTitle>
+                              <CardTitleText>Customer Special Instructions</CardTitleText>
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <Text style={styles.jobNotesText}>
+                              {selectedOrder.customerSpecialInstructions}
+                            </Text>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {selectedOrder.siteAccessNotes && (
+                        <Card style={styles.jobNotesCard}>
+                          <CardHeader>
+                            <CardTitle>
+                              <CardTitleText>Site Access Notes</CardTitleText>
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <Text style={styles.jobNotesText}>
+                              {selectedOrder.siteAccessNotes}
+                            </Text>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {selectedOrder.safetyWarnings &&
+                        selectedOrder.safetyWarnings.length > 0 && (
+                          <Card style={styles.jobNotesSafetyCard}>
+                            <CardHeader>
+                              <CardTitle>
+                                <View style={styles.jobNotesSafetyTitleContainer}>
+                                  <Icon
+                                    name="warning"
+                                    size={20}
+                                    color={colors.destructive}
+                                    style={styles.jobNotesSafetyIcon}
+                                  />
+                                  <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
+                                    Safety Warnings
+                                  </Text>
+                                </View>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              {selectedOrder.safetyWarnings.map((warning, index) => (
+                                <View key={index} style={styles.safetyWarningItem}>
+                                  <Text style={styles.safetyWarningText}>{warning}</Text>
+                                </View>
+                              ))}
+                            </CardContent>
+                          </Card>
+                        )}
+
+                      {detailLastThreeNotes.length > 0 && (
+                        <Card style={styles.jobNotesCard}>
+                          <CardHeader>
+                            <CardTitle>
+                              <CardTitleText>Previous Service Notes</CardTitleText>
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            {detailLastThreeNotes.map((note, index) => (
+                              <View key={index} style={styles.previousNoteItem}>
+                                <View style={styles.previousNoteHeader}>
+                                  <Text style={styles.previousNoteDate}>{note.date}</Text>
+                                  {note.technician && (
+                                    <Text style={styles.previousNoteTechnician}>
+                                      {note.technician}
+                                    </Text>
+                                  )}
+                                </View>
+                                <Text style={styles.previousNoteText}>{note.note}</Text>
+                              </View>
+                            ))}
+                          </CardContent>
+                        </Card>
+                      )}
+                    </>
+                  ) : (
+                    <Text style={styles.detailNotesEmptyText}>
+                      No service notes on file.
+                    </Text>
+                  )}
+                </View>
+
                 <View style={styles.detailActions}>
                   <Button
                     title={
@@ -2000,6 +2217,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     // Split orders into active and completed
     const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
     const completedOrdersList = allOrders.filter(order => isOrderCompleted(order.orderNumber));
+    const hasDashboardNotes = dashboardSelectedOrder
+      ? hasOrderNotes(dashboardSelectedOrder)
+      : false;
+    const dashboardLastThreeNotes = dashboardSelectedOrder?.previousServiceNotes
+      ? dashboardSelectedOrder.previousServiceNotes.slice(0, 3)
+      : [];
 
     // Get offline limit warning message for header
     const getOfflineLimitMessage = () => {
@@ -2139,9 +2362,21 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         </View>
 
         <View style={styles.pageTitle}>
-          <View style={styles.pageTitleContent}>
-            <Text style={styles.pageTitleLogo}>Clean Earth Inc.</Text>
-            <Text style={styles.pageTitleText}>Today's Orders</Text>
+          <View style={styles.pageTitleRow}>
+            <View style={styles.pageTitleContent}>
+              <Text style={styles.pageTitleLogo}>Clean Earth Inc.</Text>
+              <Text style={styles.pageTitleText}>Upcoming Orders</Text>
+            </View>
+            <Button
+              title={
+                upcomingOrdersWithNotes.length > 0
+                  ? `View Notes (${upcomingOrdersWithNotes.length})`
+                  : 'View Notes'
+              }
+              variant="outline"
+              size="sm"
+              onPress={() => setShowAllNotesModal(true)}
+            />
           </View>
         </View>
 
@@ -2156,24 +2391,329 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             nestedScrollEnabled={true}
             bounces={false}>
             
-            {/* Active Orders Section */}
-            <Text style={styles.ordersCount}>
-              {activeOrders.length} order
-              {activeOrders.length !== 1 ? 's' : ''} remaining
-            </Text>
+            {/* Show order details if an order is selected */}
+            {dashboardSelectedOrder ? (
+              <>
+                <View style={styles.detailPaneHeader}>
+                  <TouchableOpacity
+                    onPress={() => setDashboardSelectedOrder(null)}
+                    style={styles.backButton}
+                    activeOpacity={0.7}>
+                    <Icon name="arrow-back" size={20} color={colors.foreground} />
+                    <Text style={styles.backButtonText}>Back to Orders</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.detailPaneTitle}>
+                    {dashboardSelectedOrder.orderNumber}
+                  </Text>
+                  <Badge
+                    variant={
+                      getOrderStatus(dashboardSelectedOrder) === 'Scheduled'
+                        ? 'secondary'
+                        : getOrderStatus(dashboardSelectedOrder) === 'Partial'
+                          ? 'default'
+                          : getOrderStatus(dashboardSelectedOrder) === 'In Progress'
+                            ? 'default'
+                            : 'destructive'
+                    }>
+                    {getOrderStatus(dashboardSelectedOrder)}
+                  </Badge>
+                </View>
 
-            {activeOrders.length > 0 ? (
-              activeOrders.map((order, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.orderCard,
-                    isTablet() && styles.orderCardTablet,
-                  ]}
-                  onPress={() => {
-                    handleStartService(order);
-                  }}
-                  activeOpacity={0.7}>
+                <Card style={styles.contactCard}>
+                  <CardHeader>
+                    <CardTitle>
+                      <CardTitleText>Primary Contact</CardTitleText>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {dashboardSelectedOrder.primaryContactName ||
+                    dashboardSelectedOrder.primaryContactPhone ||
+                    dashboardSelectedOrder.primaryContactEmail ? (
+                      <>
+                        {dashboardSelectedOrder.primaryContactName && (
+                          <View style={styles.contactRow}>
+                            <Text style={styles.contactLabel}>Name:</Text>
+                            <Text style={styles.contactValue}>
+                              {dashboardSelectedOrder.primaryContactName}
+                            </Text>
+                          </View>
+                        )}
+                        {dashboardSelectedOrder.primaryContactPhone ? (
+                          <View style={styles.contactRow}>
+                            <Text style={styles.contactLabel}>Phone:</Text>
+                            <TouchableOpacity
+                              onPress={() =>
+                                handlePhoneCall(dashboardSelectedOrder.primaryContactPhone!)
+                              }
+                              activeOpacity={0.7}>
+                              <Text style={styles.contactLink}>
+                                {formatPhoneNumber(dashboardSelectedOrder.primaryContactPhone)}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <View style={styles.contactRow}>
+                            <Text style={styles.contactLabel}>Phone:</Text>
+                            <Text style={styles.contactValue}>—</Text>
+                          </View>
+                        )}
+                        {dashboardSelectedOrder.primaryContactEmail ? (
+                          <View style={styles.contactRow}>
+                            <Text style={styles.contactLabel}>Email:</Text>
+                            <TouchableOpacity
+                              onPress={() =>
+                                handleEmail(dashboardSelectedOrder.primaryContactEmail!)
+                              }
+                              activeOpacity={0.7}>
+                              <Text style={styles.contactLink}>
+                                {dashboardSelectedOrder.primaryContactEmail}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <View style={styles.contactRow}>
+                            <Text style={styles.contactLabel}>Email:</Text>
+                            <Text style={styles.contactValue}>—</Text>
+                          </View>
+                        )}
+                        {dashboardSelectedOrder.hasSecondaryContacts && (
+                          <TouchableOpacity
+                            style={styles.viewAllContactsButton}
+                            onPress={() => {
+                              Alert.alert(
+                                'All Contacts',
+                                'Secondary contacts feature coming soon.',
+                              );
+                            }}
+                            activeOpacity={0.7}>
+                            <Text style={styles.viewAllContactsText}>
+                              View All Contacts
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </>
+                    ) : (
+                      <View style={styles.noContactContainer}>
+                        <Text style={styles.noContactText}>
+                          No contact on file
+                        </Text>
+                      </View>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card style={styles.detailCard}>
+                  <CardHeader>
+                    <CardTitle>
+                      <CardTitleText>Order Information</CardTitleText>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Customer:</Text>
+                      <View style={styles.detailValueContainer}>
+                        <Text style={styles.detailValue}>
+                          {dashboardSelectedOrder.customer}
+                        </Text>
+                        {extractStoreNumber(dashboardSelectedOrder.site) && (
+                          <Text style={styles.storeNumber}>
+                            Store #{extractStoreNumber(dashboardSelectedOrder.site)}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Site:</Text>
+                      <Text style={styles.detailValue}>
+                        {dashboardSelectedOrder.site}
+                      </Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Location:</Text>
+                      <Text style={styles.detailValue}>
+                        {dashboardSelectedOrder.site}
+                        {dashboardSelectedOrder.city && `, ${dashboardSelectedOrder.city}`}
+                        {dashboardSelectedOrder.state && `, ${dashboardSelectedOrder.state}`}
+                        {dashboardSelectedOrder.zip && ` ${dashboardSelectedOrder.zip}`}
+                      </Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Expected Date:</Text>
+                      <Text style={styles.detailValue}>
+                        {dashboardSelectedOrder.serviceDate}
+                      </Text>
+                    </View>
+
+                    {dashboardSelectedOrder.orderType && (
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Order Type:</Text>
+                        <Text style={styles.detailValue}>
+                          {dashboardSelectedOrder.orderType}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={[styles.detailRow, styles.programsDetailRow]}>
+                      <Text style={styles.detailLabel}>Service Types:</Text>
+                      <View style={styles.programsContainerInline}>
+                        {dashboardSelectedOrder.programs.map((program, i) => {
+                          const formatted = serviceTypeService.formatForOrderDetails(program);
+                          const serviceOrderNumber = dashboardSelectedOrder.serviceOrderNumbers?.[program];
+                          return (
+                            <Badge
+                              key={i}
+                              variant="secondary"
+                              style={styles.programBadge}
+                              title={serviceTypeService.getServiceTypeName(program)}>
+                              {serviceOrderNumber 
+                                ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
+                                : serviceTypeService.formatForBadge(program)}
+                            </Badge>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  </CardContent>
+                </Card>
+
+                <View style={styles.detailNotesSection}>
+                  <View style={styles.detailNotesHeader}>
+                    <Text style={styles.detailNotesTitle}>Service Notes</Text>
+                    {hasDashboardNotes && (
+                      <Badge variant="secondary" style={styles.detailNotesBadge}>
+                        Review
+                      </Badge>
+                    )}
+                  </View>
+                  {hasDashboardNotes ? (
+                    <>
+                      {dashboardSelectedOrder.customerSpecialInstructions && (
+                        <Card style={styles.jobNotesCard}>
+                          <CardHeader>
+                            <CardTitle>
+                              <CardTitleText>Customer Special Instructions</CardTitleText>
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <Text style={styles.jobNotesText}>
+                              {dashboardSelectedOrder.customerSpecialInstructions}
+                            </Text>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {dashboardSelectedOrder.siteAccessNotes && (
+                        <Card style={styles.jobNotesCard}>
+                          <CardHeader>
+                            <CardTitle>
+                              <CardTitleText>Site Access Notes</CardTitleText>
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <Text style={styles.jobNotesText}>
+                              {dashboardSelectedOrder.siteAccessNotes}
+                            </Text>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {dashboardSelectedOrder.safetyWarnings &&
+                        dashboardSelectedOrder.safetyWarnings.length > 0 && (
+                          <Card style={styles.jobNotesSafetyCard}>
+                            <CardHeader>
+                              <CardTitle>
+                                <View style={styles.jobNotesSafetyTitleContainer}>
+                                  <Icon
+                                    name="warning"
+                                    size={20}
+                                    color={colors.destructive}
+                                    style={styles.jobNotesSafetyIcon}
+                                  />
+                                  <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
+                                    Safety Warnings
+                                  </Text>
+                                </View>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              {dashboardSelectedOrder.safetyWarnings.map((warning, index) => (
+                                <View key={index} style={styles.safetyWarningItem}>
+                                  <Text style={styles.safetyWarningText}>{warning}</Text>
+                                </View>
+                              ))}
+                            </CardContent>
+                          </Card>
+                        )}
+
+                      {dashboardLastThreeNotes.length > 0 && (
+                        <Card style={styles.jobNotesCard}>
+                          <CardHeader>
+                            <CardTitle>
+                              <CardTitleText>Previous Service Notes</CardTitleText>
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            {dashboardLastThreeNotes.map((note, index) => (
+                              <View key={index} style={styles.previousNoteItem}>
+                                <View style={styles.previousNoteHeader}>
+                                  <Text style={styles.previousNoteDate}>{note.date}</Text>
+                                  {note.technician && (
+                                    <Text style={styles.previousNoteTechnician}>
+                                      {note.technician}
+                                    </Text>
+                                  )}
+                                </View>
+                                <Text style={styles.previousNoteText}>{note.note}</Text>
+                              </View>
+                            ))}
+                          </CardContent>
+                        </Card>
+                      )}
+                    </>
+                  ) : (
+                    <Text style={styles.detailNotesEmptyText}>
+                      No service notes on file.
+                    </Text>
+                  )}
+                </View>
+
+                <View style={styles.detailActions}>
+                  <Button
+                    title={
+                      isOrderCompleted(dashboardSelectedOrder.orderNumber)
+                        ? 'Order Completed'
+                        : 'Start Service'
+                    }
+                    variant="primary"
+                    size="lg"
+                    disabled={isOrderCompleted(dashboardSelectedOrder.orderNumber)}
+                    onPress={() => {
+                      if (!isOrderCompleted(dashboardSelectedOrder.orderNumber) && dashboardSelectedOrder) {
+                        handleStartService(dashboardSelectedOrder);
+                      }
+                    }}
+                  />
+                </View>
+              </>
+            ) : (
+              <>
+                {/* Active Orders Section */}
+                <Text style={styles.ordersCount}>
+                  {activeOrders.length} order
+                  {activeOrders.length !== 1 ? 's' : ''} remaining
+                </Text>
+
+                {activeOrders.length > 0 ? (
+                  activeOrders.map((order, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={[
+                        styles.orderCard,
+                        isTablet() && styles.orderCardTablet,
+                      ]}
+                      onPress={() => {
+                        setDashboardSelectedOrder(order);
+                      }}
+                      activeOpacity={0.7}>
                   <View style={styles.orderCardHeader}>
                     <View style={styles.orderCardHeaderLeft}>
                       <Text style={styles.orderNumber}>
@@ -2202,7 +2742,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       {formatCustomerWithStore(order.customer, order.site)}
                     </Text>
                     <Text style={styles.siteInfo}>
-                      {order.site} • {order.city}, {order.state}
+                      {order.site}
+                      {order.city && `, ${order.city}`}
+                      {order.state && `, ${order.state}`}
+                      {order.zip && ` ${order.zip}`}
                     </Text>
                     <Text style={styles.serviceDate}>{order.serviceDate}</Text>
                     <View style={styles.programsContainer}>
@@ -2225,13 +2768,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   </View>
                 </TouchableOpacity>
               ))
-            ) : (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyStateTitle}>All Orders Complete!</Text>
-                <Text style={styles.emptyStateText}>
-                  You have completed all orders for today.
-                </Text>
-              </View>
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateTitle}>All Orders Complete!</Text>
+                    <Text style={styles.emptyStateText}>
+                      You have completed all orders for today.
+                    </Text>
+                  </View>
+                )}
+              </>
             )}
 
             {/* Completed Orders Section */}
@@ -2379,8 +2924,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             onBackPress={() => setCurrentStep('dashboard')}
           subtitle={`${selectedOrderData.customer || 'Customer Name'} - ${selectedOrderData.site || 'Site Location'}`}
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          isPaused={isTimeTrackingPaused}
+          onPause={handleRequestPause}
+          onResume={handleResumeTracking}
           onViewNotes={() => {
-            setPendingOrderToStart(null);
             setShowJobNotesModal(true);
           }}
           validationState={validationState}
@@ -2539,8 +3086,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('stream-selection')}
           subtitle={selectedStream}
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          isPaused={isTimeTrackingPaused}
+          onPause={handleRequestPause}
+          onResume={handleResumeTracking}
           onViewNotes={() => {
-            setPendingOrderToStart(null);
             setShowJobNotesModal(true);
           }}
           validationState={validationState}
@@ -2690,8 +3239,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('container-selection')}
           subtitle={`${selectedStream} • ${selectedContainerType?.size || 'Container'}`}
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          isPaused={isTimeTrackingPaused}
+          onPause={handleRequestPause}
+          onResume={handleResumeTracking}
           onViewNotes={() => {
-            setPendingOrderToStart(null);
             setShowJobNotesModal(true);
           }}
           validationState={validationState}
@@ -3038,8 +3589,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('container-entry')}
           subtitle="Container Summary"
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          isPaused={isTimeTrackingPaused}
+          onPause={handleRequestPause}
+          onResume={handleResumeTracking}
           onViewNotes={() => {
-            setPendingOrderToStart(null);
             setShowJobNotesModal(true);
           }}
           validationState={validationState}
@@ -3294,8 +3847,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('container-summary')}
           subtitle="Manifest Management"
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          isPaused={isTimeTrackingPaused}
+          onPause={handleRequestPause}
+          onResume={handleResumeTracking}
           onViewNotes={() => {
-            setPendingOrderToStart(null);
             setShowJobNotesModal(true);
           }}
           validationState={validationState}
@@ -4094,8 +4649,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('manifest-management')}
           subtitle="Supplies"
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          isPaused={isTimeTrackingPaused}
+          onPause={handleRequestPause}
+          onResume={handleResumeTracking}
           onViewNotes={() => {
-            setPendingOrderToStart(null);
             setShowJobNotesModal(true);
           }}
           validationState={validationState}
@@ -4324,8 +4881,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('manifest-management')}
           subtitle="Equipment"
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          isPaused={isTimeTrackingPaused}
+          onPause={handleRequestPause}
+          onResume={handleResumeTracking}
           onViewNotes={() => {
-            setPendingOrderToStart(null);
             setShowJobNotesModal(true);
           }}
           validationState={validationState}
@@ -4755,6 +5314,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             setCurrentOrderTimeTracking(null);
             setElapsedTimeDisplay('');
           }
+          setIsTimeTrackingPaused(false);
+          setActivePauseReason('');
         } catch (error) {
           console.error('Error stopping time tracking:', error);
         }
@@ -4863,8 +5424,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('manifest-management')}
           subtitle="Customer Acknowledgment"
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          isPaused={isTimeTrackingPaused}
+          onPause={handleRequestPause}
+          onResume={handleResumeTracking}
           onViewNotes={() => {
-            setPendingOrderToStart(null);
             setShowJobNotesModal(true);
           }}
           validationState={validationState}
@@ -6217,25 +6780,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
   // Handle modal close request
   const handleJobNotesModalClose = useCallback(() => {
-    // Don't allow closing without acknowledgment if starting service
-    if (pendingOrderToStart) {
-      Alert.alert(
-        'Acknowledgment Required',
-        'You must acknowledge the service notes before starting the order.',
-        [{text: 'OK'}]
-      );
-    } else {
-      setShowJobNotesModal(false);
-    }
-  }, [pendingOrderToStart]);
-
-  // Handle checkbox toggle - use callback to prevent modal recreation
-  const handleCheckboxToggle = useCallback(() => {
-    setJobNotesAcknowledged(prev => !prev);
+    setShowJobNotesModal(false);
   }, []);
 
   // Get order and notes data
-  const jobNotesOrder = pendingOrderToStart || selectedOrderData;
+  const jobNotesOrder = selectedOrderData;
   const hasJobNotes = jobNotesOrder && (
     jobNotesOrder.customerSpecialInstructions ||
     jobNotesOrder.siteAccessNotes ||
@@ -6394,14 +6943,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           <SafeAreaView style={styles.jobNotesModalContainer}>
             <View style={styles.jobNotesModalHeader}>
               <Text style={styles.jobNotesModalTitle}>Service Notes</Text>
-              {!pendingOrderToStart && (
-                <TouchableOpacity
-                  onPress={() => setShowJobNotesModal(false)}
-                  style={styles.jobNotesModalCloseButton}
-                  hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-                  <Icon name="close" size={20} color={colors.foreground} />
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                onPress={() => setShowJobNotesModal(false)}
+                style={styles.jobNotesModalCloseButton}
+                hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                <Icon name="close" size={20} color={colors.foreground} />
+              </TouchableOpacity>
             </View>
 
             <ScrollView
@@ -6489,39 +7036,234 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 </Card>
               )}
 
-              {pendingOrderToStart && (
-                <View style={styles.jobNotesAcknowledgment}>
-                  <TouchableOpacity
-                    style={styles.acknowledgmentCheckbox}
-                    onPress={handleCheckboxToggle}
-                    activeOpacity={0.7}>
-                    <View
-                      style={[
-                        styles.checkbox,
-                        jobNotesAcknowledged && styles.checkboxChecked,
-                      ]}>
-                    {jobNotesAcknowledged && (
-                      <Icon name="check" size={18} color={colors.primaryForeground} />
-                    )}
-                    </View>
-                    <Text style={styles.acknowledgmentText}>
-                      I have read the service notes
-                    </Text>
-                  </TouchableOpacity>
-                  <Button
-                    title="Acknowledge & Start Service"
-                    variant="primary"
-                    size="lg"
-                    fullWidth
-                    disabled={!jobNotesAcknowledged}
-                    onPress={handleJobNotesAcknowledge}
-                  />
-                </View>
-              )}
             </ScrollView>
           </SafeAreaView>
         </Modal>
       )}
+
+      {/* All Upcoming Order Notes Modal */}
+      <Modal
+        visible={showAllNotesModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowAllNotesModal(false)}>
+        <SafeAreaView style={styles.jobNotesModalContainer}>
+          <View style={styles.jobNotesModalHeader}>
+            <Text style={styles.jobNotesModalTitle}>Upcoming Order Notes</Text>
+            <TouchableOpacity
+              onPress={() => setShowAllNotesModal(false)}
+              style={styles.jobNotesModalCloseButton}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+              <Icon name="close" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.jobNotesModalScroll}
+            contentContainerStyle={styles.jobNotesModalContent}>
+            {upcomingOrdersWithNotes.length === 0 ? (
+              <Text style={styles.allNotesEmptyText}>
+                No service notes on upcoming orders.
+              </Text>
+            ) : (
+              upcomingOrdersWithNotes.map(order => {
+                const locationParts = [order.city, order.state].filter(Boolean).join(', ');
+                const locationLine = locationParts ? `${order.site} • ${locationParts}` : order.site;
+                const lastThreeNotes = order.previousServiceNotes
+                  ? order.previousServiceNotes.slice(0, 3)
+                  : [];
+
+                return (
+                  <View key={order.orderNumber} style={styles.allNotesOrderSection}>
+                    <View style={styles.allNotesOrderHeader}>
+                      <Text style={styles.allNotesOrderNumber}>{order.orderNumber}</Text>
+                      <Badge
+                        variant={
+                          getOrderStatus(order) === 'Scheduled'
+                            ? 'secondary'
+                            : getOrderStatus(order) === 'Partial'
+                              ? 'default'
+                              : getOrderStatus(order) === 'In Progress'
+                                ? 'default'
+                                : 'destructive'
+                        }>
+                        {getOrderStatus(order)}
+                      </Badge>
+                    </View>
+                    <Text style={styles.allNotesOrderMeta}>
+                      {formatCustomerWithStore(order.customer, order.site)}
+                    </Text>
+                    <Text style={styles.allNotesOrderMeta}>{locationLine}</Text>
+                    <Text style={styles.allNotesOrderMeta}>{order.serviceDate}</Text>
+
+                    {order.customerSpecialInstructions && (
+                      <Card style={styles.jobNotesCard}>
+                        <CardHeader>
+                          <CardTitle>
+                            <CardTitleText>Customer Special Instructions</CardTitleText>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <Text style={styles.jobNotesText}>
+                            {order.customerSpecialInstructions}
+                          </Text>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {order.siteAccessNotes && (
+                      <Card style={styles.jobNotesCard}>
+                        <CardHeader>
+                          <CardTitle>
+                            <CardTitleText>Site Access Notes</CardTitleText>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <Text style={styles.jobNotesText}>{order.siteAccessNotes}</Text>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {order.safetyWarnings && order.safetyWarnings.length > 0 && (
+                      <Card style={styles.jobNotesSafetyCard}>
+                        <CardHeader>
+                          <CardTitle>
+                            <View style={styles.jobNotesSafetyTitleContainer}>
+                              <Icon
+                                name="warning"
+                                size={20}
+                                color={colors.destructive}
+                                style={styles.jobNotesSafetyIcon}
+                              />
+                              <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
+                                Safety Warnings
+                              </Text>
+                            </View>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {order.safetyWarnings.map((warning, index) => (
+                            <View key={index} style={styles.safetyWarningItem}>
+                              <Text style={styles.safetyWarningText}>{warning}</Text>
+                            </View>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {lastThreeNotes.length > 0 && (
+                      <Card style={styles.jobNotesCard}>
+                        <CardHeader>
+                          <CardTitle>
+                            <CardTitleText>Previous Service Notes</CardTitleText>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {lastThreeNotes.map((note, index) => (
+                            <View key={index} style={styles.previousNoteItem}>
+                              <View style={styles.previousNoteHeader}>
+                                <Text style={styles.previousNoteDate}>{note.date}</Text>
+                                {note.technician && (
+                                  <Text style={styles.previousNoteTechnician}>
+                                    {note.technician}
+                                  </Text>
+                                )}
+                              </View>
+                              <Text style={styles.previousNoteText}>{note.note}</Text>
+                            </View>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    )}
+                  </View>
+                );
+              })
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Pause Reason Modal */}
+      <Modal
+        visible={showPauseReasonModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => {
+          setShowPauseReasonModal(false);
+          setPauseReasonSelection('');
+        }}>
+        <SafeAreaView style={styles.pauseModalContainer}>
+          <View style={styles.pauseModalHeader}>
+            <Text style={styles.pauseModalTitle}>Pause Time Tracking</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setShowPauseReasonModal(false);
+                setPauseReasonSelection('');
+              }}
+              style={styles.pauseModalCloseButton}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+              <Icon name="close" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.pauseModalContent}>
+            <Text style={styles.pauseModalText}>
+              Provide a reason for pausing so the team can track downtime accurately.
+            </Text>
+            <View style={styles.pauseReasonOptions}>
+              {pauseReasonOptions.map(option => {
+                const isSelected = pauseReasonSelection === option;
+                return (
+                  <TouchableOpacity
+                    key={option}
+                    onPress={() => setPauseReasonSelection(option)}
+                    style={[
+                      styles.pauseReasonOption,
+                      isSelected && styles.pauseReasonOptionSelected,
+                    ]}
+                    activeOpacity={0.7}>
+                    <View style={styles.pauseReasonOptionLeft}>
+                      <Text
+                        style={[
+                          styles.pauseReasonOptionText,
+                          isSelected && styles.pauseReasonOptionTextSelected,
+                        ]}>
+                        {option}
+                      </Text>
+                    </View>
+                    {isSelected && (
+                      <Icon
+                        name="check"
+                        size={18}
+                        color={colors.primaryForeground}
+                        style={styles.pauseReasonOptionIcon}
+                      />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.pauseModalActions}>
+              <Button
+                title="Cancel"
+                variant="outline"
+                size="lg"
+                onPress={() => {
+                  setShowPauseReasonModal(false);
+                  setPauseReasonSelection('');
+                }}
+                style={styles.pauseModalActionButton}
+              />
+              <Button
+                title="Pause Tracking"
+                variant="primary"
+                size="lg"
+                onPress={handleConfirmPause}
+                style={styles.pauseModalActionButton}
+              />
+            </View>
+          </View>
+        </SafeAreaView>
+      </Modal>
 
       {/* Offline Blocked Modal */}
       <Modal
@@ -7160,22 +7902,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                             setShowServiceTypeSelectionModal(false);
                             setPendingOrderForServiceTypeSelection(null);
                             
-                            // Continue with normal flow (check job notes, then proceed)
-                            const hasJobNotes = 
-                              order.customerSpecialInstructions ||
-                              order.siteAccessNotes ||
-                              (order.safetyWarnings && order.safetyWarnings.length > 0) ||
-                              (order.previousServiceNotes && order.previousServiceNotes.length > 0);
-                            
-                            const isAcknowledged = acknowledgedOrders.has(order.orderNumber);
-                            
-                            if (hasJobNotes && !isAcknowledged) {
-                              setPendingOrderToStart(order);
-                              setShowJobNotesModal(true);
-                              setJobNotesAcknowledged(false);
-                            } else {
-                              await proceedWithStartService(order);
-                            }
+                            // Continue with normal flow
+                            await proceedWithStartService(order);
                             return;
                           }
 
@@ -7218,22 +7946,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           setShowServiceTypeSelectionModal(false);
                           setPendingOrderForServiceTypeSelection(null);
                           
-                          // Continue with normal flow (check job notes, then proceed)
-                          const hasJobNotes = 
-                            order.customerSpecialInstructions ||
-                            order.siteAccessNotes ||
-                            (order.safetyWarnings && order.safetyWarnings.length > 0) ||
-                            (order.previousServiceNotes && order.previousServiceNotes.length > 0);
-                          
-                          const isAcknowledged = acknowledgedOrders.has(order.orderNumber);
-                          
-                          if (hasJobNotes && !isAcknowledged) {
-                            setPendingOrderToStart(order);
-                            setShowJobNotesModal(true);
-                            setJobNotesAcknowledged(false);
-                          } else {
-                            await proceedWithStartService(order);
-                          }
+                          // Continue with normal flow
+                          await proceedWithStartService(order);
                         } catch (error) {
                           Alert.alert('Error', 'Failed to start service type time tracking');
                         }
@@ -8122,6 +8836,41 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           }}
         />
       </Modal>
+
+      {/* Paused Overlay */}
+      <Modal
+        visible={isTimeTrackingPaused}
+        animationType="fade"
+        transparent
+        onRequestClose={() => {}}>
+        <View style={styles.pausedOverlay}>
+          <View style={styles.pausedCard}>
+            <Icon name="pause" size={32} color={colors.primary} />
+            <Text style={styles.pausedTitle}>Work Paused</Text>
+            <Text style={styles.pausedMessage}>
+              Time tracking is paused. Continue to resume work.
+            </Text>
+            <View style={styles.pausedElapsedRow}>
+              <Text style={styles.pausedElapsedLabel}>Elapsed Time</Text>
+              <Text style={styles.pausedElapsedValue}>
+                {elapsedTimeDisplay || 'N/A'}
+              </Text>
+            </View>
+            {activePauseReason ? (
+              <View style={styles.pausedReason}>
+                <Text style={styles.pausedReasonLabel}>Reason:</Text>
+                <Text style={styles.pausedReasonText}>{activePauseReason}</Text>
+              </View>
+            ) : null}
+            <Button
+              title="Continue Work"
+              variant="primary"
+              size="lg"
+              onPress={handleResumeTracking}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -8372,6 +9121,12 @@ const styles = StyleSheet.create({
       width: '100%',
     }),
   },
+  pageTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
   pageTitleContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -8393,6 +9148,34 @@ const styles = StyleSheet.create({
     // @ts-ignore - web-specific style
     whiteSpace: 'nowrap',
     flex: 0,
+  },
+  allNotesEmptyText: {
+    ...typography.base,
+    color: colors.mutedForeground,
+  },
+  allNotesOrderSection: {
+    marginBottom: spacing.lg,
+    padding: spacing.lg,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  allNotesOrderHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  allNotesOrderNumber: {
+    ...typography.lg,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  allNotesOrderMeta: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginBottom: spacing.xs,
   },
   scrollViewContainer: {
     flex: 1,
@@ -10031,6 +10814,12 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     backgroundColor: colors.background,
   },
+  masterPaneHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
   masterPaneTitle: {
     ...typography.xl,
     fontWeight: '600',
@@ -10188,6 +10977,32 @@ const styles = StyleSheet.create({
   },
   detailCard: {
     marginBottom: spacing.lg,
+  },
+  detailNotesSection: {
+    marginBottom: spacing.lg,
+    padding: spacing.lg,
+    backgroundColor: colors.primary + '10',
+    borderWidth: 2,
+    borderColor: colors.primary,
+    borderRadius: borderRadius.lg,
+  },
+  detailNotesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  detailNotesTitle: {
+    ...typography.xl,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  detailNotesBadge: {
+    backgroundColor: colors.primary,
+  },
+  detailNotesEmptyText: {
+    ...typography.base,
+    color: colors.mutedForeground,
   },
   detailRow: {
     flexDirection: 'row',
@@ -11551,37 +12366,145 @@ const styles = StyleSheet.create({
     color: colors.foreground,
     lineHeight: 22,
   },
-  jobNotesAcknowledgment: {
-    marginTop: spacing.xl,
-    paddingTop: spacing.lg,
-    borderTopWidth: 2,
-    borderTopColor: colors.border,
+  pauseModalContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
   },
-  acknowledgmentCheckbox: {
+  pauseModalHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.lg,
-    gap: spacing.md,
-  },
-  checkbox: {
-    width: 28,
-    height: 28,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    borderRadius: borderRadius.sm,
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
     backgroundColor: colors.card,
   },
-  checkboxChecked: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  pauseModalTitle: {
+    ...typography['2xl'],
+    fontWeight: '600',
+    color: colors.foreground,
   },
-  acknowledgmentText: {
+  pauseModalCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.secondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pauseModalContent: {
+    padding: spacing.lg,
+  },
+  pauseModalText: {
+    ...typography.base,
+    color: colors.foreground,
+    marginBottom: spacing.md,
+  },
+  pauseReasonOptions: {
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  pauseReasonOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  pauseReasonOptionSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  pauseReasonOptionLeft: {
+    flex: 1,
+  },
+  pauseReasonOptionText: {
     ...typography.base,
     color: colors.foreground,
     fontWeight: '500',
+  },
+  pauseReasonOptionTextSelected: {
+    color: colors.primaryForeground,
+  },
+  pauseReasonOptionIcon: {
+    marginLeft: spacing.sm,
+  },
+  pauseModalActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  pauseModalActionButton: {
     flex: 1,
+  },
+  pausedOverlay: {
+    flex: 1,
+    backgroundColor: colors.background + 'CC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  pausedCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    alignItems: 'center',
+    gap: spacing.md,
+    borderWidth: 2,
+    borderColor: colors.primary,
+  },
+  pausedTitle: {
+    ...typography.xl,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  pausedMessage: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+  },
+  pausedElapsedRow: {
+    width: '100%',
+    padding: spacing.md,
+    backgroundColor: colors.muted,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pausedElapsedLabel: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
+  pausedElapsedValue: {
+    ...typography.lg,
+    color: colors.foreground,
+    fontWeight: '700',
+  },
+  pausedReason: {
+    width: '100%',
+    padding: spacing.md,
+    backgroundColor: colors.primary + '10',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.primary + '40',
+  },
+  pausedReasonLabel: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
+  pausedReasonText: {
+    ...typography.base,
+    color: colors.foreground,
   },
   // Validation Modal Styles
   validationModalContainer: {
