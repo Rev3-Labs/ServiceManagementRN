@@ -347,8 +347,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [elapsedTimeDisplay, setElapsedTimeDisplay] = useState<string>('');
   const [showPauseReasonModal, setShowPauseReasonModal] = useState(false);
   const [pauseReasonSelection, setPauseReasonSelection] = useState('');
-  const [isTimeTrackingPaused, setIsTimeTrackingPaused] = useState(false);
-  const [activePauseReason, setActivePauseReason] = useState('');
 
   // Use the mock orders
   const orders = MOCK_ORDERS;
@@ -465,8 +463,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     try {
       const active = await getActiveTimeTracking();
       setActiveTimeTracking(active);
-      setIsTimeTrackingPaused(Boolean(active?.pausedAt));
-      setActivePauseReason(active?.pauseReason || '');
       if (active) {
         setElapsedTimeDisplay(getElapsedTimeDisplay(active));
       } else {
@@ -481,11 +477,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   useEffect(() => {
     loadActiveTimeTracking();
   }, [loadActiveTimeTracking]);
-
-  useEffect(() => {
-    setIsTimeTrackingPaused(Boolean(activeTimeTracking?.pausedAt));
-    setActivePauseReason(activeTimeTracking?.pauseReason || '');
-  }, [activeTimeTracking]);
 
   // Load time tracking for current order (selectedOrderData or dashboardSelectedOrder)
   const loadCurrentOrderTimeTracking = useCallback(async () => {
@@ -741,7 +732,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   }, [truckId, username, proceedWithStartService, offlineStatus.isBlocked, checkOfflineBlock]);
 
   const handleRequestPause = useCallback(() => {
-    if (isTimeTrackingPaused) {
+    if (activeTimeTracking?.pausedAt) {
       Alert.alert('Already Paused', 'Time tracking is already paused.');
       return;
     }
@@ -751,7 +742,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }
     setPauseReasonSelection('');
     setShowPauseReasonModal(true);
-  }, [activeTimeTracking, currentOrderTimeTracking, isTimeTrackingPaused]);
+  }, [activeTimeTracking, currentOrderTimeTracking]);
 
   const handleConfirmPause = useCallback(async () => {
     const reason = pauseReasonSelection.trim();
@@ -775,8 +766,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           setCurrentOrderTimeTracking(updated);
         }
         setElapsedTimeDisplay(getElapsedTimeDisplay(updated));
-        setIsTimeTrackingPaused(true);
-        setActivePauseReason(reason);
       }
       setShowPauseReasonModal(false);
       setPauseReasonSelection('');
@@ -808,8 +797,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         }
         setElapsedTimeDisplay(getElapsedTimeDisplay(updated));
       }
-      setIsTimeTrackingPaused(false);
-      setActivePauseReason('');
     } catch (error) {
       console.error('Error resuming time tracking:', error);
       Alert.alert('Error', 'Failed to resume time tracking.');
@@ -2924,7 +2911,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             onBackPress={() => setCurrentStep('dashboard')}
           subtitle={`${selectedOrderData.customer || 'Customer Name'} - ${selectedOrderData.site || 'Site Location'}`}
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={isTimeTrackingPaused}
+          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
           onPause={handleRequestPause}
           onResume={handleResumeTracking}
           onViewNotes={() => {
@@ -3086,7 +3073,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('stream-selection')}
           subtitle={selectedStream}
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={isTimeTrackingPaused}
+          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
           onPause={handleRequestPause}
           onResume={handleResumeTracking}
           onViewNotes={() => {
@@ -3239,7 +3226,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('container-selection')}
           subtitle={`${selectedStream} • ${selectedContainerType?.size || 'Container'}`}
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={isTimeTrackingPaused}
+          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
           onPause={handleRequestPause}
           onResume={handleResumeTracking}
           onViewNotes={() => {
@@ -3589,7 +3576,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('container-entry')}
           subtitle="Container Summary"
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={isTimeTrackingPaused}
+          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
           onPause={handleRequestPause}
           onResume={handleResumeTracking}
           onViewNotes={() => {
@@ -3847,7 +3834,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('container-summary')}
           subtitle="Manifest Management"
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={isTimeTrackingPaused}
+          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
           onPause={handleRequestPause}
           onResume={handleResumeTracking}
           onViewNotes={() => {
@@ -4649,7 +4636,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('manifest-management')}
           subtitle="Supplies"
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={isTimeTrackingPaused}
+          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
           onPause={handleRequestPause}
           onResume={handleResumeTracking}
           onViewNotes={() => {
@@ -4881,7 +4868,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('manifest-management')}
           subtitle="Equipment"
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={isTimeTrackingPaused}
+          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
           onPause={handleRequestPause}
           onResume={handleResumeTracking}
           onViewNotes={() => {
@@ -5314,8 +5301,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             setCurrentOrderTimeTracking(null);
             setElapsedTimeDisplay('');
           }
-          setIsTimeTrackingPaused(false);
-          setActivePauseReason('');
         } catch (error) {
           console.error('Error stopping time tracking:', error);
         }
@@ -5424,7 +5409,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onBackPress={() => setCurrentStep('manifest-management')}
           subtitle="Customer Acknowledgment"
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={isTimeTrackingPaused}
+          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
           onPause={handleRequestPause}
           onResume={handleResumeTracking}
           onViewNotes={() => {
@@ -7561,7 +7546,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         </View>
                       </View>
                       {photo.caption && (
-                        <Text style={styles.photoCardCaption}>{photo.caption}</Text>
+                        <View style={styles.photoCardCaptionRow}>
+                          <Text style={styles.photoCardCaptionLabel}>Comment:</Text>
+                          <Text style={styles.photoCardCaption}>{photo.caption}</Text>
+                        </View>
                       )}
                       {/* Note: In a real app, you'd display the actual image here */}
                       <View style={styles.photoPlaceholder}>
@@ -8837,40 +8825,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         />
       </Modal>
 
-      {/* Paused Overlay */}
-      <Modal
-        visible={isTimeTrackingPaused}
-        animationType="fade"
-        transparent
-        onRequestClose={() => {}}>
-        <View style={styles.pausedOverlay}>
-          <View style={styles.pausedCard}>
-            <Icon name="pause" size={32} color={colors.primary} />
-            <Text style={styles.pausedTitle}>Work Paused</Text>
-            <Text style={styles.pausedMessage}>
-              Time tracking is paused. Continue to resume work.
-            </Text>
-            <View style={styles.pausedElapsedRow}>
-              <Text style={styles.pausedElapsedLabel}>Elapsed Time</Text>
-              <Text style={styles.pausedElapsedValue}>
-                {elapsedTimeDisplay || 'N/A'}
-              </Text>
-            </View>
-            {activePauseReason ? (
-              <View style={styles.pausedReason}>
-                <Text style={styles.pausedReasonLabel}>Reason:</Text>
-                <Text style={styles.pausedReasonText}>{activePauseReason}</Text>
-              </View>
-            ) : null}
-            <Button
-              title="Continue Work"
-              variant="primary"
-              size="lg"
-              onPress={handleResumeTracking}
-            />
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 };
@@ -12441,71 +12395,6 @@ const styles = StyleSheet.create({
   pauseModalActionButton: {
     flex: 1,
   },
-  pausedOverlay: {
-    flex: 1,
-    backgroundColor: colors.background + 'CC',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.lg,
-  },
-  pausedCard: {
-    width: '100%',
-    maxWidth: 420,
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    alignItems: 'center',
-    gap: spacing.md,
-    borderWidth: 2,
-    borderColor: colors.primary,
-  },
-  pausedTitle: {
-    ...typography.xl,
-    fontWeight: '700',
-    color: colors.foreground,
-  },
-  pausedMessage: {
-    ...typography.base,
-    color: colors.mutedForeground,
-    textAlign: 'center',
-  },
-  pausedElapsedRow: {
-    width: '100%',
-    padding: spacing.md,
-    backgroundColor: colors.muted,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  pausedElapsedLabel: {
-    ...typography.sm,
-    color: colors.mutedForeground,
-    fontWeight: '600',
-    marginBottom: spacing.xs,
-  },
-  pausedElapsedValue: {
-    ...typography.lg,
-    color: colors.foreground,
-    fontWeight: '700',
-  },
-  pausedReason: {
-    width: '100%',
-    padding: spacing.md,
-    backgroundColor: colors.primary + '10',
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.primary + '40',
-  },
-  pausedReasonLabel: {
-    ...typography.sm,
-    color: colors.mutedForeground,
-    fontWeight: '600',
-    marginBottom: spacing.xs,
-  },
-  pausedReasonText: {
-    ...typography.base,
-    color: colors.foreground,
-  },
   // Validation Modal Styles
   validationModalContainer: {
     flex: 1,
@@ -12846,6 +12735,16 @@ const styles = StyleSheet.create({
     color: colors.foreground,
     marginTop: spacing.sm,
     marginBottom: spacing.md,
+  },
+  photoCardCaptionRow: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+    gap: spacing.xs,
+  },
+  photoCardCaptionLabel: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontWeight: '600',
   },
   photoPlaceholder: {
     width: '100%',

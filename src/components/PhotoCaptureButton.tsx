@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import {Icon} from './Icon';
 import {colors, spacing, typography, borderRadius} from '../styles/theme';
+import {Input} from './Input';
 import {photoService, PhotoCategory} from '../services/photoService';
 import {launchCamera, ImagePickerResponse, CameraOptions} from 'react-native-image-picker';
 
@@ -31,6 +32,9 @@ export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
   const [showQuickActionsMenu, setShowQuickActionsMenu] = useState(false);
   const [showCategorySelector, setShowCategorySelector] = useState(false);
   const [pendingPhotoUri, setPendingPhotoUri] = useState<string | null>(null);
+  const [pendingPhotoCategory, setPendingPhotoCategory] = useState<PhotoCategory | null>(null);
+  const [showCaptionModal, setShowCaptionModal] = useState(false);
+  const [photoCaption, setPhotoCaption] = useState('');
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -106,19 +110,34 @@ export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
     }
   }, []);
 
-  const handleCategorySelect = async (category: PhotoCategory) => {
+  const handleCategorySelect = (category: PhotoCategory) => {
     if (!pendingPhotoUri) return;
+    setPendingPhotoCategory(category);
+    setPhotoCaption('');
+    setShowCategorySelector(false);
+    setShowCaptionModal(true);
+  };
+
+  const resetPendingPhoto = useCallback(() => {
+    setPendingPhotoUri(null);
+    setPendingPhotoCategory(null);
+    setPhotoCaption('');
+    setShowCaptionModal(false);
+  }, []);
+
+  const handleSavePhoto = useCallback(async () => {
+    if (!pendingPhotoUri || !pendingPhotoCategory) return;
 
     try {
-      await photoService.addPhoto(orderNumber, pendingPhotoUri, category);
-      setPendingPhotoUri(null);
-      setShowCategorySelector(false);
+      const caption = photoCaption.trim() || undefined;
+      await photoService.addPhoto(orderNumber, pendingPhotoUri, pendingPhotoCategory, caption);
       onPhotoAdded?.();
       Alert.alert('Success', 'Photo captured successfully');
+      resetPendingPhoto();
     } catch (error) {
       Alert.alert('Error', 'Failed to save photo');
     }
-  };
+  }, [pendingPhotoUri, pendingPhotoCategory, photoCaption, orderNumber, onPhotoAdded, resetPendingPhoto]);
 
   const photoCategories: {category: PhotoCategory; label: string; icon: string}[] = [
     {category: 'waste-item', label: 'Waste Item', icon: 'inventory'},
@@ -212,6 +231,7 @@ export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
         onRequestClose={() => {
           setShowCategorySelector(false);
           setPendingPhotoUri(null);
+          setPendingPhotoCategory(null);
         }}>
         <View style={styles.categoryModalOverlay}>
           <View style={styles.categoryModalContainer}>
@@ -221,6 +241,7 @@ export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
                 onPress={() => {
                   setShowCategorySelector(false);
                   setPendingPhotoUri(null);
+                  setPendingPhotoCategory(null);
                 }}
                 style={styles.categoryModalCloseButton}>
                 <Icon name="close" size={20} color={colors.foreground} />
@@ -241,6 +262,44 @@ export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
                   <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
                 </TouchableOpacity>
               ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Caption Modal */}
+      <Modal
+        visible={showCaptionModal}
+        transparent
+        animationType="slide"
+        onRequestClose={resetPendingPhoto}>
+        <View style={styles.captionModalOverlay}>
+          <View style={styles.captionModalContainer}>
+            <View style={styles.captionModalHeader}>
+              <Text style={styles.captionModalTitle}>Add Photo Comment</Text>
+              <TouchableOpacity
+                onPress={resetPendingPhoto}
+                style={styles.captionModalCloseButton}>
+                <Icon name="close" size={20} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.captionModalContent}>
+              <Input
+                label="Comment"
+                placeholder="Add a note about this photo (optional)"
+                value={photoCaption}
+                onChangeText={setPhotoCaption}
+                multiline
+                numberOfLines={3}
+              />
+              <View style={styles.captionModalActions}>
+                <TouchableOpacity
+                  style={styles.captionModalSaveButton}
+                  onPress={handleSavePhoto}
+                  activeOpacity={0.7}>
+                  <Text style={styles.captionModalSaveText}>Save</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </View>
@@ -395,5 +454,54 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.foreground,
     flex: 1,
+  },
+  captionModalOverlay: {
+    flex: 1,
+    backgroundColor: colors.background + 'CC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  captionModalContainer: {
+    width: '100%',
+    maxWidth: 520,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+  },
+  captionModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  captionModalTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  captionModalCloseButton: {
+    padding: spacing.xs,
+  },
+  captionModalContent: {
+    padding: spacing.lg,
+  },
+  captionModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  captionModalSaveButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+  },
+  captionModalSaveText: {
+    ...typography.base,
+    color: colors.primaryForeground,
+    fontWeight: '600',
   },
 });
