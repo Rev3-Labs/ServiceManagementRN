@@ -22,9 +22,11 @@ export interface OrderPhoto {
 
 export type PhotoListener = (photos: OrderPhoto[]) => void;
 
+type ListenerEntry = { orderNumber: string; listener: PhotoListener };
+
 class PhotoService {
   private photos: Map<string, OrderPhoto[]> = new Map(); // orderNumber -> photos[]
-  private listeners: PhotoListener[] = [];
+  private listenerEntries: ListenerEntry[] = [];
 
   constructor() {
     this.initialize();
@@ -150,7 +152,12 @@ class PhotoService {
 
   private notifyListeners(orderNumber: string) {
     const photos = this.getPhotosForOrder(orderNumber);
-    this.listeners.forEach(listener => listener(photos));
+    const copy = [...photos];
+    this.listenerEntries.forEach(entry => {
+      if (entry.orderNumber === orderNumber) {
+        entry.listener(copy);
+      }
+    });
   }
 
   /**
@@ -160,12 +167,13 @@ class PhotoService {
     orderNumber: string,
     listener: PhotoListener,
   ): () => void {
-    this.listeners.push(listener);
-    // Immediately call with current photos
-    listener(this.getPhotosForOrder(orderNumber));
+    const entry: ListenerEntry = { orderNumber, listener };
+    this.listenerEntries.push(entry);
+    // Immediately call with current photos (shallow copy so React sees new reference)
+    listener([...this.getPhotosForOrder(orderNumber)]);
 
     return () => {
-      this.listeners = this.listeners.filter(l => l !== listener);
+      this.listenerEntries = this.listenerEntries.filter(e => e.listener !== listener);
     };
   }
 

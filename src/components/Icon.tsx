@@ -33,6 +33,8 @@ const iconMap: Record<string, string> = {
   'inventory': '📦',
   'security': '🛡️',
   'delete': '🗑️',
+  'delete-outline': '🗑',
+  'edit': '✏️',
   'business': '🏢',
   'pause': '⏸',
   'play-arrow': '▶',

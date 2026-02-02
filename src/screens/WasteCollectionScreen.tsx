@@ -130,6 +130,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [orderPhotos, setOrderPhotos] = useState(
     selectedOrderData ? photoService.getPhotosForOrder(selectedOrderData.orderNumber) : []
   );
+  const [photoNoteEdit, setPhotoNoteEdit] = useState<{
+    photoId: string;
+    caption: string;
+  } | null>(null);
+  const [photoConfirm, setPhotoConfirm] = useState<{
+    type: 'deleteNote' | 'removePhoto';
+    orderNumber: string;
+    photoId: string;
+  } | null>(null);
   const [showPListedAuthModal, setShowPListedAuthModal] = useState(false);
   const [pListedAuthAcknowledged, setPListedAuthAcknowledged] = useState(false);
   const [pListedAuthResult, setPListedAuthResult] = useState<{
@@ -7544,11 +7553,67 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                             {new Date(photo.timestamp).toLocaleString()}
                           </Text>
                         </View>
+                        <View style={styles.photoCardActions}>
+                          <TouchableOpacity
+                            style={styles.photoCardActionButton}
+                            onPress={() =>
+                              setPhotoNoteEdit({
+                                photoId: photo.id,
+                                caption: photo.caption ?? '',
+                              })
+                            }
+                            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+                            <Icon name="edit" size={18} color={colors.primary} />
+                            <Text style={styles.photoCardActionText}>Edit note</Text>
+                          </TouchableOpacity>
+                          {(photo.caption ?? '').length > 0 && (
+                            <TouchableOpacity
+                              style={styles.photoCardActionButton}
+                              onPress={() => {
+                                const orderNumber = selectedOrderData?.orderNumber;
+                                if (orderNumber) {
+                                  setPhotoConfirm({
+                                    type: 'deleteNote',
+                                    orderNumber,
+                                    photoId: photo.id,
+                                  });
+                                }
+                              }}
+                              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+                              <Icon name="delete-outline" size={18} color={colors.destructive} />
+                              <Text style={[styles.photoCardActionText, {color: colors.destructive}]}>
+                                Delete note
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity
+                            style={styles.photoCardActionButton}
+                            onPress={() => {
+                              const orderNumber = selectedOrderData?.orderNumber;
+                              if (orderNumber) {
+                                setPhotoConfirm({
+                                  type: 'removePhoto',
+                                  orderNumber,
+                                  photoId: photo.id,
+                                });
+                              }
+                            }}
+                            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+                            <Icon name="delete" size={18} color={colors.destructive} />
+                            <Text style={[styles.photoCardActionText, {color: colors.destructive}]}>
+                              Remove photo
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                      {photo.caption && (
+                      {photo.caption ? (
                         <View style={styles.photoCardCaptionRow}>
                           <Text style={styles.photoCardCaptionLabel}>Comment:</Text>
                           <Text style={styles.photoCardCaption}>{photo.caption}</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.photoCardCaptionRow}>
+                          <Text style={styles.photoCardCaptionLabelMuted}>No comment</Text>
                         </View>
                       )}
                       {/* Note: In a real app, you'd display the actual image here */}
@@ -7564,7 +7629,118 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           </SafeAreaView>
         </Modal>
       )}
-      
+
+      {/* Edit Photo Note Modal */}
+      {photoNoteEdit && selectedOrderData && (
+        <Modal
+          visible={!!photoNoteEdit}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setPhotoNoteEdit(null)}>
+          <View style={styles.editNoteModalOverlay}>
+            <View style={styles.editNoteModalContainer}>
+              <View style={styles.editNoteModalHeader}>
+                <Text style={styles.editNoteModalTitle}>Edit comment</Text>
+                <TouchableOpacity
+                  onPress={() => setPhotoNoteEdit(null)}
+                  style={styles.editNoteModalCloseButton}
+                  hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                  <Icon name="close" size={20} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.editNoteModalContent}>
+                <Input
+                  label="Comment"
+                  placeholder="Add a note about this photo (optional)"
+                  value={photoNoteEdit.caption}
+                  onChangeText={(text) =>
+                    setPhotoNoteEdit((prev) => (prev ? {...prev, caption: text} : null))
+                  }
+                  multiline
+                  numberOfLines={3}
+                />
+                <View style={styles.editNoteModalActions}>
+                  <TouchableOpacity
+                    style={styles.editNoteModalCancelButton}
+                    onPress={() => setPhotoNoteEdit(null)}
+                    activeOpacity={0.7}>
+                    <Text style={styles.editNoteModalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.editNoteModalSaveButton}
+                    onPress={() => {
+                      photoService.updatePhoto(
+                        selectedOrderData.orderNumber,
+                        photoNoteEdit.photoId,
+                        {caption: photoNoteEdit.caption.trim() || undefined},
+                      );
+                      setPhotoNoteEdit(null);
+                    }}
+                    activeOpacity={0.7}>
+                    <Text style={styles.editNoteModalSaveText}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Delete note / Remove photo confirmation modal */}
+      {photoConfirm && (
+        <Modal
+          visible={!!photoConfirm}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPhotoConfirm(null)}>
+          <View style={styles.editNoteModalOverlay}>
+            <View style={styles.editNoteModalContainer}>
+              <View style={styles.editNoteModalHeader}>
+                <Text style={styles.editNoteModalTitle}>
+                  {photoConfirm.type === 'deleteNote' ? 'Delete note' : 'Remove photo'}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setPhotoConfirm(null)}
+                  style={styles.editNoteModalCloseButton}
+                  hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                  <Icon name="close" size={20} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.editNoteModalContent}>
+                <Text style={styles.editNoteModalCancelText}>
+                  {photoConfirm.type === 'deleteNote'
+                    ? 'Remove the comment from this photo?'
+                    : 'Delete this photo from the order?'}
+                </Text>
+                <View style={styles.editNoteModalActions}>
+                  <TouchableOpacity
+                    style={styles.editNoteModalCancelButton}
+                    onPress={() => setPhotoConfirm(null)}
+                    activeOpacity={0.7}>
+                    <Text style={styles.editNoteModalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.editNoteModalSaveButton, {backgroundColor: colors.destructive}]}
+                    onPress={async () => {
+                      const {type, orderNumber, photoId} = photoConfirm;
+                      setPhotoConfirm(null);
+                      if (type === 'deleteNote') {
+                        await photoService.updatePhoto(orderNumber, photoId, {caption: ''});
+                      } else {
+                        await photoService.deletePhoto(orderNumber, photoId);
+                      }
+                      setOrderPhotos([...photoService.getPhotosForOrder(orderNumber)]);
+                    }}
+                    activeOpacity={0.7}>
+                    <Text style={styles.editNoteModalSaveText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
       {/* P-Listed Authorization Modal */}
       {pListedAuthResult && (
         <Modal
@@ -12746,6 +12922,29 @@ const styles = StyleSheet.create({
     color: colors.mutedForeground,
     fontWeight: '600',
   },
+  photoCardCaptionLabelMuted: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontStyle: 'italic',
+  },
+  photoCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  photoCardActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  photoCardActionText: {
+    ...typography.sm,
+    color: colors.primary,
+    fontWeight: '500',
+  },
   photoPlaceholder: {
     width: '100%',
     height: 200,
@@ -12762,6 +12961,68 @@ const styles = StyleSheet.create({
     ...typography.sm,
     color: colors.mutedForeground,
     textAlign: 'center',
+  },
+  editNoteModalOverlay: {
+    flex: 1,
+    backgroundColor: colors.background + 'CC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  editNoteModalContainer: {
+    width: '100%',
+    maxWidth: 520,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+  },
+  editNoteModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  editNoteModalTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  editNoteModalCloseButton: {
+    padding: spacing.xs,
+  },
+  editNoteModalContent: {
+    padding: spacing.lg,
+  },
+  editNoteModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.md,
+    marginTop: spacing.lg,
+  },
+  editNoteModalCancelButton: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.muted + '40',
+  },
+  editNoteModalCancelText: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '500',
+  },
+  editNoteModalSaveButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+  },
+  editNoteModalSaveText: {
+    ...typography.base,
+    color: colors.primaryForeground,
+    fontWeight: '600',
   },
   // P-Listed Authorization Modal Styles
   pListedAuthModalOverlay: {
