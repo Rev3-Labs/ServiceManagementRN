@@ -192,6 +192,72 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               <Icon name="assignment" size={20} color={colors.foreground} />
             </TouchableOpacity>
           )}
+          {/* Sync status + button - top right (FR-5.0.1, FR-5.0.3) */}
+          {onSync && (
+            <View style={styles.headerSyncRow}>
+              <View
+                style={[
+                  styles.headerSyncStatusChip,
+                  (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) &&
+                    styles.headerSyncStatusChipError,
+                  (syncStatus === 'synced' || syncStatus === 'pending') && styles.headerSyncStatusChipSynced,
+                ]}>
+                {syncStatus === 'syncing' ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <View
+                    style={[
+                      styles.headerSyncDot,
+                      (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) &&
+                        styles.headerSyncDotError,
+                      (syncStatus === 'synced' || syncStatus === 'pending') && styles.headerSyncDotSynced,
+                    ]}
+                  />
+                )}
+                {!isCollapsed && (
+                  <Text
+                    style={[
+                      styles.headerSyncStatusText,
+                      (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) &&
+                        styles.headerSyncStatusTextError,
+                      (syncStatus === 'synced' || syncStatus === 'pending') && styles.headerSyncStatusTextSynced,
+                    ]}
+                    numberOfLines={1}>
+                    {syncStatus === 'syncing'
+                      ? 'Syncing...'
+                      : !offlineStatus.isOnline
+                        ? 'Offline'
+                        : syncStatus === 'error'
+                          ? 'Connection failed'
+                          : syncStatus === 'pending' && pendingSyncCount > 0
+                            ? `Pending (${pendingSyncCount})`
+                            : 'Synced'}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity
+                onPress={onSync}
+                disabled={syncStatus === 'syncing' || !offlineStatus.isOnline || offlineStatus.isBlocked}
+                style={[
+                  styles.headerSyncButton,
+                  (syncStatus === 'syncing' || !offlineStatus.isOnline || offlineStatus.isBlocked) &&
+                    styles.headerSyncButtonDisabled,
+                ]}
+                activeOpacity={0.7}>
+                {syncStatus === 'syncing' ? (
+                  <ActivityIndicator size="small" color={colors.primaryForeground} />
+                ) : (
+                  <Icon name="sync" size={16} color={colors.primaryForeground} />
+                )}
+                <Text style={styles.headerSyncButtonText}>Sync</Text>
+                {pendingSyncCount > 0 && syncStatus !== 'syncing' && (
+                  <Badge variant="secondary" style={styles.headerSyncButtonBadge}>
+                    {pendingSyncCount}
+                  </Badge>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
           {/* Connection Status Indicator - Always Visible */}
           <TouchableOpacity
             style={[
@@ -379,7 +445,7 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
             </View>
           )}
 
-          {/* Sync Information */}
+          {/* Last sync (Sync button is in top row) */}
           {!isCollapsed && (
             <View style={styles.syncInfoRow}>
               <View style={styles.syncInfoLeft}>
@@ -388,28 +454,6 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
                   {offlineStatus.lastSyncFormatted || 'Never synced'}
                 </Text>
               </View>
-              {onSync && (
-                <TouchableOpacity
-                  onPress={onSync}
-                  disabled={syncStatus === 'syncing' || offlineStatus.isBlocked}
-                  style={[
-                    styles.syncButton,
-                    (syncStatus === 'syncing' || offlineStatus.isBlocked) && styles.syncButtonDisabled
-                  ]}
-                  activeOpacity={0.7}>
-                  {syncStatus === 'syncing' ? (
-                    <ActivityIndicator size="small" color={colors.primaryForeground} />
-                  ) : (
-                    <Icon name="sync" size={16} color={colors.primaryForeground} />
-                  )}
-                  <Text style={styles.syncButtonText}>Sync</Text>
-                  {pendingSyncCount > 0 && (
-                    <Badge variant="secondary" style={styles.syncButtonBadge}>
-                      {pendingSyncCount}
-                    </Badge>
-                  )}
-                </TouchableOpacity>
-              )}
             </View>
           )}
         </View>
@@ -693,6 +737,78 @@ const styles = StyleSheet.create({
     color: colors.primaryForeground,
   },
   syncButtonBadge: {
+    marginLeft: spacing.xs,
+  },
+  headerSyncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginRight: spacing.sm,
+  },
+  headerSyncStatusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.muted,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  headerSyncStatusChipSynced: {
+    backgroundColor: colors.success + '18',
+    borderColor: colors.success + '60',
+  },
+  headerSyncStatusChipError: {
+    backgroundColor: colors.destructive + '18',
+    borderColor: colors.destructive + '60',
+  },
+  headerSyncDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.mutedForeground,
+  },
+  headerSyncDotSynced: {
+    backgroundColor: colors.success,
+  },
+  headerSyncDotError: {
+    backgroundColor: colors.destructive,
+  },
+  headerSyncStatusText: {
+    ...typography.xs,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  headerSyncStatusTextSynced: {
+    color: colors.success,
+  },
+  headerSyncStatusTextError: {
+    color: colors.destructive,
+  },
+  headerSyncButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  headerSyncButtonDisabled: {
+    opacity: 0.6,
+    backgroundColor: colors.muted,
+    borderColor: colors.border,
+  },
+  headerSyncButtonText: {
+    ...typography.xs,
+    fontWeight: '600',
+    color: colors.primaryForeground,
+  },
+  headerSyncButtonBadge: {
     marginLeft: spacing.xs,
   },
   serviceCenterBadge: {

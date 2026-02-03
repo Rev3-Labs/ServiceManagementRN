@@ -1553,99 +1553,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     });
   }, [streamSearchQuery, recentlyUsedProfiles]);
 
-  // Sync Status Indicator Component
-  const SyncStatusIndicator: React.FC<{
-    status: SyncStatus;
-    pendingCount: number;
-    offlineStatus?: OfflineStatus;
-  }> = ({status, pendingCount, offlineStatus}) => {
-    // Override status to "offline" if device is offline (for offline testing simulation)
-    const effectiveStatus = offlineStatus && !offlineStatus.isOnline ? 'offline' : status;
-    const getStatusStyle = () => {
-      switch (effectiveStatus) {
-        case 'synced':
-          return styles.syncStatusSynced;
-        case 'syncing':
-          return styles.syncStatusSyncing;
-        case 'offline':
-          return styles.syncStatusOffline;
-        case 'pending':
-          return styles.syncStatusPending;
-        case 'error':
-          return styles.syncStatusError;
-        default:
-          return styles.syncStatusSynced;
-      }
-    };
-
-    const getDotStyle = () => {
-      switch (effectiveStatus) {
-        case 'synced':
-          return styles.syncDotSynced;
-        case 'syncing':
-          return styles.syncDotSyncing;
-        case 'offline':
-          return styles.syncDotOffline;
-        case 'pending':
-          return styles.syncDotPending;
-        case 'error':
-          return styles.syncDotError;
-        default:
-          return styles.syncDotSynced;
-      }
-    };
-
-    const getTextStyle = () => {
-      switch (status) {
-        case 'synced':
-          return styles.syncTextSynced;
-        case 'syncing':
-          return styles.syncTextSyncing;
-        case 'offline':
-          return styles.syncTextOffline;
-        case 'pending':
-          return styles.syncTextPending;
-        case 'error':
-          return styles.syncTextError;
-        default:
-          return styles.syncTextSynced;
-      }
-    };
-
-    const getStatusText = () => {
-      switch (effectiveStatus) {
-        case 'synced':
-          return 'Synced';
-        case 'syncing':
-          return 'Syncing...';
-        case 'offline':
-          return 'Offline';
-        case 'pending':
-          return `Pending (${pendingCount})`;
-        case 'error':
-          return 'Error';
-        default:
-          return 'Synced';
-      }
-    };
-
-    return (
-      <View style={[styles.syncStatus, getStatusStyle()]}>
-        {status === 'syncing' ? (
-          <ActivityIndicator size="small" color={colors.primary} />
-        ) : (
-          <View style={[styles.syncDot, getDotStyle()]} />
-        )}
-        <Text style={[styles.syncText, getTextStyle()]}>{getStatusText()}</Text>
-        {pendingCount > 0 && status !== 'pending' && (
-          <Badge variant="secondary" style={styles.syncBadge}>
-            {pendingCount}
-          </Badge>
-        )}
-      </View>
-    );
-  };
-
   // Master-Detail Dashboard Screen (for tablets)
   const DashboardScreenMasterDetail = () => {
     const allOrders = MOCK_ORDERS || orders || [];
@@ -1757,11 +1664,50 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             {getOfflineLimitMessage()}
           </View>
           <View style={styles.headerActions}>
-            <SyncStatusIndicator
-              status={syncStatus}
-              pendingCount={pendingSyncCount}
-              offlineStatus={offlineStatus}
-            />
+            <View style={styles.headerSyncRow}>
+              <View
+                style={[
+                  styles.syncStatus,
+                  (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncStatusSynced,
+                  syncStatus === 'syncing' && styles.syncStatusSyncing,
+                  (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncStatusError,
+                ]}>
+                {syncStatus === 'syncing' ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <View
+                    style={[
+                      styles.syncDot,
+                      (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncDotSynced,
+                      (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncDotError,
+                    ]}
+                  />
+                )}
+                <Text
+                  style={[
+                    styles.syncText,
+                    (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncTextSynced,
+                    (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncTextError,
+                  ]}>
+                  {syncStatus === 'syncing'
+                    ? 'Syncing...'
+                    : !offlineStatus.isOnline
+                      ? 'Offline'
+                      : syncStatus === 'error'
+                        ? 'Connection failed'
+                        : syncStatus === 'pending' && pendingSyncCount > 0
+                          ? `Pending (${pendingSyncCount})`
+                          : 'Synced'}
+                </Text>
+              </View>
+              <Button
+                title="Sync"
+                variant="outline"
+                size="sm"
+                onPress={handleManualSync}
+                disabled={syncStatus === 'syncing' || !offlineStatus.isOnline}
+              />
+            </View>
             {filteredOrders.filter(order => isOrderCompleted(order.orderNumber)).length > 0 && (
               <Button
                 title="Drop Waste"
@@ -1770,14 +1716,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 onPress={() => setShowDropWasteModal(true)}
               />
             )}
-
-            <Button
-              title="Sync"
-              variant="outline"
-              size="md"
-              onPress={handleManualSync}
-              disabled={syncStatus === 'syncing' || syncStatus === 'offline'}
-            />
             <Button
               title="Full Screen"
               variant="ghost"
@@ -2310,11 +2248,50 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             {getOfflineLimitMessage()}
           </View>
           <View style={styles.headerActions}>
-            <SyncStatusIndicator
-              status={syncStatus}
-              pendingCount={pendingSyncCount}
-              offlineStatus={offlineStatus}
-            />
+            <View style={styles.headerSyncRow}>
+              <View
+                style={[
+                  styles.syncStatus,
+                  (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncStatusSynced,
+                  syncStatus === 'syncing' && styles.syncStatusSyncing,
+                  (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncStatusError,
+                ]}>
+                {syncStatus === 'syncing' ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <View
+                    style={[
+                      styles.syncDot,
+                      (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncDotSynced,
+                      (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncDotError,
+                    ]}
+                  />
+                )}
+                <Text
+                  style={[
+                    styles.syncText,
+                    (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncTextSynced,
+                    (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncTextError,
+                  ]}>
+                  {syncStatus === 'syncing'
+                    ? 'Syncing...'
+                    : !offlineStatus.isOnline
+                      ? 'Offline'
+                      : syncStatus === 'error'
+                        ? 'Connection failed'
+                        : syncStatus === 'pending' && pendingSyncCount > 0
+                          ? `Pending (${pendingSyncCount})`
+                          : 'Synced'}
+                </Text>
+              </View>
+              <Button
+                title="Sync"
+                variant="outline"
+                size="sm"
+                onPress={handleManualSync}
+                disabled={syncStatus === 'syncing' || !offlineStatus.isOnline}
+              />
+            </View>
             {completedOrdersList.length > 0 && (
               <Button
                 title="Drop Waste"
@@ -2323,13 +2300,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 onPress={() => setShowDropWasteModal(true)}
               />
             )}
-            <Button
-              title="Sync"
-              variant="outline"
-              size="md"
-              onPress={handleManualSync}
-              disabled={syncStatus === 'syncing' || syncStatus === 'offline'}
-            />
             {isTablet() && isLandscape() && (
               <Button
                 title="Master-Detail"
@@ -9153,6 +9123,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+  },
+  headerSyncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   timeTrackingBadge: {
     backgroundColor: colors.muted,

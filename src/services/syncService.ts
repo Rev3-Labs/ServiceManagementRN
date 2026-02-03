@@ -1,8 +1,6 @@
 import {safeAsyncStorage} from '../utils/storage';
 import {offlineTrackingService} from './offlineTrackingService';
-
-// Mock network state - assume always online (NetInfo not working)
-console.log('[SyncService] Using mock network state (always online)');
+import NetInfo from '@react-native-community/netinfo';
 
 export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'pending';
 
@@ -34,10 +32,12 @@ class SyncService {
   private async initialize() {
     // Load pending operations from storage
     await this.loadPendingOperations();
-    
-    // Mock network state - assume always online (NetInfo not working)
-    this.isOnline = true;
-    console.log('[SyncService] Network state: always online (mocked)');
+
+    // Subscribe to network state for offline/error feedback (e.g. Airplane Mode)
+    this.netInfoUnsubscribe = NetInfo.addEventListener(state => {
+      this.isOnline = (state.isConnected ?? false) && state.type !== 'none';
+      this.updateSyncStatus();
+    });
 
     // Start periodic sync
     this.startPeriodicSync();
@@ -75,7 +75,7 @@ class SyncService {
     }
   }
 
-  private setSyncStatus(status: SyncStatus) {
+  setSyncStatus(status: SyncStatus) {
     if (this.syncStatus !== status) {
       this.syncStatus = status;
       this.statusListeners.forEach(listener => listener(status));
@@ -197,12 +197,19 @@ class SyncService {
     // }
   }
 
-  // Manual sync trigger
+  // Manual sync trigger (FR-5.0.2: on-demand bi-directional sync)
   async manualSync(): Promise<void> {
+    this.setSyncStatus('syncing');
     if (!this.isOnline) {
-      throw new Error('Cannot sync while offline');
+      this.setSyncStatus('error');
+      throw new Error('Connection failed. Please check your network.');
     }
-    await this.syncPendingOperations();
+    try {
+      await this.syncPendingOperations();
+    } catch (e) {
+      this.setSyncStatus('error');
+      throw e;
+    }
   }
 
   // Get current sync status
