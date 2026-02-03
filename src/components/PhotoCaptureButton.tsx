@@ -19,6 +19,8 @@ interface PhotoCaptureButtonProps {
   onViewPhotos?: () => void;
   onScanDocument?: () => void;
   style?: any;
+  /** Icon color for the main button (e.g. when used in footer nav). Defaults to theme foreground. */
+  iconColor?: string;
 }
 
 export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
@@ -27,6 +29,7 @@ export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
   onViewPhotos,
   onScanDocument,
   style,
+  iconColor = colors.foreground,
 }) => {
   const [photoCount, setPhotoCount] = useState(0);
   const [showQuickActionsMenu, setShowQuickActionsMenu] = useState(false);
@@ -157,7 +160,7 @@ export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
         onPressOut={handlePressOut}
         activeOpacity={0.7}>
         <View style={styles.buttonContent}>
-          <Icon name="camera-alt" size={24} color={colors.foreground} />
+          <Icon name="camera-alt" size={24} color={iconColor} />
           <Text style={styles.buttonLabel}>Photos</Text>
           {photoCount > 0 && (
             <View style={styles.buttonBadge}>

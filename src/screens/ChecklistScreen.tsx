@@ -492,7 +492,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                     <TouchableOpacity
                       onPress={() => navigateMonth('prev')}
                       style={styles.datePickerNavButton}>
-                      <Text style={styles.datePickerNavText}>‹</Text>
+                      <Icon name="chevron-left" size={24} color={colors.foreground} />
                     </TouchableOpacity>
                     <Text style={styles.datePickerMonthText}>
                       {monthNames[datePickerMonth.getMonth()]} {datePickerMonth.getFullYear()}
@@ -500,7 +500,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                     <TouchableOpacity
                       onPress={() => navigateMonth('next')}
                       style={styles.datePickerNavButton}>
-                      <Text style={styles.datePickerNavText}>›</Text>
+                      <Icon name="chevron-right" size={24} color={colors.foreground} />
                     </TouchableOpacity>
                   </View>
                   

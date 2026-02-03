@@ -4312,9 +4312,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 <View style={styles.epaFormRow}>
                   <View style={[styles.epaFormCell, {flex: 1}]}>
                     <Text style={styles.epaFormCellLabel}>16. International Shipments</Text>
-                    <View style={{flexDirection: 'row', gap: 16}}>
-                      <Text style={styles.epaFormCellValue}>☐ Import to U.S.</Text>
-                      <Text style={styles.epaFormCellValue}>☐ Export from U.S.</Text>
+                    <View style={{flexDirection: 'row', gap: 16, alignItems: 'center'}}>
+                      <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
+                      <Text style={styles.epaFormCellValue}>Import to U.S.</Text>
+                      <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
+                      <Text style={styles.epaFormCellValue}>Export from U.S.</Text>
                     </View>
                   </View>
                   <View style={[styles.epaFormCell, {flex: 1}]}>
@@ -4380,12 +4382,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 <View style={styles.epaFormRow}>
                   <View style={[styles.epaFormCell, {flex: 1}]}>
                     <Text style={styles.epaFormCellLabel}>18a. Discrepancy Indication Space</Text>
-                    <View style={{flexDirection: 'row', gap: 16}}>
-                      <Text style={styles.epaFormCellValue}>☐ Quantity</Text>
-                      <Text style={styles.epaFormCellValue}>☐ Type</Text>
-                      <Text style={styles.epaFormCellValue}>☐ Residue</Text>
-                      <Text style={styles.epaFormCellValue}>☐ Partial Rejection</Text>
-                      <Text style={styles.epaFormCellValue}>☐ Full Rejection</Text>
+                    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 16, alignItems: 'center'}}>
+                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                        <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
+                        <Text style={styles.epaFormCellValue}>Quantity</Text>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                        <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
+                        <Text style={styles.epaFormCellValue}>Type</Text>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                        <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
+                        <Text style={styles.epaFormCellValue}>Residue</Text>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                        <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
+                        <Text style={styles.epaFormCellValue}>Partial Rejection</Text>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                        <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
+                        <Text style={styles.epaFormCellValue}>Full Rejection</Text>
+                      </View>
                     </View>
                   </View>
                 </View>
@@ -5922,6 +5939,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     );
   };
 
+  // Main fixed footer navigation icon color
+  const FOOTER_NAV_ICON_COLOR = '#0092bc';
+
   // Quick Actions Bar - shows on all order workflow screens
   const QuickActionsBar = () => {
     if (!selectedOrderData || currentStep === 'dashboard') {
@@ -6042,8 +6062,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 border-radius: 12px;
                 cursor: pointer;
                 min-height: 56px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
               `;
-              captureBtn.textContent = '📸 Capture Photo';
+              // Material Icons camera_alt codepoint (U+E3B0) - no emoji
+              captureBtn.innerHTML = '<span style="font-family:MaterialIcons;font-size:24px;line-height:1">\uE3B0</span> Capture Photo';
 
               // Create cancel button
               // @ts-ignore
@@ -6211,7 +6236,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           style={styles.quickActionHomeButton}
           onPress={() => setCurrentStep('dashboard')}
           activeOpacity={0.7}>
-          <Icon name="home" size={24} color={colors.foreground} />
+          <Icon name="home" size={24} color={FOOTER_NAV_ICON_COLOR} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -6222,7 +6247,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onPress={() => setCurrentStep('container-summary')}
           activeOpacity={0.7}>
           <View style={styles.quickActionContent}>
-            <Icon name="assignment" size={24} color={colors.foreground} />
+            <Icon name="assignment" size={24} color={FOOTER_NAV_ICON_COLOR} />
             <Text style={styles.quickActionLabel}>Containers</Text>
             {containersCount > 0 && (
               <View style={styles.quickActionBadge}>
@@ -6242,7 +6267,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onPress={() => setCurrentStep('materials-supplies')}
           activeOpacity={0.7}>
           <View style={styles.quickActionContent}>
-            <Icon name="inventory" size={24} color={colors.foreground} />
+            <Icon name="inventory" size={24} color={FOOTER_NAV_ICON_COLOR} />
             <Text
               style={styles.quickActionLabel}
               numberOfLines={1}
@@ -6266,7 +6291,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onPress={() => setCurrentStep('equipment-ppe')}
           activeOpacity={0.7}>
           <View style={styles.quickActionContent}>
-            <Icon name="security" size={24} color={colors.foreground} />
+            <Icon name="security" size={24} color={FOOTER_NAV_ICON_COLOR} />
             <Text
               style={styles.quickActionLabel}
               numberOfLines={1}
@@ -6287,6 +6312,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         {selectedOrderData && (
           <PhotoCaptureButton
             orderNumber={selectedOrderData.orderNumber}
+            iconColor={FOOTER_NAV_ICON_COLOR}
             onPhotoAdded={() => {
               // Photo added successfully
             }}

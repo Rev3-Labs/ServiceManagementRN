@@ -365,6 +365,7 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
             </View>
           )}
           
+          {/* Required Date, Address, Generator Status, Order Status, EPA ID - single row for easier scanning */}
           <View style={styles.persistentHeaderRow}>
             <View style={styles.persistentHeaderItem}>
               <Text style={styles.persistentHeaderLabel}>Required Date</Text>
@@ -378,9 +379,6 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
                 {formatAddress()}
               </Text>
             </View>
-          </View>
-
-          <View style={styles.persistentHeaderRow}>
             <View style={styles.persistentHeaderItem}>
               <Text style={styles.persistentHeaderLabel}>Generator Status</Text>
               {orderData.generatorStatus ? (
@@ -551,23 +549,23 @@ const styles = StyleSheet.create({
     color: colors.primaryForeground,
   },
   persistentHeaderContent: {
-    paddingTop: spacing.md,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
   },
   persistentHeaderRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.lg,
-    marginBottom: spacing.md,
+    gap: spacing.md,
+    marginBottom: spacing.sm,
   },
   persistentHeaderItem: {
     flex: 1,
-    minWidth: 150,
+    minWidth: 100,
   },
   persistentHeaderLabel: {
     ...typography.xs,
     color: colors.mutedForeground,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.xs / 2,
     fontWeight: '500',
   },
   persistentHeaderValue: {
