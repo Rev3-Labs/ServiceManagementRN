@@ -839,7 +839,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     [],
   );
 
-  // FR-3a.UI.8.1: Service type badges for Order Header (pending=blue, in progress=green, No-Ship=gray)
+  // FR-3a.UI.8.1: Service type badges (orange=pending, blue=in progress, gray=no-ship, green=completed)
   const serviceTypeBadgesForHeader = useMemo(() => {
     if (!selectedOrderData) return undefined;
     return selectedOrderData.programs.map(serviceTypeId => {
@@ -848,6 +848,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       const hasEnd = entry?.endTime != null;
       const inProgress =
         activeServiceTypeTimer === serviceTypeId || (hasStart && !hasEnd);
+      const completed = hasStart && hasEnd;
       const noship = isServiceTypeNoShip(
         selectedOrderData.orderNumber,
         serviceTypeId,
@@ -857,9 +858,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         srNumber: selectedOrderData.serviceOrderNumbers?.[serviceTypeId],
         status: noship
           ? ('noship' as const)
-          : inProgress
-            ? ('in_progress' as const)
-            : ('pending' as const),
+          : completed
+            ? ('completed' as const)
+            : inProgress
+              ? ('in_progress' as const)
+              : ('pending' as const),
       };
     });
   }, [
@@ -2134,15 +2137,36 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       <Text style={styles.detailLabel}>Service Types:</Text>
                       <View style={styles.programsContainerInline}>
                         {selectedOrder.programs.map((program, i) => {
-                          const formatted = serviceTypeService.formatForOrderDetails(program);
                           const serviceOrderNumber = selectedOrder.serviceOrderNumbers?.[program];
+                          const noship = isServiceTypeNoShip(selectedOrder.orderNumber, program);
+                          const entry = serviceTypeTimeEntries.get(program);
+                          const hasStart = entry?.startTime != null;
+                          const hasEnd = entry?.endTime != null;
+                          const inProgress = activeServiceTypeTimer === program || (hasStart && !hasEnd);
+                          const completed = !noship && hasStart && hasEnd;
+                          const pending = !noship && !hasStart;
+                          const badgeStyle = [
+                            styles.programBadge,
+                            noship && styles.programBadgeNoship,
+                            completed && styles.programBadgeCompleted,
+                            inProgress && styles.programBadgeInProgress,
+                            pending && styles.programBadgePending,
+                          ].filter(Boolean) as ViewStyle[];
+                          const textStyle = noship
+                            ? styles.programBadgeTextNoship
+                            : completed
+                              ? styles.programBadgeTextCompleted
+                              : inProgress
+                                ? styles.programBadgeTextInProgress
+                                : styles.programBadgeTextPending;
                           return (
                             <Badge
                               key={i}
-                              variant="secondary"
-                              style={styles.programBadge}
+                              variant="outline"
+                              style={StyleSheet.flatten(badgeStyle)}
+                              textStyle={textStyle}
                               title={serviceTypeService.getServiceTypeName(program)}>
-                              {serviceOrderNumber 
+                              {serviceOrderNumber
                                 ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
                                 : serviceTypeService.formatForBadge(program)}
                             </Badge>
@@ -2672,15 +2696,36 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       <Text style={styles.detailLabel}>Service Types:</Text>
                       <View style={styles.programsContainerInline}>
                         {dashboardSelectedOrder.programs.map((program, i) => {
-                          const formatted = serviceTypeService.formatForOrderDetails(program);
                           const serviceOrderNumber = dashboardSelectedOrder.serviceOrderNumbers?.[program];
+                          const noship = isServiceTypeNoShip(dashboardSelectedOrder.orderNumber, program);
+                          const entry = serviceTypeTimeEntries.get(program);
+                          const hasStart = entry?.startTime != null;
+                          const hasEnd = entry?.endTime != null;
+                          const inProgress = activeServiceTypeTimer === program || (hasStart && !hasEnd);
+                          const completed = !noship && hasStart && hasEnd;
+                          const pending = !noship && !hasStart;
+                          const badgeStyle = [
+                            styles.programBadge,
+                            noship && styles.programBadgeNoship,
+                            completed && styles.programBadgeCompleted,
+                            inProgress && styles.programBadgeInProgress,
+                            pending && styles.programBadgePending,
+                          ].filter(Boolean) as ViewStyle[];
+                          const textStyle = noship
+                            ? styles.programBadgeTextNoship
+                            : completed
+                              ? styles.programBadgeTextCompleted
+                              : inProgress
+                                ? styles.programBadgeTextInProgress
+                                : styles.programBadgeTextPending;
                           return (
                             <Badge
                               key={i}
-                              variant="secondary"
-                              style={styles.programBadge}
+                              variant="outline"
+                              style={StyleSheet.flatten(badgeStyle)}
+                              textStyle={textStyle}
                               title={serviceTypeService.getServiceTypeName(program)}>
-                              {serviceOrderNumber 
+                              {serviceOrderNumber
                                 ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
                                 : serviceTypeService.formatForBadge(program)}
                             </Badge>
@@ -2869,26 +2914,35 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         const serviceType = serviceTypeService.getServiceType(program);
                         const serviceOrderNumber = order.serviceOrderNumbers?.[program];
                         const noship = isServiceTypeNoShip(order.orderNumber, program);
+                        const entry = serviceTypeTimeEntries.get(program);
+                        const hasStart = entry?.startTime != null;
+                        const hasEnd = entry?.endTime != null;
                         const inProgress =
                           selectedOrderData?.orderNumber === order.orderNumber &&
                           (currentOrderTimeTracking?.orderNumber === order.orderNumber &&
-                            (activeServiceTypeTimer === program ||
-                              (serviceTypeTimeEntries.get(program)?.startTime != null &&
-                                serviceTypeTimeEntries.get(program)?.endTime == null)));
+                            (activeServiceTypeTimer === program || (hasStart && !hasEnd)));
+                        const completed = !noship && hasStart && hasEnd;
+                        const pending = !noship && !hasStart;
                         const badgeStyle = [
                           styles.programBadge,
                           noship && styles.programBadgeNoship,
+                          completed && styles.programBadgeCompleted,
                           inProgress && styles.programBadgeInProgress,
-                          !noship && !inProgress && styles.programBadgePending,
+                          pending && styles.programBadgePending,
                         ].filter(Boolean) as ViewStyle[];
+                        const textStyle = noship
+                          ? styles.programBadgeTextNoship
+                          : completed
+                            ? styles.programBadgeTextCompleted
+                            : inProgress
+                              ? styles.programBadgeTextInProgress
+                              : styles.programBadgeTextPending;
                         return (
                           <Badge
                             key={i}
                             variant="outline"
                             style={StyleSheet.flatten(badgeStyle)}
-                            textStyle={
-                              noship ? styles.programBadgeTextNoship : undefined
-                            }
+                            textStyle={textStyle}
                             title={serviceType?.name || program}>
                             {serviceOrderNumber
                               ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
@@ -8188,6 +8242,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   const isNoShip = isServiceTypeNoShip(order.orderNumber, serviceTypeId);
                   const isSelected = selectedServiceTypeToStart === serviceTypeId;
                   const isSelectable = !isNoShip && !(hasStartTime && hasEndTime);
+                  const isInProgress = !isNoShip && hasStartTime && !hasEndTime;
+                  const isCompleted = !isNoShip && hasStartTime && hasEndTime;
+                  const isPending = !isNoShip && !hasStartTime;
 
                   const isChoosingReason = noShipReasonServiceTypeId === serviceTypeId;
                   const switchValue = isNoShip || isChoosingReason;
@@ -8197,6 +8254,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       key={serviceTypeId}
                       style={[
                         styles.serviceTypeSelectionItem,
+                        isPending && styles.serviceTypeSelectionItemPending,
+                        isInProgress && styles.serviceTypeSelectionItemInProgress,
+                        isCompleted && styles.serviceTypeSelectionItemCompleted,
                         isNoShip && styles.serviceTypeSelectionItemNoShip,
                         isSelected && styles.serviceTypeSelectionItemSelected,
                       ]}>
@@ -8212,6 +8272,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           <Text
                             style={[
                               styles.serviceTypeSelectionItemName,
+                              isPending && styles.serviceTypeSelectionItemNamePending,
+                              isInProgress && styles.serviceTypeSelectionItemNameInProgress,
+                              isCompleted && styles.serviceTypeSelectionItemNameCompleted,
                               isNoShip && styles.serviceTypeSelectionItemNameNoShip,
                             ]}>
                             {serviceTypeService.formatForOrderDetails(serviceTypeId)}
@@ -9511,19 +9574,32 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs / 2,
   },
   programBadgePending: {
-    backgroundColor: colors.info + '22',
-    borderColor: colors.info,
+    backgroundColor: colors.warning + '22',
+    borderColor: colors.warning,
   },
   programBadgeInProgress: {
-    backgroundColor: colors.primary + '22',
-    borderColor: colors.primary,
+    backgroundColor: colors.info + '22',
+    borderColor: colors.info,
   },
   programBadgeNoship: {
     backgroundColor: colors.muted,
     borderColor: colors.border,
   },
+  programBadgeCompleted: {
+    backgroundColor: colors.success + '22',
+    borderColor: colors.success,
+  },
+  programBadgeTextPending: {
+    color: colors.warning,
+  },
+  programBadgeTextInProgress: {
+    color: colors.info,
+  },
   programBadgeTextNoship: {
     color: colors.mutedForeground,
+  },
+  programBadgeTextCompleted: {
+    color: colors.success,
   },
   serviceOrderNumber: {
     ...typography.xs,
@@ -10403,20 +10479,34 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  /** Pending / not started = orange */
+  serviceTypeSelectionItemPending: {
+    backgroundColor: colors.warning + '18',
+    borderColor: colors.warning,
+  },
+  /** In progress = blue */
+  serviceTypeSelectionItemInProgress: {
+    backgroundColor: colors.info + '18',
+    borderColor: colors.info,
+  },
+  /** Completed = green */
+  serviceTypeSelectionItemCompleted: {
+    backgroundColor: colors.success + '18',
+    borderColor: colors.success,
+  },
   serviceTypeSelectionItemActive: {
     borderColor: colors.primary,
     borderWidth: 2,
     backgroundColor: colors.primary + '10',
   },
+  /** No-ship = grey */
   serviceTypeSelectionItemNoShip: {
     backgroundColor: colors.muted,
     borderColor: colors.border,
     opacity: 0.9,
   },
   serviceTypeSelectionItemSelected: {
-    borderColor: colors.primary,
     borderWidth: 2,
-    backgroundColor: colors.primary + '12',
   },
   serviceTypeSelectionItemContent: {
     flexDirection: 'row',
@@ -10443,6 +10533,15 @@ const styles = StyleSheet.create({
     ...typography.base,
     color: colors.foreground,
     fontWeight: '600',
+  },
+  serviceTypeSelectionItemNamePending: {
+    color: colors.warning,
+  },
+  serviceTypeSelectionItemNameInProgress: {
+    color: colors.info,
+  },
+  serviceTypeSelectionItemNameCompleted: {
+    color: colors.success,
   },
   serviceTypeSelectionItemNameNoShip: {
     color: colors.mutedForeground,

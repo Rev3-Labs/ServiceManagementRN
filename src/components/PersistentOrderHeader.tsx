@@ -34,7 +34,7 @@ interface PersistentOrderHeaderProps {
   serviceTypeBadges?: Array<{
     serviceTypeId: string;
     srNumber?: string;
-    status: 'pending' | 'in_progress' | 'noship';
+    status: 'pending' | 'in_progress' | 'noship' | 'completed';
   }>;
   onServiceTypeBadgePress?: (serviceTypeId: string) => void;
 }
@@ -152,11 +152,14 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
                       : serviceTypeId;
                     const isNoship = status === 'noship';
                     const isInProgress = status === 'in_progress';
+                    const isCompleted = status === 'completed';
+                    const isPending = status === 'pending';
                     const badgeStyle = [
                       styles.serviceTypeBadge,
                       isNoship && styles.serviceTypeBadgeNoship,
+                      isCompleted && styles.serviceTypeBadgeCompleted,
                       isInProgress && styles.serviceTypeBadgeInProgress,
-                      !isNoship && !isInProgress && styles.serviceTypeBadgePending,
+                      isPending && styles.serviceTypeBadgePending,
                     ];
                     return (
                       <TouchableOpacity
@@ -169,6 +172,9 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
                           style={[
                             styles.serviceTypeBadgeText,
                             isNoship && styles.serviceTypeBadgeTextNoship,
+                            isCompleted && styles.serviceTypeBadgeTextCompleted,
+                            isInProgress && styles.serviceTypeBadgeTextInProgress,
+                            isPending && styles.serviceTypeBadgeTextPending,
                           ]}>
                           {label}
                         </Text>
@@ -547,28 +553,46 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.full,
     alignSelf: 'flex-start',
   },
+  /** Pending / not started = orange */
   serviceTypeBadgePending: {
+    backgroundColor: colors.warning + '22',
+    borderWidth: 1,
+    borderColor: colors.warning,
+  },
+  /** In progress = blue */
+  serviceTypeBadgeInProgress: {
     backgroundColor: colors.info + '22',
     borderWidth: 1,
     borderColor: colors.info,
   },
-  serviceTypeBadgeInProgress: {
-    backgroundColor: colors.primary + '22',
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
+  /** No-ship = grey */
   serviceTypeBadgeNoship: {
     backgroundColor: colors.muted,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  /** Completed = green */
+  serviceTypeBadgeCompleted: {
+    backgroundColor: colors.success + '22',
+    borderWidth: 1,
+    borderColor: colors.success,
   },
   serviceTypeBadgeText: {
     ...typography.xs,
     fontWeight: '600',
     color: colors.foreground,
   },
+  serviceTypeBadgeTextPending: {
+    color: colors.warning,
+  },
+  serviceTypeBadgeTextInProgress: {
+    color: colors.info,
+  },
   serviceTypeBadgeTextNoship: {
     color: colors.mutedForeground,
+  },
+  serviceTypeBadgeTextCompleted: {
+    color: colors.success,
   },
   persistentHeaderSubtitle: {
     ...typography.base,
