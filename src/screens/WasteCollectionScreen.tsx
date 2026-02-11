@@ -24,6 +24,7 @@ import {
   ImageStyle,
   SafeAreaView,
   Linking,
+  ViewStyle,
 } from 'react-native';
 import SignatureCanvas from '../components/SignatureCanvas';
 import DropWasteModal from '../components/DropWasteModal';
@@ -43,6 +44,7 @@ import {Badge} from '../components/Badge';
 import {Switch} from '../components/Switch';
 import {Icon} from '../components/Icon';
 import {syncService, SyncStatus} from '../services/syncService';
+import {recordContainerDrop} from '../services/dropWasteService';
 import {getUserTruckId, getUserTruck, getUserTrailer} from '../services/userSettingsService';
 import {vehicleService} from '../services/vehicleService';
 import {offlineTrackingService, OfflineStatus} from '../services/offlineTrackingService';
@@ -94,6 +96,39 @@ import {photoService} from '../services/photoService';
 import {pListedAuthorizationService, PListedCode} from '../services/pListedAuthorizationService';
 import {serviceTypeService} from '../services/serviceTypeService';
 import {serviceTypeTimeService, ServiceTypeTimeEntry} from '../services/serviceTypeTimeService';
+import {
+  NO_SHIP_REASON_CODES,
+  NO_SHIP_OTHER_CODE,
+  MIN_OTHER_NOTES_LENGTH,
+  getNoShipReasonLabel,
+  isOtherReason,
+  type NoShipReasonCode,
+  type NoShipRecord,
+} from '../constants/noShipReasons';
+
+/** Approved facilities for Transfer Location override (FR-3a.EXT.3.1). Technician's Service Center is prepended at runtime. */
+const APPROVED_TRANSFER_LOCATIONS = [
+  'Main Transfer Station - Downtown',
+  'Northside Waste Facility',
+  'Southside Recycling Center',
+  'East End Transfer Point',
+  'West Industrial Waste Hub',
+  'Central Processing Facility',
+  'Riverside Drop-Off Site',
+  'Highway 101 Transfer Station',
+  'Airport Road Waste Center',
+  'Port Authority Facility',
+  'Mountain View Disposal Site',
+  'Valley Waste Management',
+  'Coastal Transfer Station',
+  'Inland Processing Center',
+  'Metro Waste Facility',
+  'Suburban Drop Point',
+  'Urban Collection Center',
+  'Regional Transfer Hub',
+  'City Main Facility',
+  'Industrial Park Station',
+];
 
 const {width, height} = Dimensions.get('window');
 const gridColumns = getGridColumns();
@@ -178,6 +213,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [orderStatuses, setOrderStatuses] = useState<
     Record<string, OrderData['status']>
   >({});
+  /** Container status: loaded/in_transit = active on truck; dropped = removed at transfer (FR-3a.EXT.3.3). */
   const [addedContainers, setAddedContainers] = useState<
     Array<{
       id: string;
@@ -191,6 +227,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       netWeight: number;
       isManualEntry?: boolean;
       shippingLabelBarcode?: string;
+      status?: 'loaded' | 'in_transit' | 'dropped';
     }>
   >([]);
   const [selectedPrograms, setSelectedPrograms] = useState<
@@ -281,6 +318,35 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     useState<OrderData | null>(null); // Selected order in master-detail view
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
+
+  // No-Ship reason capture (FR-3a.UI.8.3): per order + service type
+  const [noshipByOrderAndServiceType, setNoshipByOrderAndServiceType] = useState<
+    Record<string, Record<string, NoShipRecord>>
+  >({});
+  const [noShipReasonOrderNumber, setNoShipReasonOrderNumber] = useState<string | null>(null);
+  const [noShipReasonServiceTypeId, setNoShipReasonServiceTypeId] = useState<string | null>(null);
+  const [noShipReasonCode, setNoShipReasonCode] = useState<NoShipReasonCode | ''>('');
+  const [noShipReasonNotes, setNoShipReasonNotes] = useState('');
+  // Start Service modal: which service type is selected to start (single selection)
+  const [selectedServiceTypeToStart, setSelectedServiceTypeToStart] = useState<string | null>(null);
+
+  // FR-3a.EXT.3.2/3.3: Active = Loaded/In-Transit (not dropped); aggregation from active only
+  const activeContainers = useMemo(
+    () => addedContainers.filter(c => c.status !== 'dropped'),
+    [addedContainers],
+  );
+  const currentTotalWeight = useMemo(
+    () => activeContainers.reduce((sum, c) => sum + c.netWeight, 0),
+    [activeContainers],
+  );
+  const activeContainerCount = activeContainers.length;
+  const transferLocationOptions = useMemo(() => {
+    const defaultName = serviceCenter?.name ?? '';
+    const approved = APPROVED_TRANSFER_LOCATIONS;
+    if (!defaultName) return approved;
+    const rest = approved.filter(l => l !== defaultName);
+    return [defaultName, ...rest];
+  }, [serviceCenter?.name]);
 
   // Subscribe to offline status changes
   useEffect(() => {
@@ -726,8 +792,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     // Check if order has multiple service types - show selection modal first
     const serviceTypes = order.programs || [];
     if (serviceTypes.length > 1) {
-      // Show service type selection modal on dashboard
+      // Show service type selection modal on dashboard (FR-3a.UI.8.2)
       setPendingOrderForServiceTypeSelection(order);
+      setSelectedServiceTypeToStart(null);
       setShowServiceTypeSelectionModal(true);
       return;
     }
@@ -735,6 +802,81 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     // Single service type or no service types - proceed with normal flow
     await proceedWithStartService(order);
   }, [truckId, username, proceedWithStartService, offlineStatus.isBlocked, checkOfflineBlock]);
+
+  // No-Ship helpers (FR-3a.UI.8.3)
+  const isServiceTypeNoShip = useCallback(
+    (orderNumber: string, serviceTypeId: string): boolean =>
+      Boolean(noshipByOrderAndServiceType[orderNumber]?.[serviceTypeId]),
+    [noshipByOrderAndServiceType],
+  );
+  const setNoShipForServiceType = useCallback(
+    (orderNumber: string, serviceTypeId: string, record: NoShipRecord) => {
+      setNoshipByOrderAndServiceType(prev => ({
+        ...prev,
+        [orderNumber]: {
+          ...(prev[orderNumber] ?? {}),
+          [serviceTypeId]: record,
+        },
+      }));
+    },
+    [],
+  );
+  const clearNoShipForServiceType = useCallback(
+    (orderNumber: string, serviceTypeId: string) => {
+      setNoshipByOrderAndServiceType(prev => {
+        const orderMap = prev[orderNumber];
+        if (!orderMap) return prev;
+        const next = {...orderMap};
+        delete next[serviceTypeId];
+        if (Object.keys(next).length === 0) {
+          const nextAll = {...prev};
+          delete nextAll[orderNumber];
+          return nextAll;
+        }
+        return {...prev, [orderNumber]: next};
+      });
+    },
+    [],
+  );
+
+  // FR-3a.UI.8.1: Service type badges for Order Header (pending=blue, in progress=green, No-Ship=gray)
+  const serviceTypeBadgesForHeader = useMemo(() => {
+    if (!selectedOrderData) return undefined;
+    return selectedOrderData.programs.map(serviceTypeId => {
+      const entry = serviceTypeTimeEntries.get(serviceTypeId);
+      const hasStart = entry?.startTime != null;
+      const hasEnd = entry?.endTime != null;
+      const inProgress =
+        activeServiceTypeTimer === serviceTypeId || (hasStart && !hasEnd);
+      const noship = isServiceTypeNoShip(
+        selectedOrderData.orderNumber,
+        serviceTypeId,
+      );
+      return {
+        serviceTypeId,
+        srNumber: selectedOrderData.serviceOrderNumbers?.[serviceTypeId],
+        status: noship
+          ? ('noship' as const)
+          : inProgress
+            ? ('in_progress' as const)
+            : ('pending' as const),
+      };
+    });
+  }, [
+    selectedOrderData,
+    serviceTypeTimeEntries,
+    activeServiceTypeTimer,
+    isServiceTypeNoShip,
+  ]);
+
+  const handleServiceTypeBadgePress = useCallback(
+    (serviceTypeId: string) => {
+      if (!selectedOrderData) return;
+      // Navigate to that service type's context (e.g. stream selection; detail view)
+      setCurrentStep('stream-selection');
+    },
+    [selectedOrderData],
+  );
 
   const handleRequestPause = useCallback(() => {
     if (activeTimeTracking?.pausedAt) {
@@ -1704,14 +1846,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 disabled={syncStatus === 'syncing' || !offlineStatus.isOnline}
               />
             </View>
-            {filteredOrders.filter(order => isOrderCompleted(order.orderNumber)).length > 0 && (
-              <Button
-                title="Drop Waste"
-                variant="primary"
-                size="md"
-                onPress={() => setShowDropWasteModal(true)}
-              />
-            )}
+            <Button
+              title="Drop"
+              variant="primary"
+              size="md"
+              onPress={() => setShowDropWasteModal(true)}
+            />
             <Button
               title="Full Screen"
               variant="ghost"
@@ -1727,6 +1867,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               />
             )}
           </View>
+        </View>
+
+        <View style={styles.runningTotalRow}>
+          <Text style={styles.runningTotalLabel}>Running total:</Text>
+          <Text style={styles.runningTotalValue}>
+            {activeContainerCount} container{activeContainerCount !== 1 ? 's' : ''} • {currentTotalWeight.toLocaleString()} lbs
+          </Text>
         </View>
 
         <View style={styles.masterDetailContainer}>
@@ -2288,14 +2435,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 disabled={syncStatus === 'syncing' || !offlineStatus.isOnline}
               />
             </View>
-            {completedOrdersList.length > 0 && (
-              <Button
-                title="Drop Waste"
-                variant="primary"
-                size="md"
-                onPress={() => setShowDropWasteModal(true)}
-              />
-            )}
+            {/* FR-3a.EXT.3.1: Drop button in header; opens Record Drop modal */}
+            <Button
+              title="Drop"
+              variant="primary"
+              size="md"
+              onPress={() => setShowDropWasteModal(true)}
+            />
             {isTablet() && isLandscape() && (
               <Button
                 title="Master-Detail"
@@ -2340,6 +2486,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               onPress={() => setShowAllNotesModal(true)}
             />
           </View>
+        </View>
+
+        {/* FR-3a.EXT.3.3: Running total — current total weight and container count (active only); resets to 0 when all dropped */}
+        <View style={styles.runningTotalRow}>
+          <Text style={styles.runningTotalLabel}>Running total:</Text>
+          <Text style={styles.runningTotalValue}>
+            {activeContainerCount} container{activeContainerCount !== 1 ? 's' : ''} • {currentTotalWeight.toLocaleString()} lbs
+          </Text>
         </View>
 
         <View style={styles.scrollViewContainer}>
@@ -2714,13 +2868,29 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       {order.programs.map((program, i) => {
                         const serviceType = serviceTypeService.getServiceType(program);
                         const serviceOrderNumber = order.serviceOrderNumbers?.[program];
+                        const noship = isServiceTypeNoShip(order.orderNumber, program);
+                        const inProgress =
+                          selectedOrderData?.orderNumber === order.orderNumber &&
+                          (currentOrderTimeTracking?.orderNumber === order.orderNumber &&
+                            (activeServiceTypeTimer === program ||
+                              (serviceTypeTimeEntries.get(program)?.startTime != null &&
+                                serviceTypeTimeEntries.get(program)?.endTime == null)));
+                        const badgeStyle = [
+                          styles.programBadge,
+                          noship && styles.programBadgeNoship,
+                          inProgress && styles.programBadgeInProgress,
+                          !noship && !inProgress && styles.programBadgePending,
+                        ].filter(Boolean) as ViewStyle[];
                         return (
                           <Badge
                             key={i}
-                            variant="secondary"
-                            style={styles.programBadge}
+                            variant="outline"
+                            style={StyleSheet.flatten(badgeStyle)}
+                            textStyle={
+                              noship ? styles.programBadgeTextNoship : undefined
+                            }
                             title={serviceType?.name || program}>
-                            {serviceOrderNumber 
+                            {serviceOrderNumber
                               ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
                               : serviceTypeService.formatForBadge(program)}
                           </Badge>
@@ -2900,6 +3070,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           syncStatus={syncStatus}
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
+          serviceTypeBadges={serviceTypeBadgesForHeader}
+          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <ScrollView
@@ -3062,6 +3234,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           syncStatus={syncStatus}
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
+          serviceTypeBadges={serviceTypeBadgesForHeader}
+          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <ScrollView
@@ -3215,6 +3389,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           syncStatus={syncStatus}
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
+          serviceTypeBadges={serviceTypeBadgesForHeader}
+          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <ScrollView
@@ -3433,6 +3609,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   netWeight,
                   isManualEntry: isManualWeightEntry, // Track if manually entered
                   shippingLabelBarcode, // Unique shipping label barcode
+                  status: 'loaded' as const, // FR-3a.EXT.3.2: active on truck until dropped
                   ...(requiresCylinderCount && cylinderCount ? { cylinderCount: parseInt(cylinderCount) || 0 } : {}),
                 };
 
@@ -3565,6 +3742,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           syncStatus={syncStatus}
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
+          serviceTypeBadges={serviceTypeBadgesForHeader}
+          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -3572,12 +3751,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             style={styles.scrollView}
             contentContainerStyle={styles.scrollContent}>
             <Text style={styles.summaryText}>
-              Showing {addedContainers.length} container
-              {addedContainers.length !== 1 ? 's' : ''}
+              Showing {activeContainerCount} container
+              {activeContainerCount !== 1 ? 's' : ''} on truck
             </Text>
 
-            {addedContainers.length > 0 ? (
-              addedContainers.map((container, index) => (
+            {activeContainers.length > 0 ? (
+              activeContainers.map((container, index) => (
                 <View key={container.id}>
                   <Card style={styles.containerSummaryCard}>
                     <View style={styles.containerSummaryHeader}>
@@ -3681,15 +3860,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             title="Continue to Manifest"
             variant="primary"
             size="md"
-            disabled={addedContainers.length === 0 || isCurrentOrderCompleted}
+            disabled={activeContainerCount === 0 || isCurrentOrderCompleted}
             onPress={() => {
               if (!isCurrentOrderCompleted) {
                 // Check for P-Listed waste codes in all added containers
                 const allPCodes: PListedCode[] = [];
                 const streamsWithPCodes: WasteStream[] = [];
                 
-                // Collect all P-Listed codes from all added containers
-                addedContainers.forEach(container => {
+                // Collect all P-Listed codes from all active added containers
+                activeContainers.forEach(container => {
                   // Find the stream that matches this container
                   const stream = wasteStreams.find(
                     s => s.profileName === container.streamName || s.profileNumber === container.streamCode
@@ -3793,13 +3972,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   };
 
   const ManifestManagementScreen = () => {
-    const orderPrograms = selectedOrderData?.programs || [];
     const isCurrentOrderCompleted = selectedOrderData
       ? isOrderCompleted(selectedOrderData.orderNumber)
       : false;
 
     if (!selectedOrderData) return null;
-    
+
     return (
       <View style={styles.container}>
         <PersistentOrderHeader
@@ -3823,20 +4001,24 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           syncStatus={syncStatus}
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
+          serviceTypeBadges={serviceTypeBadgesForHeader}
+          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <View style={styles.scrollViewContainer}>
           <ScrollView
             style={styles.scrollView}
             contentContainerStyle={styles.scrollContent}>
-            <Card>
+            <Card style={styles.manifestShipmentCard}>
               <CardHeader>
                 <CardTitle>
                   <CardTitleText>Manifest Shipment</CardTitleText>
                 </CardTitle>
+                <Text style={styles.manifestShipmentSubtitle}>
+                  Review and sign your shipment manifest, then continue when ready.
+                </Text>
               </CardHeader>
               <CardContent>
-                {/* Summary Information Section */}
                 <View style={styles.manifestSummarySection}>
                   <View style={styles.manifestSummaryRow}>
                     <View style={styles.manifestSummaryItem}>
@@ -3847,21 +4029,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         {addedContainers.length}
                       </Text>
                     </View>
-                    <View style={styles.manifestSummaryDivider} />
-                    <View style={styles.manifestSummaryItem}>
-                      <Text style={styles.manifestSummaryLabel}>
-                        Programs to Ship
-                      </Text>
-                      <Text style={styles.manifestSummaryValue}>
-                        {
-                          Object.values(selectedPrograms).filter(
-                            p => p === 'ship',
-                          ).length
-                        }{' '}
-                        / {orderPrograms.length}
-                      </Text>
-                    </View>
-                    {manifestTrackingNumber && (
+                    {manifestTrackingNumber ? (
                       <>
                         <View style={styles.manifestSummaryDivider} />
                         <View style={styles.manifestSummaryItem}>
@@ -3877,54 +4045,53 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           </Text>
                         </View>
                       </>
-                    )}
+                    ) : null}
                   </View>
                 </View>
 
-                {/* Programs Section - REMOVED: Program selection (Ship/No Ship) moved to dashboard */}
-
-                {/* Scanned Document Indicator */}
-                {manifestData?.scannedImageUri && (
+                {manifestData?.scannedImageUri ? (
                   <View style={styles.scannedImageIndicator}>
                     <View style={styles.manifestSuccessRow}>
                       <Icon name="check-circle" size={18} color={colors.success} style={styles.manifestSuccessIcon} />
-                      <Text style={styles.scannedImageText}>Manifest document scanned and uploaded</Text>
+                      <Text style={styles.scannedImageText}>
+                        Manifest document scanned and uploaded
+                      </Text>
                     </View>
                   </View>
-                )}
+                ) : null}
+
+                <View style={styles.manifestActionsInCard}>
+                  <Text style={styles.manifestActionsLabel}>Manifest actions</Text>
+                  <View style={styles.manifestActionsRow}>
+                    <Button
+                      title="Sign Manifest"
+                      variant="outline"
+                      size="md"
+                      disabled={isCurrentOrderCompleted}
+                      onPress={() => setShowSignatureModal(true)}
+                      style={styles.manifestActionButton}
+                    />
+                    <Button
+                      title="Print Preview"
+                      variant="outline"
+                      size="md"
+                      disabled={isCurrentOrderCompleted}
+                      onPress={() => setShowPrintPreview(true)}
+                      style={styles.manifestActionButton}
+                    />
+                    <Button
+                      title="Print Options"
+                      variant="outline"
+                      size="md"
+                      disabled={isCurrentOrderCompleted}
+                      onPress={() => setShowPrintOptions(true)}
+                      style={styles.manifestActionButton}
+                    />
+                  </View>
+                </View>
               </CardContent>
             </Card>
           </ScrollView>
-        </View>
-
-        {/* Fixed Footer with Manifest Actions */}
-        <View style={styles.manifestActionsFooter}>
-          <View style={styles.manifestActionsRow}>
-            <Button
-              title="Sign Manifest"
-              variant="outline"
-              size="md"
-              disabled={isCurrentOrderCompleted}
-              onPress={() => setShowSignatureModal(true)}
-              style={styles.manifestActionButton}
-            />
-            <Button
-              title="Print Preview"
-              variant="outline"
-              size="md"
-              disabled={isCurrentOrderCompleted}
-              onPress={() => setShowPrintPreview(true)}
-              style={styles.manifestActionButton}
-            />
-            <Button
-              title="Print Options"
-              variant="outline"
-              size="md"
-              disabled={isCurrentOrderCompleted}
-              onPress={() => setShowPrintOptions(true)}
-              style={styles.manifestActionButton}
-            />
-          </View>
         </View>
 
         <View style={styles.footer}>
@@ -4642,6 +4809,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           syncStatus={syncStatus}
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
+          serviceTypeBadges={serviceTypeBadgesForHeader}
+          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -4874,6 +5043,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           syncStatus={syncStatus}
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
+          serviceTypeBadges={serviceTypeBadgesForHeader}
+          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -5130,7 +5301,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   };
 
   const OrderServiceScreen = () => {
-    const totalNetWeight = addedContainers.reduce(
+    const totalNetWeight = activeContainers.reduce(
       (sum, c) => sum + c.netWeight,
       0,
     );
@@ -5370,6 +5541,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           syncStatus={syncStatus}
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
+          serviceTypeBadges={serviceTypeBadgesForHeader}
+          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -6172,8 +6345,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       }
     };
 
-    // Calculate counts for badges
-    const containersCount = addedContainers.length;
+    // Calculate counts for badges (use active count so drop updates badge)
+    const containersCount = activeContainerCount;
     const scannedDocsCount = scannedDocuments.filter(
       doc => doc.orderNumber === selectedOrderData?.orderNumber,
     ).length;
@@ -6690,34 +6863,49 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }
   };
 
-  // Handle drop waste submission
-  const handleDropWaste = (transferLocation: string, dropDate: string, dropTime: string) => {
-    // Here you would typically send this data to your backend
-    console.log('[Drop Waste]', {
-      truckId,
-      transferLocation,
-      dropDate,
-      dropTime,
-      completedOrders: completedOrders.length,
-      containers: addedContainers.length,
-    });
-    
-    Alert.alert(
-      'Waste Dropped',
-      `Successfully recorded waste drop at ${transferLocation} on ${dropDate} at ${dropTime}`,
-      [
-        {
-          text: 'OK',
-          onPress: () => {
-            setShowDropWasteModal(false);
-            // Optionally clear completed orders after successful drop
-            // setCompletedOrders([]);
-            // setContainers([]);
-          },
-        },
-      ]
-    );
-  };
+  // FR-3a.EXT.3.3: Record drop — transition selected containers to Dropped/Closed, persist weights, update aggregation
+  const handleRecordDrop = useCallback(
+    async (
+      transferLocation: string,
+      dropDate: string,
+      dropTime: string,
+      selectedContainerIds: string[],
+    ) => {
+      try {
+        const containerWeights: Record<string, number> = {};
+        addedContainers.forEach(c => {
+          if (selectedContainerIds.includes(c.id)) containerWeights[c.id] = c.netWeight;
+        });
+        await recordContainerDrop(
+          selectedContainerIds,
+          containerWeights,
+          transferLocation,
+          dropDate,
+          dropTime,
+          truckId,
+        );
+        setAddedContainers(prev =>
+          prev.map(c =>
+            selectedContainerIds.includes(c.id) ? { ...c, status: 'dropped' as const } : c,
+          ),
+        );
+        setShowDropWasteModal(false);
+        Alert.alert(
+          'Drop Recorded',
+          `Successfully recorded drop at ${transferLocation} on ${dropDate} at ${dropTime}. Running total updated.`,
+          [{ text: 'OK' }],
+        );
+      } catch (error) {
+        console.error('Error recording drop:', error);
+        Alert.alert(
+          'Error',
+          'Failed to record drop. Please try again.',
+          [{ text: 'OK' }],
+        );
+      }
+    },
+    [addedContainers, truckId],
+  );
 
   // Handle modal close request
   const handleJobNotesModalClose = useCallback(() => {
@@ -7951,7 +8139,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         </Modal>
       )}
 
-      {/* Service Type Selection Modal */}
+      {/* Service Type Selection Modal (FR-3a.UI.8.2) */}
       {pendingOrderForServiceTypeSelection && (
         <Modal
           visible={showServiceTypeSelectionModal}
@@ -7960,17 +8148,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           onRequestClose={() => {
             setShowServiceTypeSelectionModal(false);
             setPendingOrderForServiceTypeSelection(null);
+            setSelectedServiceTypeToStart(null);
+            setNoShipReasonOrderNumber(null);
+            setNoShipReasonServiceTypeId(null);
+            setNoShipReasonCode('');
+            setNoShipReasonNotes('');
           }}>
           <View style={styles.serviceTypeSelectionModalOverlay} pointerEvents="box-none">
             <View style={styles.serviceTypeSelectionModalContainer} pointerEvents="auto">
-                <View style={styles.serviceTypeSelectionModalHeader}>
+              <View style={styles.serviceTypeSelectionModalHeader}>
                 <Text style={styles.serviceTypeSelectionModalTitle}>
-                  Select Service Type to Start
+                  Select Service to Start
                 </Text>
                 <TouchableOpacity
                   onPress={() => {
                     setShowServiceTypeSelectionModal(false);
                     setPendingOrderForServiceTypeSelection(null);
+                    setSelectedServiceTypeToStart(null);
+                    setNoShipReasonOrderNumber(null);
+                    setNoShipReasonServiceTypeId(null);
+                    setNoShipReasonCode('');
+                    setNoShipReasonNotes('');
                   }}
                   style={styles.serviceTypeSelectionModalCloseButton}>
                   <Icon name="close" size={20} color={colors.foreground} />
@@ -7982,121 +8180,343 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 contentContainerStyle={styles.serviceTypeSelectionModalContent}
                 nestedScrollEnabled={true}
                 keyboardShouldPersistTaps="handled">
-                <Text style={styles.serviceTypeSelectionModalDescription}>
-                  This order has multiple service types. Select which service type you're starting work on.
-                </Text>
-
                 {pendingOrderForServiceTypeSelection.programs.map((serviceTypeId) => {
-                  const serviceType = serviceTypeService.getServiceType(serviceTypeId);
+                  const order = pendingOrderForServiceTypeSelection;
                   const timeEntry = serviceTypeTimeEntries.get(serviceTypeId);
-                  const isActive = activeServiceTypeTimer === serviceTypeId;
                   const hasStartTime = timeEntry != null && timeEntry.startTime != null;
                   const hasEndTime = timeEntry != null && timeEntry.endTime != null;
+                  const isNoShip = isServiceTypeNoShip(order.orderNumber, serviceTypeId);
+                  const isSelected = selectedServiceTypeToStart === serviceTypeId;
+                  const isSelectable = !isNoShip && !(hasStartTime && hasEndTime);
+
+                  const isChoosingReason = noShipReasonServiceTypeId === serviceTypeId;
+                  const switchValue = isNoShip || isChoosingReason;
 
                   return (
-                    <TouchableOpacity
+                    <View
                       key={serviceTypeId}
                       style={[
                         styles.serviceTypeSelectionItem,
-                        isActive && styles.serviceTypeSelectionItemActive,
-                      ]}
-                      onPress={async () => {
-                        if (!username) return;
-
-                        try {
-                          const order = pendingOrderForServiceTypeSelection;
-                          if (!order) return;
-
-                          // If already has start time and no end time, resume
-                          if (hasStartTime && !hasEndTime) {
-                            setActiveServiceTypeTimer(serviceTypeId);
-                            setShowServiceTypeSelectionModal(false);
-                            setPendingOrderForServiceTypeSelection(null);
-                            
-                            // Continue with normal flow
-                            await proceedWithStartService(order);
-                            return;
-                          }
-
-                          // If already completed, show alert
-                          if (hasStartTime && hasEndTime) {
-                            Alert.alert(
-                              'Service Type Already Completed',
-                              'This service type has already been started and ended. You cannot restart it.',
-                              [{text: 'OK'}],
-                            );
-                            return;
-                          }
-
-                          // Start new service type
-                          await serviceTypeTimeService.startServiceType(
-                            order.orderNumber,
-                            serviceTypeId,
-                            username,
-                          );
-                          setActiveServiceTypeTimer(serviceTypeId);
-                          
-                          // Reload service type time entries
-                          const entries = new Map<string, ServiceTypeTimeEntry>();
-                          order.programs.forEach(stId => {
-                            const entry = serviceTypeTimeService.getTimeEntry(
-                              order.orderNumber,
-                              stId,
-                            );
-                            if (entry) {
-                              entries.set(stId, entry);
-                            }
-                          });
-                          setServiceTypeTimeEntries(entries);
-                          
-                          // Reset containers, materials, and equipment for new service type
-                          setAddedContainers([]);
-                          setMaterialsSupplies([]);
-                          setEquipmentPPE([]);
-
-                          setShowServiceTypeSelectionModal(false);
-                          setPendingOrderForServiceTypeSelection(null);
-                          
-                          // Continue with normal flow
-                          await proceedWithStartService(order);
-                        } catch (error) {
-                          Alert.alert('Error', 'Failed to start service type time tracking');
-                        }
-                      }}
-                      activeOpacity={0.7}
-                      disabled={hasStartTime && hasEndTime}
-                      hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                        isNoShip && styles.serviceTypeSelectionItemNoShip,
+                        isSelected && styles.serviceTypeSelectionItemSelected,
+                      ]}>
                       <View style={styles.serviceTypeSelectionItemContent}>
-                        <View style={styles.serviceTypeSelectionItemLeft}>
-                          <Text style={styles.serviceTypeSelectionItemName}>
+                        <TouchableOpacity
+                          style={styles.serviceTypeSelectionItemLeft}
+                          onPress={() => {
+                            if (!isSelectable) return;
+                            setSelectedServiceTypeToStart(serviceTypeId);
+                          }}
+                          activeOpacity={0.7}
+                          disabled={!isSelectable}>
+                          <Text
+                            style={[
+                              styles.serviceTypeSelectionItemName,
+                              isNoShip && styles.serviceTypeSelectionItemNameNoShip,
+                            ]}>
                             {serviceTypeService.formatForOrderDetails(serviceTypeId)}
                           </Text>
-                          {timeEntry?.durationMinutes !== null && timeEntry?.durationMinutes !== undefined && (
+                          {!isNoShip && timeEntry?.durationMinutes != null && (
                             <Badge variant="outline" style={styles.serviceTypeSelectionDurationBadge}>
                               {serviceTypeTimeService.formatDuration(timeEntry.durationMinutes)}
                             </Badge>
                           )}
-                          {isActive && (
+                          {!isNoShip && activeServiceTypeTimer === serviceTypeId && (
                             <Badge variant="secondary" style={styles.serviceTypeSelectionActiveBadge}>
                               Active
                             </Badge>
                           )}
-                          {hasStartTime && hasEndTime && (
+                          {!isNoShip && hasStartTime && hasEndTime && (
                             <Badge variant="default" style={styles.serviceTypeSelectionCompletedBadge}>
                               Completed
                             </Badge>
                           )}
+                          {isNoShip && (
+                            <Badge variant="outline" style={styles.serviceTypeSelectionNoShipBadge}>
+                              No-Ship
+                            </Badge>
+                          )}
+                        </TouchableOpacity>
+                        <View style={styles.serviceTypeSelectionNoShipToggleWrap}>
+                          <Text
+                            style={styles.serviceTypeSelectionNoShipLabel}
+                            numberOfLines={1}>
+                            No-Ship
+                          </Text>
+                          <Switch
+                            value={switchValue}
+                            onValueChange={(value) => {
+                              if (value) {
+                                if (hasStartTime && !hasEndTime) {
+                                  Alert.alert(
+                                    'No-Ship After Service Started',
+                                    'This service type has already been started. Do you want to mark it as No-Ship? You will need to provide a reason code.',
+                                    [
+                                      {text: 'Cancel', style: 'cancel'},
+                                      {
+                                        text: 'Mark as No-Ship',
+                                        onPress: () => {
+                                          setNoShipReasonOrderNumber(order.orderNumber);
+                                          setNoShipReasonServiceTypeId(serviceTypeId);
+                                          setNoShipReasonCode('');
+                                          setNoShipReasonNotes('');
+                                        },
+                                      },
+                                    ],
+                                  );
+                                  return;
+                                }
+                                setNoShipReasonOrderNumber(order.orderNumber);
+                                setNoShipReasonServiceTypeId(serviceTypeId);
+                                setNoShipReasonCode('');
+                                setNoShipReasonNotes('');
+                              } else {
+                                if (isChoosingReason) {
+                                  setNoShipReasonOrderNumber(null);
+                                  setNoShipReasonServiceTypeId(null);
+                                  setNoShipReasonCode('');
+                                  setNoShipReasonNotes('');
+                                } else {
+                                  clearNoShipForServiceType(order.orderNumber, serviceTypeId);
+                                  if (selectedServiceTypeToStart === serviceTypeId) {
+                                    setSelectedServiceTypeToStart(null);
+                                  }
+                                }
+                              }
+                            }}
+                          />
                         </View>
-                        <Icon
-                          name="arrow-forward"
-                          size={20}
-                          color={colors.mutedForeground}
-                        />
                       </View>
-                    </TouchableOpacity>
+                    </View>
                   );
                 })}
+
+                {/* Inline No-Ship Reason (same modal, no modal-on-modal) */}
+                {noShipReasonServiceTypeId != null &&
+                  pendingOrderForServiceTypeSelection &&
+                  noShipReasonOrderNumber === pendingOrderForServiceTypeSelection.orderNumber && (
+                  <View style={styles.noShipReasonInlinePanel}>
+                    <Text style={styles.noShipReasonInlineTitle}>
+                      Select No-Ship Reason
+                    </Text>
+                    <Text style={styles.serviceTypeSelectionModalDescription}>
+                      Required for audit and billing. Choose a reason code (Rule 52).
+                    </Text>
+                    <ScrollView
+                      style={styles.noShipReasonInlineList}
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled>
+                      {(Object.keys(NO_SHIP_REASON_CODES) as NoShipReasonCode[]).map(
+                        code => (
+                          <TouchableOpacity
+                            key={code}
+                            style={[
+                              styles.noShipReasonRow,
+                              noShipReasonCode === code &&
+                                styles.noShipReasonRowSelected,
+                            ]}
+                            onPress={() => setNoShipReasonCode(code)}>
+                            <Text style={styles.noShipReasonCode}>
+                              {code}
+                            </Text>
+                            <Text style={styles.noShipReasonLabel}>
+                              {getNoShipReasonLabel(code)}
+                            </Text>
+                          </TouchableOpacity>
+                        ),
+                      )}
+                    </ScrollView>
+                    {isOtherReason(noShipReasonCode) && (
+                      <View style={styles.noShipReasonNotesSection}>
+                        <Text style={styles.noShipReasonNotesLabel}>
+                          Notes (required, min {MIN_OTHER_NOTES_LENGTH}{' '}
+                          characters)
+                        </Text>
+                        <TextInput
+                          style={styles.noShipReasonNotesInput}
+                          value={noShipReasonNotes}
+                          onChangeText={setNoShipReasonNotes}
+                          placeholder="Enter reason details..."
+                          multiline
+                          numberOfLines={3}
+                        />
+                      </View>
+                    )}
+                    <View style={styles.noShipReasonInlineActions}>
+                      <Button
+                        title="Cancel"
+                        variant="outline"
+                        onPress={() => {
+                          setNoShipReasonOrderNumber(null);
+                          setNoShipReasonServiceTypeId(null);
+                          setNoShipReasonCode('');
+                          setNoShipReasonNotes('');
+                        }}
+                      />
+                      <Button
+                        title="Confirm"
+                        variant="primary"
+                        disabled={
+                          !noShipReasonCode ||
+                          (isOtherReason(noShipReasonCode) &&
+                            noShipReasonNotes.trim().length <
+                              MIN_OTHER_NOTES_LENGTH)
+                        }
+                        onPress={() => {
+                          if (
+                            !noShipReasonOrderNumber ||
+                            !noShipReasonServiceTypeId
+                          )
+                            return;
+                          if (!noShipReasonCode) return;
+                          if (
+                            isOtherReason(noShipReasonCode) &&
+                            noShipReasonNotes.trim().length <
+                              MIN_OTHER_NOTES_LENGTH
+                          ) {
+                            return;
+                          }
+                          setNoShipForServiceType(
+                            noShipReasonOrderNumber,
+                            noShipReasonServiceTypeId,
+                            {
+                              reasonCode:
+                                noShipReasonCode as NoShipReasonCode,
+                              ...(isOtherReason(noShipReasonCode)
+                                ? {notes: noShipReasonNotes.trim()}
+                                : {}),
+                            },
+                          );
+                          setNoShipReasonOrderNumber(null);
+                          setNoShipReasonServiceTypeId(null);
+                          setNoShipReasonCode('');
+                          setNoShipReasonNotes('');
+                        }}
+                      />
+                    </View>
+                  </View>
+                )}
               </ScrollView>
+
+              {pendingOrderForServiceTypeSelection &&
+                pendingOrderForServiceTypeSelection.programs.every(p =>
+                  isServiceTypeNoShip(
+                    pendingOrderForServiceTypeSelection.orderNumber,
+                    p,
+                  ),
+                ) && (
+                  <View style={styles.serviceTypeSelectionModalAllNoShipBanner}>
+                    <Text style={styles.serviceTypeSelectionModalAllNoShipText}>
+                      All service types are No-Ship. Complete order as No-Ship (Rule 51).
+                    </Text>
+                  </View>
+                )}
+
+              <View style={styles.serviceTypeSelectionModalFooter}>
+                <Button
+                  title="Cancel"
+                  variant="outline"
+                  onPress={() => {
+                    setShowServiceTypeSelectionModal(false);
+                    setPendingOrderForServiceTypeSelection(null);
+                    setSelectedServiceTypeToStart(null);
+                    setNoShipReasonOrderNumber(null);
+                    setNoShipReasonServiceTypeId(null);
+                    setNoShipReasonCode('');
+                    setNoShipReasonNotes('');
+                  }}
+                />
+                {pendingOrderForServiceTypeSelection &&
+                pendingOrderForServiceTypeSelection.programs.every(p =>
+                  isServiceTypeNoShip(
+                    pendingOrderForServiceTypeSelection.orderNumber,
+                    p,
+                  ),
+                ) ? (
+                  <Button
+                    title="Complete Order as No-Ship"
+                    variant="primary"
+                    onPress={() => {
+                      const order = pendingOrderForServiceTypeSelection;
+                      if (!order) return;
+                      setCompletedOrders(prev =>
+                        prev.includes(order.orderNumber)
+                          ? prev
+                          : [...prev, order.orderNumber],
+                      );
+                      setShowServiceTypeSelectionModal(false);
+                      setPendingOrderForServiceTypeSelection(null);
+                      setSelectedServiceTypeToStart(null);
+                    }}
+                  />
+                ) : (
+                  <Button
+                    title="Start"
+                    variant="primary"
+                    disabled={
+                      selectedServiceTypeToStart == null ||
+                      isServiceTypeNoShip(
+                        pendingOrderForServiceTypeSelection.orderNumber,
+                        selectedServiceTypeToStart,
+                      )
+                    }
+                    onPress={async () => {
+                      const order = pendingOrderForServiceTypeSelection;
+                      const stId = selectedServiceTypeToStart;
+                      if (!order || !stId || !username) return;
+                      if (isServiceTypeNoShip(order.orderNumber, stId)) return;
+
+                    try {
+                      const timeEntry = serviceTypeTimeService.getTimeEntry(
+                        order.orderNumber,
+                        stId,
+                      );
+                      const hasStart = timeEntry?.startTime != null;
+                      const hasEnd = timeEntry?.endTime != null;
+
+                      if (hasStart && !hasEnd) {
+                        setActiveServiceTypeTimer(stId);
+                        setShowServiceTypeSelectionModal(false);
+                        setPendingOrderForServiceTypeSelection(null);
+                        setSelectedServiceTypeToStart(null);
+                        await proceedWithStartService(order);
+                        return;
+                      }
+                      if (hasStart && hasEnd) {
+                        Alert.alert(
+                          'Service Type Already Completed',
+                          'This service type has already been completed. Select another to start.',
+                          [{text: 'OK'}],
+                        );
+                        return;
+                      }
+
+                      await serviceTypeTimeService.startServiceType(
+                        order.orderNumber,
+                        stId,
+                        username,
+                      );
+                      setActiveServiceTypeTimer(stId);
+                      const entries = new Map<string, ServiceTypeTimeEntry>();
+                      order.programs.forEach(id => {
+                        const e = serviceTypeTimeService.getTimeEntry(order.orderNumber, id);
+                        if (e) entries.set(id, e);
+                      });
+                      setServiceTypeTimeEntries(entries);
+                      setAddedContainers([]);
+                      setMaterialsSupplies([]);
+                      setEquipmentPPE([]);
+                      setShowServiceTypeSelectionModal(false);
+                      setPendingOrderForServiceTypeSelection(null);
+                      setSelectedServiceTypeToStart(null);
+                      await proceedWithStartService(order);
+                    } catch (error) {
+                      Alert.alert('Error', 'Failed to start service type time tracking');
+                    }
+                  }}
+                />
+                )}
+              </View>
             </View>
           </View>
         </Modal>
@@ -8331,14 +8751,18 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         </Modal>
       )}
 
-      {/* Drop Waste Modal */}
+      {/* Record Drop Modal — FR-3a.EXT.3.1/3.2/3.3 */}
       <DropWasteModal
         visible={showDropWasteModal}
         onClose={() => setShowDropWasteModal(false)}
-        onDropWaste={handleDropWaste}
-        truckId={truckId}
-        completedOrdersCount={completedOrders.length}
-        containersToDropCount={addedContainers.length}
+        onConfirm={handleRecordDrop}
+        activeContainers={activeContainers.map(c => ({
+          id: c.id,
+          netWeight: c.netWeight,
+          label: `${c.streamName} • ${c.containerSize} (${c.netWeight} lbs)`,
+        }))}
+        defaultTransferLocation={serviceCenter?.name ?? ''}
+        transferLocationOptions={transferLocationOptions}
       />
       
       {/* Add Material Modal - Full Screen for Tablets - At root level to prevent remounting */}
@@ -8839,6 +9263,26 @@ const styles = StyleSheet.create({
       width: '100%',
     }),
   },
+  runningTotalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.muted + '30',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  runningTotalLabel: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.mutedForeground,
+  },
+  runningTotalValue: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
   pageTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -9065,6 +9509,21 @@ const styles = StyleSheet.create({
   },
   programBadge: {
     marginBottom: spacing.xs / 2,
+  },
+  programBadgePending: {
+    backgroundColor: colors.info + '22',
+    borderColor: colors.info,
+  },
+  programBadgeInProgress: {
+    backgroundColor: colors.primary + '22',
+    borderColor: colors.primary,
+  },
+  programBadgeNoship: {
+    backgroundColor: colors.muted,
+    borderColor: colors.border,
+  },
+  programBadgeTextNoship: {
+    color: colors.mutedForeground,
   },
   serviceOrderNumber: {
     ...typography.xs,
@@ -9707,6 +10166,14 @@ const styles = StyleSheet.create({
     height: 40,
     backgroundColor: colors.border,
   },
+  manifestShipmentCard: {
+    marginBottom: spacing.xl,
+  },
+  manifestShipmentSubtitle: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: spacing.xs,
+  },
   programsSection: {
     marginTop: spacing.lg,
   },
@@ -9858,6 +10325,76 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     lineHeight: 24,
   },
+  noShipReasonInlinePanel: {
+    marginTop: spacing.lg,
+    paddingTop: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  noShipReasonInlineTitle: {
+    ...typography.xl,
+    fontWeight: '700',
+    color: colors.foreground,
+    marginBottom: spacing.sm,
+  },
+  noShipReasonInlineList: {
+    maxHeight: 220,
+    marginVertical: spacing.sm,
+  },
+  noShipReasonInlineActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.md,
+    marginTop: spacing.md,
+  },
+  noShipReasonList: {
+    maxHeight: 280,
+    marginVertical: spacing.md,
+  },
+  noShipReasonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: spacing.sm,
+  },
+  noShipReasonRowSelected: {
+    backgroundColor: colors.primary + '15',
+    borderLeftWidth: 4,
+    borderLeftColor: colors.primary,
+  },
+  noShipReasonCode: {
+    ...typography.sm,
+    fontWeight: '700',
+    color: colors.foreground,
+    minWidth: 56,
+  },
+  noShipReasonLabel: {
+    ...typography.base,
+    color: colors.foreground,
+    flex: 1,
+  },
+  noShipReasonNotesSection: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  noShipReasonNotesLabel: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginBottom: spacing.xs,
+  },
+  noShipReasonNotesInput: {
+    ...typography.base,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    backgroundColor: colors.inputBackground,
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
   serviceTypeSelectionItem: {
     padding: spacing.md,
     marginBottom: spacing.sm,
@@ -9871,6 +10408,16 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     backgroundColor: colors.primary + '10',
   },
+  serviceTypeSelectionItemNoShip: {
+    backgroundColor: colors.muted,
+    borderColor: colors.border,
+    opacity: 0.9,
+  },
+  serviceTypeSelectionItemSelected: {
+    borderColor: colors.primary,
+    borderWidth: 2,
+    backgroundColor: colors.primary + '12',
+  },
   serviceTypeSelectionItemContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -9883,10 +10430,47 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     flexWrap: 'wrap',
   },
+  serviceTypeSelectionNoShipToggleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  serviceTypeSelectionNoShipLabel: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
   serviceTypeSelectionItemName: {
     ...typography.base,
     color: colors.foreground,
     fontWeight: '600',
+  },
+  serviceTypeSelectionItemNameNoShip: {
+    color: colors.mutedForeground,
+  },
+  serviceTypeSelectionNoShipBadge: {
+    backgroundColor: colors.muted,
+    borderColor: colors.border,
+  },
+  serviceTypeSelectionModalAllNoShipBanner: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.muted,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  serviceTypeSelectionModalAllNoShipText: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontStyle: 'italic',
+  },
+  serviceTypeSelectionModalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   serviceTypeSelectionDurationBadge: {
     borderColor: colors.primary,
@@ -10960,15 +11544,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.primary,
   },
-  manifestActionsFooter: {
-    backgroundColor: colors.card,
+  manifestActionsInCard: {
+    marginTop: spacing.xl,
+    paddingTop: spacing.lg,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    // @ts-ignore - web-specific style
-    boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.1)',
-    elevation: 8,
+  },
+  manifestActionsLabel: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
   },
   manifestActionsRow: {
     flexDirection: 'row',

@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   Alert,
   StyleSheet,
-  Platform,
   FlatList,
   SafeAreaView,
   TextInput,
@@ -22,61 +21,66 @@ import {
   touchTargets,
 } from '../styles/theme';
 
+export interface ActiveContainerItem {
+  id: string;
+  netWeight: number;
+  label?: string;
+}
+
 interface DropWasteModalProps {
   visible: boolean;
   onClose: () => void;
-  onDropWaste: (
+  /** FR-3a.EXT.3.3: Called with selected container IDs; parent performs status transition and aggregation update. */
+  onConfirm: (
     transferLocation: string,
     dropDate: string,
     dropTime: string,
+    selectedContainerIds: string[],
   ) => void;
-  truckId: string;
-  completedOrdersCount: number;
-  containersToDropCount: number;
+  /** FR-3a.EXT.3.2: All active (Loaded/In-Transit) containers on the truck. */
+  activeContainers: ActiveContainerItem[];
+  /** FR-3a.EXT.3.1: Default = Technician's assigned Service Center (Section 3.9). */
+  defaultTransferLocation: string;
+  /** Approved facilities for override (default first). */
+  transferLocationOptions: string[];
 }
-
-// Mock locations list
-const MOCK_LOCATIONS = [
-  'Main Transfer Station - Downtown',
-  'Northside Waste Facility',
-  'Southside Recycling Center',
-  'East End Transfer Point',
-  'West Industrial Waste Hub',
-  'Central Processing Facility',
-  'Riverside Drop-Off Site',
-  'Highway 101 Transfer Station',
-  'Airport Road Waste Center',
-  'Port Authority Facility',
-  'Mountain View Disposal Site',
-  'Valley Waste Management',
-  'Coastal Transfer Station',
-  'Inland Processing Center',
-  'Metro Waste Facility',
-  'Suburban Drop Point',
-  'Urban Collection Center',
-  'Regional Transfer Hub',
-  'City Main Facility',
-  'Industrial Park Station',
-];
 
 const DropWasteModal: React.FC<DropWasteModalProps> = ({
   visible,
   onClose,
-  onDropWaste,
-  truckId,
-  completedOrdersCount,
-  containersToDropCount,
+  onConfirm,
+  activeContainers,
+  defaultTransferLocation,
+  transferLocationOptions,
 }) => {
   const [transferLocation, setTransferLocation] = useState<string>('');
   const [dropDate, setDropDate] = useState<string>('');
   const [dropTime, setDropTime] = useState<string>('');
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
+  /** FR-3a.EXT.3.2: All selected by default; user can deselect for partial drop. */
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const prevVisibleRef = useRef(false);
+
+  useEffect(() => {
+    const justOpened = visible && !prevVisibleRef.current;
+    prevVisibleRef.current = visible;
+    if (justOpened) {
+      setTransferLocation(defaultTransferLocation || '');
+      const now = new Date();
+      setDropDate(now.toISOString().split('T')[0]);
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+      setDropTime(`${hours}:${minutes}`);
+      setSelectedIds(new Set(activeContainers.map(c => c.id)));
+    }
+  }, [visible, defaultTransferLocation, activeContainers]);
 
   const handleClose = () => {
     setTransferLocation('');
     setDropDate('');
     setDropTime('');
     setShowLocationPicker(false);
+    setSelectedIds(new Set());
     onClose();
   };
 
@@ -85,7 +89,19 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
     setShowLocationPicker(false);
   };
 
-  const handleDrop = () => {
+  const toggleContainer = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => setSelectedIds(new Set(activeContainers.map(c => c.id)));
+  const deselectAll = () => setSelectedIds(new Set());
+
+  const handleConfirm = () => {
     if (!transferLocation.trim()) {
       Alert.alert('Required Field', 'Please select a transfer location.');
       return;
@@ -98,21 +114,19 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
       Alert.alert('Required Field', 'Please select a drop time.');
       return;
     }
-
-    onDropWaste(transferLocation, dropDate, dropTime);
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) {
+      Alert.alert('No Containers Selected', 'Select at least one container to drop, or cancel.');
+      return;
+    }
+    onConfirm(transferLocation, dropDate, dropTime, ids);
     handleClose();
   };
 
-  // Auto-populate current date and time on mount
-  React.useEffect(() => {
-    if (visible && !dropDate) {
-      const now = new Date();
-      setDropDate(now.toISOString().split('T')[0]);
-      const hours = now.getHours().toString().padStart(2, '0');
-      const minutes = now.getMinutes().toString().padStart(2, '0');
-      setDropTime(`${hours}:${minutes}`);
-    }
-  }, [visible]);
+  const selectedCount = selectedIds.size;
+  const selectedWeight = activeContainers
+    .filter(c => selectedIds.has(c.id))
+    .reduce((sum, c) => sum + c.netWeight, 0);
 
   return (
     <Modal
@@ -122,7 +136,7 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
       onRequestClose={handleClose}>
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.title}>Drop Waste</Text>
+          <Text style={styles.title}>Record Drop</Text>
           <TouchableOpacity
             onPress={handleClose}
             style={styles.closeBtn}>
@@ -133,12 +147,7 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
         <ScrollView
           style={styles.content}
           contentContainerStyle={styles.scrollContent}>
-          <Text style={styles.description}>
-            Mark all completed orders for truck {truckId} as dropped at the
-            transfer location.
-          </Text>
-
-          {/* Transfer Location Dropdown */}
+          {/* FR-3a.EXT.3.1: Transfer Location dropdown, smart default */}
           <View style={styles.formField}>
             <Text style={styles.formLabel}>Transfer Location *</Text>
             <TouchableOpacity
@@ -155,7 +164,48 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Drop Date */}
+          {/* FR-3a.EXT.3.2: List active containers; all selected by default; partial drop by deselecting */}
+          <View style={styles.formField}>
+            <View style={styles.containerListHeader}>
+              <Text style={styles.formLabel}>Containers on truck</Text>
+              <View style={styles.selectAllRow}>
+                <TouchableOpacity onPress={selectAll} style={styles.selectAllBtn}>
+                  <Text style={styles.selectAllText}>Select all</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={deselectAll} style={styles.selectAllBtn}>
+                  <Text style={styles.selectAllText}>Deselect all</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            {activeContainers.length === 0 ? (
+              <Text style={styles.emptyContainersText}>No active containers on truck.</Text>
+            ) : (
+              <View style={styles.containerList}>
+                {activeContainers.map(c => {
+                  const isSelected = selectedIds.has(c.id);
+                  const label = c.label || `Container ${c.id.slice(-6)}`;
+                  return (
+                    <TouchableOpacity
+                      key={c.id}
+                      style={styles.containerRow}
+                      onPress={() => toggleContainer(c.id)}
+                      activeOpacity={0.7}>
+                      <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                        {isSelected && (
+                          <Icon name="check" size={16} color={colors.primaryForeground} />
+                        )}
+                      </View>
+                      <View style={styles.containerRowContent}>
+                        <Text style={styles.containerLabel}>{label}</Text>
+                        <Text style={styles.containerWeight}>{c.netWeight} lbs</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+
           <View style={styles.formField}>
             <Text style={styles.formLabel}>Drop Date *</Text>
             <TextInput
@@ -167,7 +217,6 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
             />
           </View>
 
-          {/* Drop Time */}
           <View style={styles.formField}>
             <Text style={styles.formLabel}>Drop Time *</Text>
             <TextInput
@@ -179,19 +228,17 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
             />
           </View>
 
-          {/* Summary */}
           <View style={styles.summary}>
             <Text style={styles.summaryTitle}>Summary</Text>
             <Text style={styles.summaryText}>
-              Completed Orders: {completedOrdersCount}
+              Containers to drop: {selectedCount}
             </Text>
             <Text style={styles.summaryText}>
-              Containers to Drop: {containersToDropCount}
+              Total weight: {selectedWeight.toLocaleString()} lbs
             </Text>
           </View>
         </ScrollView>
 
-        {/* Location Picker Modal */}
         <Modal
           visible={showLocationPicker}
           transparent={true}
@@ -208,7 +255,7 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
                 </TouchableOpacity>
               </View>
               <FlatList
-                data={MOCK_LOCATIONS}
+                data={transferLocationOptions}
                 keyExtractor={(item, index) => `location-${index}`}
                 renderItem={({item}) => (
                   <TouchableOpacity
@@ -235,10 +282,10 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
             style={styles.button}
           />
           <Button
-            title="Drop Waste"
+            title="Confirm Drop"
             variant="primary"
             size="md"
-            onPress={handleDrop}
+            onPress={handleConfirm}
             style={styles.button}
           />
         </View>
@@ -279,11 +326,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: spacing.lg,
   },
-  description: {
-    ...typography.base,
-    color: colors.mutedForeground,
-    marginBottom: spacing.lg,
-  },
   formField: {
     marginBottom: spacing.lg,
   },
@@ -313,6 +355,75 @@ const styles = StyleSheet.create({
   dropdownPlaceholder: {
     color: colors.mutedForeground,
   },
+  containerListHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  selectAllRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  selectAllBtn: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  selectAllText: {
+    ...typography.sm,
+    color: colors.primary,
+    fontWeight: '500',
+  },
+  emptyContainersText: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontStyle: 'italic',
+    paddingVertical: spacing.md,
+  },
+  containerList: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+  },
+  containerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: borderRadius.sm,
+    borderWidth: 2,
+    borderColor: colors.border,
+    marginRight: spacing.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  containerRowContent: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  containerLabel: {
+    ...typography.base,
+    color: colors.foreground,
+  },
+  containerWeight: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontWeight: '500',
+  },
   input: {
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -322,13 +433,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     minHeight: touchTargets.comfortable,
     justifyContent: 'center',
-  },
-  inputText: {
-    ...typography.base,
-    color: colors.foreground,
-  },
-  inputPlaceholder: {
-    color: colors.mutedForeground,
   },
   summary: {
     backgroundColor: colors.muted,
@@ -411,4 +515,3 @@ const styles = StyleSheet.create({
 });
 
 export default DropWasteModal;
-

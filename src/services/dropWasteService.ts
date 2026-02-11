@@ -9,11 +9,25 @@ export interface DropWasteRecord {
   droppedAt: number; // Unix timestamp in milliseconds
   truckId: string;
   username?: string;
+  containerWeights?: Record<string, number>; // containerId -> final net weight
+}
+
+/** Single drop action: selected containers with final weights, persisted to history. */
+export interface ContainerDropHistoryEntry {
+  dropId: string;
+  containerIds: string[];
+  containerWeights: Record<string, number>;
+  transferLocation: string;
+  dropDate: string;
+  dropTime: string;
+  droppedAt: number;
+  truckId: string;
 }
 
 const DROP_WASTE_KEY_PREFIX = 'drop_waste_';
 const DROPPED_ORDERS_KEY = 'dropped_orders';
 const DROPPED_CONTAINERS_KEY = 'dropped_containers';
+const DROP_HISTORY_KEY = 'drop_history';
 
 /**
  * Mark orders and containers as dropped
@@ -156,6 +170,62 @@ export const getDropRecordForOrder = async (
   } catch (error) {
     console.error('Error getting drop record for order:', error);
     return null;
+  }
+};
+
+/**
+ * Record a container drop (FR-3a.EXT.3.3): persist selected containers as dropped
+ * and save final weights to history. Updates dropped containers list.
+ */
+export const recordContainerDrop = async (
+  containerIds: string[],
+  containerWeights: Record<string, number>,
+  transferLocation: string,
+  dropDate: string,
+  dropTime: string,
+  truckId: string,
+): Promise<void> => {
+  try {
+    const droppedAt = Date.now();
+    const dropId = `drop_${droppedAt}`;
+
+    const entry: ContainerDropHistoryEntry = {
+      dropId,
+      containerIds,
+      containerWeights,
+      transferLocation,
+      dropDate,
+      dropTime,
+      droppedAt,
+      truckId,
+    };
+
+    const existingHistory = await getContainerDropHistory();
+    await safeAsyncStorage.setItem(
+      DROP_HISTORY_KEY,
+      JSON.stringify([entry, ...existingHistory]),
+    );
+
+    const existingDroppedContainers = await getDroppedContainers();
+    const updatedDroppedContainers = [...new Set([...existingDroppedContainers, ...containerIds])];
+    await safeAsyncStorage.setItem(DROPPED_CONTAINERS_KEY, JSON.stringify(updatedDroppedContainers));
+  } catch (error) {
+    console.error('Error recording container drop:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get container drop history (for sync/reporting).
+ */
+export const getContainerDropHistory = async (): Promise<ContainerDropHistoryEntry[]> => {
+  try {
+    const stored = await safeAsyncStorage.getItem(DROP_HISTORY_KEY);
+    if (!stored) return [];
+    return JSON.parse(stored);
+  } catch (error) {
+    console.error('Error getting drop history:', error);
+    return [];
   }
 };
 

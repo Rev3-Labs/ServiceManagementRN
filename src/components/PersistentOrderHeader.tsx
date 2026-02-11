@@ -30,6 +30,13 @@ interface PersistentOrderHeaderProps {
   syncStatus?: SyncStatus;
   pendingSyncCount?: number;
   onSync?: () => void;
+  /** FR-3a.UI.8.1: Service type badges [ST ID] • [SR Number], color by status. Tap navigates to that service type detail. */
+  serviceTypeBadges?: Array<{
+    serviceTypeId: string;
+    srNumber?: string;
+    status: 'pending' | 'in_progress' | 'noship';
+  }>;
+  onServiceTypeBadgePress?: (serviceTypeId: string) => void;
 }
 
 export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
@@ -51,6 +58,8 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
   syncStatus = 'synced',
   pendingSyncCount = 0,
   onSync,
+  serviceTypeBadges,
+  onServiceTypeBadgePress,
 }) => {
   const [offlineStatus, setOfflineStatus] = useState<OfflineStatus>(
     offlineTrackingService.getStatus(),
@@ -135,7 +144,39 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               <Text style={styles.persistentHeaderOrderNumber}>
                 {orderData.orderNumber}
               </Text>
-
+              {serviceTypeBadges && serviceTypeBadges.length > 0 && (
+                <View style={styles.serviceTypeBadgesRow}>
+                  {serviceTypeBadges.map(({serviceTypeId, srNumber, status}) => {
+                    const label = srNumber
+                      ? `${serviceTypeId} • ${srNumber}`
+                      : serviceTypeId;
+                    const isNoship = status === 'noship';
+                    const isInProgress = status === 'in_progress';
+                    const badgeStyle = [
+                      styles.serviceTypeBadge,
+                      isNoship && styles.serviceTypeBadgeNoship,
+                      isInProgress && styles.serviceTypeBadgeInProgress,
+                      !isNoship && !isInProgress && styles.serviceTypeBadgePending,
+                    ];
+                    return (
+                      <TouchableOpacity
+                        key={serviceTypeId}
+                        style={badgeStyle}
+                        onPress={() => onServiceTypeBadgePress?.(serviceTypeId)}
+                        disabled={!onServiceTypeBadgePress}
+                        activeOpacity={onServiceTypeBadgePress ? 0.7 : 1}>
+                        <Text
+                          style={[
+                            styles.serviceTypeBadgeText,
+                            isNoship && styles.serviceTypeBadgeTextNoship,
+                          ]}>
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
             </View>
           </View>
         </TouchableOpacity>
@@ -493,6 +534,41 @@ const styles = StyleSheet.create({
     ...typography.lg,
     fontWeight: '600',
     color: colors.foreground,
+  },
+  serviceTypeBadgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  serviceTypeBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs / 2,
+    borderRadius: borderRadius.full,
+    alignSelf: 'flex-start',
+  },
+  serviceTypeBadgePending: {
+    backgroundColor: colors.info + '22',
+    borderWidth: 1,
+    borderColor: colors.info,
+  },
+  serviceTypeBadgeInProgress: {
+    backgroundColor: colors.primary + '22',
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  serviceTypeBadgeNoship: {
+    backgroundColor: colors.muted,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  serviceTypeBadgeText: {
+    ...typography.xs,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  serviceTypeBadgeTextNoship: {
+    color: colors.mutedForeground,
   },
   persistentHeaderSubtitle: {
     ...typography.base,
