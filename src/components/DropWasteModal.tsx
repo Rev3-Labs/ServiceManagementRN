@@ -43,6 +43,12 @@ interface DropWasteModalProps {
   defaultTransferLocation: string;
   /** Approved facilities for override (default first). */
   transferLocationOptions: string[];
+  /** Full address of the actively selected service location (optional fallback when no transfer-location details). */
+  serviceLocationAddress?: string | null;
+  /** Contact phone for the actively selected service location (optional fallback). */
+  serviceLocationPhone?: string | null;
+  /** Address/phone per transfer location name; displayed under the dropdown and updates when selection changes. */
+  transferLocationDetails?: Record<string, { address?: string | null; phone?: string | null }>;
 }
 
 const DropWasteModal: React.FC<DropWasteModalProps> = ({
@@ -52,8 +58,15 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
   activeContainers,
   defaultTransferLocation,
   transferLocationOptions,
+  serviceLocationAddress,
+  serviceLocationPhone,
+  transferLocationDetails,
 }) => {
   const [transferLocation, setTransferLocation] = useState<string>('');
+  // Address/phone under dropdown: from selected transfer location when available, else service location fallback
+  const selectedLocationInfo = transferLocation && transferLocationDetails?.[transferLocation];
+  const displayedAddress = selectedLocationInfo?.address ?? serviceLocationAddress ?? null;
+  const displayedPhone = selectedLocationInfo?.phone ?? serviceLocationPhone ?? null;
   const [dropDate, setDropDate] = useState<string>('');
   const [dropTime, setDropTime] = useState<string>('');
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
@@ -162,6 +175,17 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
               </Text>
               <Icon name="keyboard-arrow-down" size={20} color={colors.mutedForeground} />
             </TouchableOpacity>
+            {/* Full address (and contact phone) for selected transfer location, shown under the dropdown */}
+            {(displayedAddress || displayedPhone) && (
+              <View style={styles.serviceLocationCard}>
+                {displayedAddress ? (
+                  <Text style={styles.serviceLocationAddress}>{displayedAddress}</Text>
+                ) : null}
+                {displayedPhone ? (
+                  <Text style={styles.serviceLocationPhone}>{displayedPhone}</Text>
+                ) : null}
+              </View>
+            )}
           </View>
 
           {/* FR-3a.EXT.3.2: List active containers; all selected by default; partial drop by deselecting */}
@@ -353,6 +377,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   dropdownPlaceholder: {
+    color: colors.mutedForeground,
+  },
+  serviceLocationCard: {
+    marginTop: spacing.sm,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  serviceLocationAddress: {
+    ...typography.base,
+    color: colors.foreground,
+    marginBottom: spacing.xs,
+  },
+  serviceLocationPhone: {
+    ...typography.sm,
     color: colors.mutedForeground,
   },
   containerListHeader: {

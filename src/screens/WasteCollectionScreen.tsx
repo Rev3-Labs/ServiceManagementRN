@@ -451,6 +451,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return phone;
   };
 
+  // Active service location for Drop Waste modal (selected order's address and contact phone; fallback when transfer location has no details)
+  const dropModalServiceLocation = useMemo(() => {
+    const activeOrder = selectedOrderData ?? dashboardSelectedOrder ?? orders?.[0] ?? null;
+    if (!activeOrder) return { address: null as string | null, phone: null as string | null };
+    const parts = [activeOrder.site, activeOrder.city, activeOrder.state, activeOrder.zip].filter(Boolean);
+    const address = parts.length > 0 ? parts.join(', ') : null;
+    const phone = activeOrder.primaryContactPhone ? formatPhoneNumber(activeOrder.primaryContactPhone) : null;
+    return { address, phone };
+  }, [selectedOrderData, dashboardSelectedOrder, orders]);
+
+  // Transfer location -> address/phone for Drop Waste modal; when selection changes, displayed info updates
+  const transferLocationDetails = useMemo(() => {
+    if (!serviceCenter?.name) return undefined;
+    const details: Record<string, { address: string | null; phone: string | null }> = {};
+    details[serviceCenter.name] = {
+      address: serviceCenter.address ?? null,
+      phone: null,
+    };
+    return details;
+  }, [serviceCenter?.name, serviceCenter?.address]);
+
   // Handle phone call
   const handlePhoneCall = useCallback(async (phone: string) => {
     if (!phone) return;
@@ -8826,6 +8847,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         }))}
         defaultTransferLocation={serviceCenter?.name ?? ''}
         transferLocationOptions={transferLocationOptions}
+        serviceLocationAddress={dropModalServiceLocation.address}
+        serviceLocationPhone={dropModalServiceLocation.phone}
+        transferLocationDetails={transferLocationDetails}
       />
       
       {/* Add Material Modal - Full Screen for Tablets - At root level to prevent remounting */}
