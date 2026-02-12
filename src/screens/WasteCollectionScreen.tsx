@@ -228,6 +228,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       isManualEntry?: boolean;
       shippingLabelBarcode?: string;
       status?: 'loaded' | 'in_transit' | 'dropped';
+      /** Service type this container was added under; used to show only current service type on add-containers screen. */
+      serviceTypeId?: string;
     }>
   >([]);
   const [selectedPrograms, setSelectedPrograms] = useState<
@@ -676,6 +678,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     );
   }, []);
 
+  /** True when every service type on the order has both start and end time (ready for manifest). */
+  const isAllServiceTypesCompleteForOrder = useCallback((order: OrderData): boolean => {
+    return order.programs.every(stId => {
+      const e = serviceTypeTimeService.getTimeEntry(order.orderNumber, stId);
+      return e?.startTime != null && e?.endTime != null;
+    });
+  }, []);
+
+  /** True when every service type is either complete (start+end) or marked no-ship — order is ready to open manifest. */
+  const isOrderReadyForManifest = useCallback(
+    (order: OrderData): boolean => {
+      return order.programs.every(stId => {
+        const noship = noshipByOrderAndServiceType[order.orderNumber]?.[stId];
+        if (noship) return true;
+        const e = serviceTypeTimeService.getTimeEntry(order.orderNumber, stId);
+        return e?.startTime != null && e?.endTime != null;
+      });
+    },
+    [noshipByOrderAndServiceType],
+  );
+
   const upcomingOrders = useMemo(() => {
     const allOrders = MOCK_ORDERS || orders || [];
     return allOrders.filter(order => !isOrderCompleted(order.orderNumber));
@@ -765,8 +788,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         }
         setServiceTypeTimeEntries(entries);
         
-        // Reset containers, materials, and equipment for new service type
-        setAddedContainers([]);
+        // Reset materials and equipment for new service type; keep containers on truck until user records drop
         setMaterialsSupplies([]);
         setEquipmentPPE([]);
       }
@@ -860,15 +882,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     [],
   );
 
-  // FR-3a.UI.8.1: Service type badges (orange=pending, blue=in progress, gray=no-ship, green=completed)
+  // FR-3a.UI.8.1: Service type badges (orange=pending, blue=in progress, gray=no-ship, green=completed). By default all are pending/not started; only show in progress when that type is actively being timed this session.
   const serviceTypeBadgesForHeader = useMemo(() => {
     if (!selectedOrderData) return undefined;
     return selectedOrderData.programs.map(serviceTypeId => {
       const entry = serviceTypeTimeEntries.get(serviceTypeId);
       const hasStart = entry?.startTime != null;
       const hasEnd = entry?.endTime != null;
-      const inProgress =
-        activeServiceTypeTimer === serviceTypeId || (hasStart && !hasEnd);
+      const inProgress = activeServiceTypeTimer === serviceTypeId;
       const completed = hasStart && hasEnd;
       const noship = isServiceTypeNoShip(
         selectedOrderData.orderNumber,
@@ -973,6 +994,49 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       Alert.alert('Error', 'Failed to resume time tracking.');
     }
   }, [activeTimeTracking, currentOrderTimeTracking, getElapsedTimeDisplay]);
+
+  /** Mark the current service type complete (end timer); navigate to manifest if all complete, else dashboard. */
+  const handleMarkServiceTypeComplete = useCallback(async () => {
+    if (!selectedOrderData || !activeServiceTypeTimer) return;
+    try {
+      await serviceTypeTimeService.endServiceType(
+        selectedOrderData.orderNumber,
+        activeServiceTypeTimer,
+      );
+      const entries = new Map<string, ServiceTypeTimeEntry>();
+      selectedOrderData.programs.forEach(stId => {
+        const entry = serviceTypeTimeService.getTimeEntry(
+          selectedOrderData.orderNumber,
+          stId,
+        );
+        if (entry) entries.set(stId, entry);
+      });
+      setServiceTypeTimeEntries(entries);
+      setActiveServiceTypeTimer(null);
+
+      const allServiceTypesComplete = selectedOrderData.programs.every(stId => {
+        const e = entries.get(stId);
+        return e?.startTime != null && e?.endTime != null;
+      });
+
+      setOrderStatuses(prev => ({
+        ...prev,
+        [selectedOrderData.orderNumber]: 'Partial',
+      }));
+
+      if (allServiceTypesComplete) {
+        setCurrentStep('manifest-management');
+      } else {
+        setCurrentStep('dashboard');
+      }
+    } catch (error) {
+      console.error('Error marking service type complete:', error);
+      Alert.alert(
+        'Error',
+        'Failed to mark service type complete. Please try again.',
+      );
+    }
+  }, [selectedOrderData, activeServiceTypeTimer]);
 
   // Generate unique shipping label barcode
   // Format: I-8digitssalesorder-001 (e.g., I-20241234-001)
@@ -2160,12 +2224,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         {selectedOrder.programs.map((program, i) => {
                           const serviceOrderNumber = selectedOrder.serviceOrderNumbers?.[program];
                           const noship = isServiceTypeNoShip(selectedOrder.orderNumber, program);
-                          const entry = serviceTypeTimeEntries.get(program);
+                          const entry = serviceTypeTimeService.getTimeEntry(selectedOrder.orderNumber, program);
                           const hasStart = entry?.startTime != null;
                           const hasEnd = entry?.endTime != null;
-                          const inProgress = activeServiceTypeTimer === program || (hasStart && !hasEnd);
+                          const inProgress = activeServiceTypeTimer === program;
                           const completed = !noship && hasStart && hasEnd;
-                          const pending = !noship && !hasStart;
+                          const pending = !noship && !completed && !inProgress;
                           const badgeStyle = [
                             styles.programBadge,
                             noship && styles.programBadgeNoship,
@@ -2300,21 +2364,38 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 </View>
 
                 <View style={styles.detailActions}>
-                  <Button
-                    title={
-                      isSelectedOrderCompleted
-                        ? 'Order Completed'
-                        : 'Start Service'
-                    }
-                    variant="primary"
-                    size="lg"
-                    disabled={isSelectedOrderCompleted}
-                    onPress={() => {
-                      if (!isSelectedOrderCompleted && selectedOrder) {
-                        handleStartService(selectedOrder);
-                      }
-                    }}
-                  />
+                  {isSelectedOrderCompleted ? (
+                    <Button
+                      title="Order Completed"
+                      variant="primary"
+                      size="lg"
+                      disabled
+                      onPress={() => {}}
+                    />
+                  ) : isOrderReadyForManifest(selectedOrder) ? (
+                    <Button
+                      title="Open Manifest"
+                      variant="primary"
+                      size="lg"
+                      onPress={() => {
+                        if (selectedOrder) {
+                          setSelectedOrderData(selectedOrder);
+                          setCurrentStep('manifest-management');
+                        }
+                      }}
+                    />
+                  ) : (
+                    <Button
+                      title="Start Service"
+                      variant="primary"
+                      size="lg"
+                      onPress={() => {
+                        if (selectedOrder) {
+                          handleStartService(selectedOrder);
+                        }
+                      }}
+                    />
+                  )}
                 </View>
               </ScrollView>
             ) : (
@@ -2719,12 +2800,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         {dashboardSelectedOrder.programs.map((program, i) => {
                           const serviceOrderNumber = dashboardSelectedOrder.serviceOrderNumbers?.[program];
                           const noship = isServiceTypeNoShip(dashboardSelectedOrder.orderNumber, program);
-                          const entry = serviceTypeTimeEntries.get(program);
+                          const entry = serviceTypeTimeService.getTimeEntry(dashboardSelectedOrder.orderNumber, program);
                           const hasStart = entry?.startTime != null;
                           const hasEnd = entry?.endTime != null;
-                          const inProgress = activeServiceTypeTimer === program || (hasStart && !hasEnd);
+                          const inProgress = activeServiceTypeTimer === program;
                           const completed = !noship && hasStart && hasEnd;
-                          const pending = !noship && !hasStart;
+                          const pending = !noship && !completed && !inProgress;
                           const badgeStyle = [
                             styles.programBadge,
                             noship && styles.programBadgeNoship,
@@ -2859,21 +2940,36 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 </View>
 
                 <View style={styles.detailActions}>
-                  <Button
-                    title={
-                      isOrderCompleted(dashboardSelectedOrder.orderNumber)
-                        ? 'Order Completed'
-                        : 'Start Service'
-                    }
-                    variant="primary"
-                    size="lg"
-                    disabled={isOrderCompleted(dashboardSelectedOrder.orderNumber)}
-                    onPress={() => {
-                      if (!isOrderCompleted(dashboardSelectedOrder.orderNumber) && dashboardSelectedOrder) {
-                        handleStartService(dashboardSelectedOrder);
-                      }
-                    }}
-                  />
+                  {isOrderCompleted(dashboardSelectedOrder.orderNumber) ? (
+                    <Button
+                      title="Order Completed"
+                      variant="primary"
+                      size="lg"
+                      disabled
+                      onPress={() => {}}
+                    />
+                  ) : isOrderReadyForManifest(dashboardSelectedOrder) ? (
+                    <Button
+                      title="Open Manifest"
+                      variant="primary"
+                      size="lg"
+                      onPress={() => {
+                        setSelectedOrderData(dashboardSelectedOrder);
+                        setCurrentStep('manifest-management');
+                      }}
+                    />
+                  ) : (
+                    <Button
+                      title="Start Service"
+                      variant="primary"
+                      size="lg"
+                      onPress={() => {
+                        if (dashboardSelectedOrder) {
+                          handleStartService(dashboardSelectedOrder);
+                        }
+                      }}
+                    />
+                  )}
                 </View>
               </>
             ) : (
@@ -2935,15 +3031,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         const serviceType = serviceTypeService.getServiceType(program);
                         const serviceOrderNumber = order.serviceOrderNumbers?.[program];
                         const noship = isServiceTypeNoShip(order.orderNumber, program);
-                        const entry = serviceTypeTimeEntries.get(program);
+                        const entry = serviceTypeTimeService.getTimeEntry(order.orderNumber, program);
                         const hasStart = entry?.startTime != null;
                         const hasEnd = entry?.endTime != null;
                         const inProgress =
                           selectedOrderData?.orderNumber === order.orderNumber &&
-                          (currentOrderTimeTracking?.orderNumber === order.orderNumber &&
-                            (activeServiceTypeTimer === program || (hasStart && !hasEnd)));
+                          activeServiceTypeTimer === program;
                         const completed = !noship && hasStart && hasEnd;
-                        const pending = !noship && !hasStart;
+                        const pending = !noship && !completed && !inProgress;
                         const badgeStyle = [
                           styles.programBadge,
                           noship && styles.programBadgeNoship,
@@ -3685,6 +3780,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   isManualEntry: isManualWeightEntry, // Track if manually entered
                   shippingLabelBarcode, // Unique shipping label barcode
                   status: 'loaded' as const, // FR-3a.EXT.3.2: active on truck until dropped
+                  serviceTypeId: activeServiceTypeTimer ?? undefined, // For filtering by current service type on add-containers screen
                   ...(requiresCylinderCount && cylinderCount ? { cylinderCount: parseInt(cylinderCount) || 0 } : {}),
                 };
 
@@ -3728,6 +3824,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const isCurrentOrderCompleted = selectedOrderData
       ? isOrderCompleted(selectedOrderData.orderNumber)
       : false;
+    // Only show containers for the current service type on this screen (not all orders/service types)
+    const containersForCurrentServiceType = useMemo(
+      () =>
+        activeContainers.filter(
+          c => c.serviceTypeId === activeServiceTypeTimer,
+        ),
+      [activeContainers, activeServiceTypeTimer],
+    );
     const [deleteConfirmation, setDeleteConfirmation] = useState<{
       visible: boolean;
       containerId: string | null;
@@ -3826,12 +3930,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             style={styles.scrollView}
             contentContainerStyle={styles.scrollContent}>
             <Text style={styles.summaryText}>
-              Showing {activeContainerCount} container
-              {activeContainerCount !== 1 ? 's' : ''} on truck
+              Showing {containersForCurrentServiceType.length} container
+              {containersForCurrentServiceType.length !== 1 ? 's' : ''} for this service type
             </Text>
 
-            {activeContainers.length > 0 ? (
-              activeContainers.map((container, index) => (
+            {containersForCurrentServiceType.length > 0 ? (
+              containersForCurrentServiceType.map((container, index) => (
                 <View key={container.id}>
                   <Card style={styles.containerSummaryCard}>
                     <View style={styles.containerSummaryHeader}>
@@ -3931,65 +4035,23 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               }
             }}
           />
-          <Button
-            title="Continue to Manifest"
-            variant="primary"
-            size="md"
-            disabled={activeContainerCount === 0 || isCurrentOrderCompleted}
-            onPress={() => {
-              if (!isCurrentOrderCompleted) {
-                // Check for P-Listed waste codes in all added containers
-                const allPCodes: PListedCode[] = [];
-                const streamsWithPCodes: WasteStream[] = [];
-                
-                // Collect all P-Listed codes from all active added containers
-                activeContainers.forEach(container => {
-                  // Find the stream that matches this container
-                  const stream = wasteStreams.find(
-                    s => s.profileName === container.streamName || s.profileNumber === container.streamCode
-                  );
-                  if (stream) {
-                    const pCodes = pListedAuthorizationService.extractPListedCodes(stream);
-                    if (pCodes.length > 0) {
-                      allPCodes.push(...pCodes);
-                      if (!streamsWithPCodes.find(s => s.id === stream.id)) {
-                        streamsWithPCodes.push(stream);
-                      }
-                    }
-                  }
-                });
-                
-                // If P-Listed codes found, validate authorization
-                if (allPCodes.length > 0 && selectedOrderData && username) {
-                  // Get generator ID from order
-                  const generatorId = String(
-                    selectedOrderData.genNumber || selectedOrderData.customer || ''
-                  );
-                  
-                  // Validate authorization for all P-Listed codes
-                  const authResult = pListedAuthorizationService.validateAuthorization(
-                    username,
-                    generatorId,
-                    allPCodes,
-                  );
-                  
-                  // Store auth result
-                  setPListedAuthResult({
-                    ...authResult,
-                    pCodes: allPCodes,
-                  });
-                  setPListedAuthAcknowledged(false);
-                  setPListedAuthCode('');
-                  setPListedAuthCodeValid(false);
-                  setShowPListedAuthModal(true);
-                  return; // Don't proceed to manifest until authorized
-                }
-                
-                // No P-Listed codes or authorization passed - proceed to manifest
-                setCurrentStep('manifest-management');
-              }
-            }}
-          />
+          {selectedOrderData && isOrderReadyForManifest(selectedOrderData) ? (
+            <Button
+              title="Back to Manifest"
+              variant="primary"
+              size="md"
+              disabled={isCurrentOrderCompleted}
+              onPress={() => setCurrentStep('manifest-management')}
+            />
+          ) : (
+            <Button
+              title="Mark service type complete"
+              variant="primary"
+              size="md"
+              disabled={isCurrentOrderCompleted || !activeServiceTypeTimer}
+              onPress={handleMarkServiceTypeComplete}
+            />
+          )}
         </View>
 
         {/* Bottom Sheet Delete Confirmation (Tablet-Optimized) */}
@@ -4050,6 +4112,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const isCurrentOrderCompleted = selectedOrderData
       ? isOrderCompleted(selectedOrderData.orderNumber)
       : false;
+
+    // Completed orders cannot open or view manifest — redirect to dashboard
+    useEffect(() => {
+      if (selectedOrderData && isOrderCompleted(selectedOrderData.orderNumber)) {
+        setSelectedOrderData(null);
+        setCurrentStep('dashboard');
+      }
+    }, [selectedOrderData, isOrderCompleted]);
 
     if (!selectedOrderData) return null;
 
@@ -5019,13 +5089,17 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
         <View style={styles.footer}>
           <Button
-            title="Done"
+            title="Back"
+            variant="outline"
+            size="md"
+            onPress={() => setCurrentStep('manifest-management')}
+          />
+          <Button
+            title="Mark service type complete"
             variant="primary"
             size="md"
-            onPress={() => {
-              // Return to manifest-management (main workflow step)
-              setCurrentStep('manifest-management');
-            }}
+            disabled={!activeServiceTypeTimer}
+            onPress={handleMarkServiceTypeComplete}
           />
         </View>
       </View>
@@ -5232,10 +5306,17 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
         <View style={styles.footer}>
           <Button
-            title="Done"
-            variant="primary"
+            title="Back"
+            variant="outline"
             size="md"
             onPress={() => setCurrentStep('manifest-management')}
+          />
+          <Button
+            title="Mark service type complete"
+            variant="primary"
+            size="md"
+            disabled={!activeServiceTypeTimer}
+            onPress={handleMarkServiceTypeComplete}
           />
         </View>
 
@@ -5550,8 +5631,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           ...prev,
           [selectedOrderData.orderNumber]: 'Completed',
         }));
-        // Reset state
-        setAddedContainers([]);
+        // Reset state and clear selected order so user cannot open manifest/service types for completed order
+        setSelectedOrderData(null);
+        setDashboardSelectedOrder(null);
+        // Keep addedContainers — they persist on truck until user marks and confirms drop in Record Drop flow
         setSelectedPrograms({});
         setMaterialsSupplies([]);
         setEquipmentPPE([]);
@@ -6420,8 +6503,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       }
     };
 
-    // Calculate counts for badges (use active count so drop updates badge)
-    const containersCount = activeContainerCount;
+    // Calculate counts for badges — containers badge = current service type only
+    const containersCount = activeContainers.filter(
+      c => c.serviceTypeId === activeServiceTypeTimer,
+    ).length;
     const scannedDocsCount = scannedDocuments.filter(
       doc => doc.orderNumber === selectedOrderData?.orderNumber,
     ).length;
@@ -8263,9 +8348,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   const isNoShip = isServiceTypeNoShip(order.orderNumber, serviceTypeId);
                   const isSelected = selectedServiceTypeToStart === serviceTypeId;
                   const isSelectable = !isNoShip && !(hasStartTime && hasEndTime);
-                  const isInProgress = !isNoShip && hasStartTime && !hasEndTime;
+                  const isInProgress = activeServiceTypeTimer === serviceTypeId;
                   const isCompleted = !isNoShip && hasStartTime && hasEndTime;
-                  const isPending = !isNoShip && !hasStartTime;
+                  const isPending = !isNoShip && !isCompleted && !isInProgress;
 
                   const isChoosingReason = noShipReasonServiceTypeId === serviceTypeId;
                   const switchValue = isNoShip || isChoosingReason;
@@ -8587,7 +8672,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         if (e) entries.set(id, e);
                       });
                       setServiceTypeTimeEntries(entries);
-                      setAddedContainers([]);
+                      // Keep addedContainers on truck until user records drop
                       setMaterialsSupplies([]);
                       setEquipmentPPE([]);
                       setShowServiceTypeSelectionModal(false);
