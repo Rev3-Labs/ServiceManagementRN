@@ -331,6 +331,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [noShipReasonNotes, setNoShipReasonNotes] = useState('');
   // Start Service modal: which service type is selected to start (single selection)
   const [selectedServiceTypeToStart, setSelectedServiceTypeToStart] = useState<string | null>(null);
+  // When true, container-summary shows "Back to containers review" (user came from containers-review to add a container)
+  const [returnToContainersReviewAfterAdd, setReturnToContainersReviewAfterAdd] = useState(false);
 
   // FR-3a.EXT.3.2/3.3: Active = Loaded/In-Transit (not dropped); aggregation from active only
   const activeContainers = useMemo(
@@ -1025,7 +1027,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       }));
 
       if (allServiceTypesComplete) {
-        setCurrentStep('manifest-management');
+        setCurrentStep('containers-review');
       } else {
         setCurrentStep('dashboard');
       }
@@ -2380,7 +2382,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       onPress={() => {
                         if (selectedOrder) {
                           setSelectedOrderData(selectedOrder);
-                          setCurrentStep('manifest-management');
+                          setCurrentStep('containers-review');
                         }
                       }}
                     />
@@ -2955,7 +2957,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       size="lg"
                       onPress={() => {
                         setSelectedOrderData(dashboardSelectedOrder);
-                        setCurrentStep('manifest-management');
+                        setCurrentStep('containers-review');
                       }}
                     />
                   ) : (
@@ -4035,13 +4037,23 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               }
             }}
           />
-          {selectedOrderData && isOrderReadyForManifest(selectedOrderData) ? (
+          {returnToContainersReviewAfterAdd ? (
+            <Button
+              title="Back to containers review"
+              variant="primary"
+              size="md"
+              onPress={() => {
+                setReturnToContainersReviewAfterAdd(false);
+                setCurrentStep('containers-review');
+              }}
+            />
+          ) : selectedOrderData && isOrderReadyForManifest(selectedOrderData) ? (
             <Button
               title="Back to Manifest"
               variant="primary"
               size="md"
               disabled={isCurrentOrderCompleted}
-              onPress={() => setCurrentStep('manifest-management')}
+              onPress={() => setCurrentStep('containers-review')}
             />
           ) : (
             <Button
@@ -4108,6 +4120,168 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     );
   };
 
+  // Order-level containers review: all service types and their containers; add/delete before manifest
+  const OrderContainersReviewScreen = () => {
+    const [deleteConfirm, setDeleteConfirm] = useState<{ id: string } | null>(null);
+
+    const containersByServiceType = useMemo(() => {
+      const map = new Map<string, typeof activeContainers>();
+      if (!selectedOrderData) return map;
+      selectedOrderData.programs.forEach(stId => {
+        map.set(stId, activeContainers.filter(c => c.serviceTypeId === stId));
+      });
+      const unassigned = activeContainers.filter(c => !c.serviceTypeId);
+      if (unassigned.length > 0) map.set('_unassigned', unassigned);
+      return map;
+    }, [selectedOrderData, activeContainers]);
+
+    const handleDeleteFromReview = (containerId: string) => {
+      setAddedContainers(prev => prev.filter(c => c.id !== containerId));
+      setDeleteConfirm(null);
+    };
+
+    if (!selectedOrderData) return null;
+
+    return (
+      <View style={styles.container}>
+        <PersistentOrderHeader
+          orderData={selectedOrderData}
+          isCollapsed={isOrderHeaderCollapsed}
+          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
+          onBackPress={() => setCurrentStep('dashboard')}
+          subtitle="Containers by service type"
+          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
+          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
+          onPause={handleRequestPause}
+          onResume={handleResumeTracking}
+          onViewNotes={() => setShowJobNotesModal(true)}
+          validationState={validationState}
+          onViewValidation={() => setShowValidationModal(true)}
+          onViewServiceCenter={() => setShowServiceCenterModal(true)}
+          truckNumber={selectedTruck?.number || truckId || undefined}
+          trailerNumber={selectedTrailer?.number || null}
+          syncStatus={syncStatus}
+          pendingSyncCount={pendingSyncCount}
+          onSync={handleManualSync}
+          serviceTypeBadges={serviceTypeBadgesForHeader}
+          onServiceTypeBadgePress={handleServiceTypeBadgePress}
+        />
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          <Text style={styles.summaryText}>
+            Review and edit containers by service type before creating the manifest. You can add or delete containers for any service type.
+          </Text>
+          {selectedOrderData.programs.map(stId => {
+            const list = containersByServiceType.get(stId) ?? [];
+            const stName = serviceTypeService.getServiceTypeName(stId);
+            const srNumber = selectedOrderData.serviceOrderNumbers?.[stId];
+            return (
+              <View key={stId} style={styles.containersReviewSection}>
+                <View style={styles.containersReviewSectionHeader}>
+                  <Text style={styles.containersReviewSectionTitle}>
+                    {serviceTypeService.formatForBadge(stId)} — {stName}
+                    {srNumber ? ` • ${srNumber}` : ''}
+                  </Text>
+                  <Text style={styles.containersReviewSectionCount}>
+                    {list.length} container{list.length !== 1 ? 's' : ''}
+                  </Text>
+                </View>
+                {list.length === 0 ? (
+                  <Text style={styles.containersReviewEmpty}>No containers added for this service type.</Text>
+                ) : (
+                  list.map((c, idx) => (
+                    <Card key={c.id} style={styles.containerSummaryCard}>
+                      <View style={styles.containerSummaryHeader}>
+                        <View style={styles.containerSummaryHeaderLeft}>
+                          <Text style={styles.containerSummaryNumber}>#{idx + 1}</Text>
+                          <View style={styles.containerSummaryTitleGroup}>
+                            <Text style={styles.containerSummaryTitle}>{c.streamName}</Text>
+                            <Text style={styles.containerSummarySubtitle}>
+                              {c.containerSize} • {c.containerType}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.containerSummaryNetWeight}>
+                          <Text style={styles.containerSummaryNetWeightLabel}>Net</Text>
+                          <Text style={[styles.containerSummaryNetWeightValue, styles.netWeightHighlight]}>
+                            {c.netWeight} lbs
+                          </Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.deleteButton}
+                        onPress={() => setDeleteConfirm({ id: c.id })}
+                        activeOpacity={0.7}>
+                        <Text style={styles.deleteButtonText}>Delete</Text>
+                      </TouchableOpacity>
+                    </Card>
+                  ))
+                )}
+                <Button
+                  title={`Add container to ${serviceTypeService.formatForBadge(stId)}${srNumber ? ` (${srNumber})` : ''}`}
+                  variant="outline"
+                  size="sm"
+                  onPress={() => {
+                    setActiveServiceTypeTimer(stId);
+                    setReturnToContainersReviewAfterAdd(true);
+                    setCurrentStep('stream-selection');
+                  }}
+                  style={styles.containersReviewAddBtn}
+                />
+              </View>
+            );
+          })}
+          {(containersByServiceType.get('_unassigned')?.length ?? 0) > 0 && (
+            <View style={styles.containersReviewSection}>
+              <Text style={styles.containersReviewSectionTitle}>Unassigned</Text>
+              {(containersByServiceType.get('_unassigned') ?? []).map((c, idx) => (
+                <Card key={c.id} style={styles.containerSummaryCard}>
+                  <View style={styles.containerSummaryHeader}>
+                    <View style={styles.containerSummaryHeaderLeft}>
+                      <Text style={styles.containerSummaryNumber}>#{idx + 1}</Text>
+                      <Text style={styles.containerSummaryTitle}>{c.streamName}</Text>
+                      <Text style={styles.containerSummaryNetWeightValue}>{c.netWeight} lbs</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity style={styles.deleteButton} onPress={() => setDeleteConfirm({ id: c.id })} activeOpacity={0.7}>
+                    <Text style={styles.deleteButtonText}>Delete</Text>
+                  </TouchableOpacity>
+                </Card>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+        <View style={styles.footer}>
+          <Button title="Back" variant="outline" size="md" onPress={() => setCurrentStep('dashboard')} />
+          <Button
+            title="Continue to Manifest"
+            variant="primary"
+            size="md"
+            onPress={() => setCurrentStep('manifest-management')}
+          />
+        </View>
+
+        {/* Delete confirmation */}
+        <Modal visible={!!deleteConfirm} transparent animationType="fade" onRequestClose={() => setDeleteConfirm(null)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center' }}>
+            <View style={styles.containersReviewDeleteModal}>
+              <Text style={styles.containersReviewDeleteTitle}>Delete container?</Text>
+              <Text style={styles.containersReviewDeleteMessage}>This cannot be undone.</Text>
+              <View style={styles.footer}>
+                <Button title="Cancel" variant="outline" size="md" onPress={() => setDeleteConfirm(null)} />
+                <Button
+                  title="Delete"
+                  variant="destructive"
+                  size="md"
+                  onPress={() => deleteConfirm && handleDeleteFromReview(deleteConfirm.id)}
+                />
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    );
+  };
+
   const ManifestManagementScreen = () => {
     const isCurrentOrderCompleted = selectedOrderData
       ? isOrderCompleted(selectedOrderData.orderNumber)
@@ -4129,8 +4303,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           orderData={selectedOrderData}
           isCollapsed={isOrderHeaderCollapsed}
           onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
-          onBackPress={() => setCurrentStep('container-summary')}
-          subtitle="Manifest Management"
+          onBackPress={() => setCurrentStep('containers-review')}
+          subtitle="Manifest Shipment"
           elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
           isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
           onPause={handleRequestPause}
@@ -7006,6 +7180,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         return <ContainerEntryScreen />;
       case 'container-summary':
         return <ContainerSummaryScreen />;
+      case 'containers-review':
+        return <OrderContainersReviewScreen />;
       case 'manifest-management':
         return <ManifestManagementScreen />;
       case 'materials-supplies':
@@ -10259,6 +10435,122 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     minHeight: touchTargets.min,
     alignSelf: 'flex-end',
+  },
+  // Order containers review (pre-manifest)
+  containersReviewSection: {
+    marginBottom: spacing.xl,
+  },
+  containersReviewSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+    paddingBottom: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  containersReviewSectionTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  containersReviewSectionCount: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  containersReviewEmpty: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontStyle: 'italic',
+    paddingVertical: spacing.sm,
+  },
+  containersReviewAddBtn: {
+    marginTop: spacing.sm,
+  },
+  containersReviewDeleteModal: {
+    backgroundColor: colors.background,
+    margin: spacing.lg,
+    padding: spacing.lg,
+    borderRadius: borderRadius.lg,
+  },
+  containersReviewDeleteTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.xs,
+  },
+  containersReviewDeleteMessage: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginBottom: spacing.lg,
+  },
+  containersReviewAddModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  containersReviewAddModalTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  streamPickerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  streamChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  streamChipSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + '20',
+  },
+  streamChipText: {
+    ...typography.sm,
+    color: colors.foreground,
+  },
+  streamChipTextSelected: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+  },
+  closeBtn: {
+    padding: spacing.sm,
+  },
+  formField: {
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.lg,
+  },
+  formLabel: {
+    ...typography.sm,
+    fontWeight: '500',
+    color: colors.foreground,
+    marginBottom: spacing.xs,
+  },
+  input: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    minHeight: 44,
   },
   containerSummaryWeightBar: {
     flexDirection: 'row',

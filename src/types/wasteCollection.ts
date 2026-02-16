@@ -5,6 +5,7 @@ export type FlowStep =
   | 'container-selection'
   | 'container-entry'
   | 'container-summary'
+  | 'containers-review'   // Order-level: all containers by service type, add/delete before manifest
   | 'manifest-management'
   | 'materials-supplies'
   | 'equipment-ppe'
