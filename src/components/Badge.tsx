@@ -8,6 +8,7 @@ interface BadgeProps {
   style?: ViewStyle;
   textStyle?: TextStyle;
   title?: string; // Tooltip/accessibility label
+  trailingIcon?: React.ReactNode;
 }
 
 export const Badge: React.FC<BadgeProps> = ({
@@ -16,12 +17,21 @@ export const Badge: React.FC<BadgeProps> = ({
   style,
   textStyle,
   title,
+  trailingIcon,
 }) => {
+  const content = trailingIcon ? (
+    <View style={styles.badgeContentRow}>
+      <Text style={[styles.text, styles[`text_${variant}`], textStyle]}>{children}</Text>
+      {trailingIcon}
+    </View>
+  ) : (
+    <Text style={[styles.text, styles[`text_${variant}`], textStyle]}>{children}</Text>
+  );
   return (
-    <View 
+    <View
       style={[styles.badge, styles[`badge_${variant}`], style]}
       accessibilityLabel={title || undefined}>
-      <Text style={[styles.text, styles[`text_${variant}`], textStyle]}>{children}</Text>
+      {content}
     </View>
   );
 };
@@ -32,6 +42,11 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: borderRadius.full,
     alignSelf: 'flex-start',
+  },
+  badgeContentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   badge_default: {
     backgroundColor: colors.primary,

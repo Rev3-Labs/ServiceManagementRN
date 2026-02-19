@@ -2354,6 +2354,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                               : inProgress
                                 ? styles.programBadgeTextInProgress
                                 : styles.programBadgeTextPending;
+                          const chevronColor = noship
+                            ? colors.mutedForeground
+                            : completed
+                              ? colors.success
+                              : inProgress
+                                ? colors.info
+                                : colors.warning;
                           const canEditOrder = !isSelectedOrderCompleted;
                           return (
                             <Pressable
@@ -2378,7 +2385,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                                 variant="outline"
                                 style={StyleSheet.flatten(badgeStyle)}
                                 textStyle={textStyle}
-                                title={serviceTypeService.getServiceTypeName(program)}>
+                                title={serviceTypeService.getServiceTypeName(program)}
+                                trailingIcon={
+                                  <Icon name="chevron-right" size={20} color={chevronColor} />
+                                }>
                                 {serviceOrderNumber
                                   ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
                                   : serviceTypeService.formatForBadge(program)}
@@ -2396,6 +2406,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                             title={hasManifestForOrder(selectedOrder.orderNumber) ? 'Open Manifest' : 'Generate manifest'}
                             variant="primary"
                             size="lg"
+                            style={styles.detailActionsRowButton}
                             onPress={() => {
                               if (selectedOrder) {
                                 handleGenerateManifestForOrder(selectedOrder);
@@ -2407,6 +2418,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                               title="Void manifest"
                               variant="destructive"
                               size="lg"
+                              style={styles.detailActionsRowButton}
                               onPress={voidManifest}
                             />
                           )}
@@ -2419,6 +2431,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           title="Complete Order as No-Ship"
                           variant="primary"
                           size="lg"
+                          style={styles.detailActionsRowButton}
                           onPress={() => {
                             if (!selectedOrder) return;
                             setCompletedOrders((prev) =>
@@ -3183,6 +3196,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                               : inProgress
                                 ? styles.programBadgeTextInProgress
                                 : styles.programBadgeTextPending;
+                          const chevronColor = noship
+                            ? colors.mutedForeground
+                            : completed
+                              ? colors.success
+                              : inProgress
+                                ? colors.info
+                                : colors.warning;
                           const canEditOrder = !isOrderCompleted(dashboardSelectedOrder.orderNumber);
                           return (
                             <Pressable
@@ -3207,7 +3227,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                                 variant="outline"
                                 style={StyleSheet.flatten(badgeStyle)}
                                 textStyle={textStyle}
-                                title={serviceTypeService.getServiceTypeName(program)}>
+                                title={serviceTypeService.getServiceTypeName(program)}
+                                trailingIcon={
+                                  <Icon name="chevron-right" size={20} color={chevronColor} />
+                                }>
                                 {serviceOrderNumber
                                   ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
                                   : serviceTypeService.formatForBadge(program)}
@@ -3547,6 +3570,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                               title={hasManifestForOrder(dashboardSelectedOrder.orderNumber) ? 'Open Manifest' : 'Generate manifest'}
                               variant="primary"
                               size="lg"
+                              style={styles.detailActionsRowButton}
                               onPress={() => {
                                 handleGenerateManifestForOrder(dashboardSelectedOrder);
                               }}
@@ -3556,6 +3580,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                                 title="Void manifest"
                                 variant="destructive"
                                 size="lg"
+                                style={styles.detailActionsRowButton}
                                 onPress={voidManifest}
                               />
                             )}
@@ -3568,6 +3593,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                             title="Complete Order as No-Ship"
                             variant="primary"
                             size="lg"
+                            style={styles.detailActionsRowButton}
                             onPress={() => {
                               if (!dashboardSelectedOrder) return;
                               setCompletedOrders((prev) =>
@@ -3589,6 +3615,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                               title="Start"
                               variant="primary"
                               size="lg"
+                              style={styles.detailActionsRowButton}
                               disabled={
                                 hasManifestForOrder(dashboardSelectedOrder.orderNumber) ||
                                 selectedServiceTypeToStart == null ||
@@ -3731,6 +3758,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                             : inProgress
                               ? styles.programBadgeTextInProgress
                               : styles.programBadgeTextPending;
+                        const chevronColor = noship
+                          ? colors.mutedForeground
+                          : completed
+                            ? colors.success
+                            : inProgress
+                              ? colors.info
+                              : colors.warning;
                         const canEditOrder = !isOrderCompleted(order.orderNumber);
                         return (
                           <Pressable
@@ -3753,7 +3787,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                               variant="outline"
                               style={StyleSheet.flatten(badgeStyle)}
                               textStyle={textStyle}
-                              title={serviceType?.name || program}>
+                              title={serviceType?.name || program}
+                              trailingIcon={
+                                <Icon name="chevron-right" size={20} color={chevronColor} />
+                              }>
                               {serviceOrderNumber
                                 ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
                                 : serviceTypeService.formatForBadge(program)}
@@ -3936,7 +3973,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
           serviceTypeBadges={serviceTypeBadgesForHeader}
-          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <ScrollView
@@ -4100,7 +4136,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
           serviceTypeBadges={serviceTypeBadgesForHeader}
-          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <ScrollView
@@ -4255,7 +4290,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
           serviceTypeBadges={serviceTypeBadgesForHeader}
-          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <ScrollView
@@ -4617,7 +4651,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
           serviceTypeBadges={serviceTypeBadgesForHeader}
-          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -4857,7 +4890,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
           serviceTypeBadges={serviceTypeBadgesForHeader}
-          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           <Text style={styles.summaryText}>
@@ -5014,7 +5046,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
           serviceTypeBadges={serviceTypeBadgesForHeader}
-          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -5832,7 +5863,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
           serviceTypeBadges={serviceTypeBadgesForHeader}
-          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -6070,7 +6100,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
           serviceTypeBadges={serviceTypeBadgesForHeader}
-          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -6577,7 +6606,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           pendingSyncCount={pendingSyncCount}
           onSync={handleManualSync}
           serviceTypeBadges={serviceTypeBadgesForHeader}
-          onServiceTypeBadgePress={handleServiceTypeBadgePress}
         />
 
         <View style={styles.scrollViewContainer}>
@@ -10816,7 +10844,7 @@ const styles = StyleSheet.create({
   },
   programsContainerInline: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
     gap: spacing.sm,
     flex: 1,
     justifyContent: 'flex-end',
@@ -10832,6 +10860,10 @@ const styles = StyleSheet.create({
   },
   programBadge: {
     marginBottom: spacing.xs / 2,
+    minHeight: touchTargets.min,
+    justifyContent: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
   },
   programBadgePending: {
     backgroundColor: colors.warning + '22',
@@ -12859,9 +12891,13 @@ const styles = StyleSheet.create({
   },
   detailActionsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
     gap: spacing.md,
     marginTop: spacing.md,
+    alignSelf: 'stretch',
+  },
+  detailActionsRowButton: {
+    flex: 1,
   },
   detailActionsRowInCard: {
     marginTop: spacing.lg,

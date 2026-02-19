@@ -161,24 +161,30 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
                       isInProgress && styles.serviceTypeBadgeInProgress,
                       isPending && styles.serviceTypeBadgePending,
                     ];
-                    return (
+                    const textContent = (
+                      <Text
+                        style={[
+                          styles.serviceTypeBadgeText,
+                          isNoship && styles.serviceTypeBadgeTextNoship,
+                          isCompleted && styles.serviceTypeBadgeTextCompleted,
+                          isInProgress && styles.serviceTypeBadgeTextInProgress,
+                          isPending && styles.serviceTypeBadgeTextPending,
+                        ]}>
+                        {label}
+                      </Text>
+                    );
+                    return onServiceTypeBadgePress ? (
                       <TouchableOpacity
                         key={serviceTypeId}
                         style={badgeStyle}
-                        onPress={() => onServiceTypeBadgePress?.(serviceTypeId)}
-                        disabled={!onServiceTypeBadgePress}
-                        activeOpacity={onServiceTypeBadgePress ? 0.7 : 1}>
-                        <Text
-                          style={[
-                            styles.serviceTypeBadgeText,
-                            isNoship && styles.serviceTypeBadgeTextNoship,
-                            isCompleted && styles.serviceTypeBadgeTextCompleted,
-                            isInProgress && styles.serviceTypeBadgeTextInProgress,
-                            isPending && styles.serviceTypeBadgeTextPending,
-                          ]}>
-                          {label}
-                        </Text>
+                        onPress={() => onServiceTypeBadgePress(serviceTypeId)}
+                        activeOpacity={0.7}>
+                        {textContent}
                       </TouchableOpacity>
+                    ) : (
+                      <View key={serviceTypeId} style={badgeStyle}>
+                        {textContent}
+                      </View>
                     );
                   })}
                 </View>
