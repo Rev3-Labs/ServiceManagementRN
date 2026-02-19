@@ -261,6 +261,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [showVoidManifestConfirmModal, setShowVoidManifestConfirmModal] = useState(false);
   const [showVoidManifestSuccessModal, setShowVoidManifestSuccessModal] = useState(false);
+  const [completedOrdersSectionCollapsed, setCompletedOrdersSectionCollapsed] = useState(true);
   const signatureRef = useRef<any>(null);
   const [materialsSupplies, setMaterialsSupplies] = useState<
     Array<{
@@ -1891,9 +1892,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   // Master-Detail Dashboard Screen (for tablets)
   const DashboardScreenMasterDetail = () => {
     const allOrders = MOCK_ORDERS || orders || [];
-    // Show all orders, including completed ones
-    const filteredOrders = allOrders;
-    const selectedOrder = dashboardSelectedOrder || filteredOrders[0] || null;
+    const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
+    const completedOrdersList = allOrders.filter(order => isOrderCompleted(order.orderNumber));
+    const selectedOrder = dashboardSelectedOrder || activeOrders[0] || completedOrdersList[0] || null;
     const isSelectedOrderCompleted = selectedOrder
       ? isOrderCompleted(selectedOrder.orderNumber)
       : false;
@@ -2091,14 +2092,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 />
               </View>
               <Text style={styles.masterPaneSubtitle}>
-                {filteredOrders.length} orders scheduled
+                {activeOrders.length} order{activeOrders.length !== 1 ? 's' : ''} remaining
               </Text>
             </View>
             <ScrollView
               style={styles.masterPaneScroll}
               contentContainerStyle={styles.masterPaneContent}>
-              {filteredOrders.length > 0 ? (
-                filteredOrders.map((order, index) => (
+              {activeOrders.length > 0 ? (
+                activeOrders.map((order, index) => (
                   <TouchableOpacity
                     key={index}
                     style={[
@@ -2157,13 +2158,58 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   </TouchableOpacity>
                 ))
               ) : (
-                <View style={styles.emptyState}>
-                  <Text style={styles.emptyStateTitle}>
-                    No Orders Scheduled
-                  </Text>
-                  <Text style={styles.emptyStateText}>
-                    You have no orders scheduled for today.
-                  </Text>
+                completedOrdersList.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateTitle}>
+                      No Orders Scheduled
+                    </Text>
+                    <Text style={styles.emptyStateText}>
+                      You have no orders scheduled for today.
+                    </Text>
+                  </View>
+                ) : null
+              )}
+              {/* Completed Orders Section - collapsed at bottom (master-detail) */}
+              {completedOrdersList.length > 0 && (
+                <View style={styles.completedOrdersSection}>
+                  <TouchableOpacity
+                    style={styles.completedOrdersHeaderRow}
+                    onPress={() => setCompletedOrdersSectionCollapsed(prev => !prev)}
+                    activeOpacity={0.7}>
+                    <View style={styles.completedOrdersTitleRow}>
+                      <Icon name="check-circle" size={18} color={colors.success} style={styles.completedOrdersIcon} />
+                      <Text style={styles.completedOrdersTitle}>
+                        Completed ({completedOrdersList.length})
+                      </Text>
+                      <Icon
+                        name={completedOrdersSectionCollapsed ? 'keyboard-arrow-down' : 'keyboard-arrow-up'}
+                        size={24}
+                        color={colors.mutedForeground}
+                      />
+                    </View>
+                  </TouchableOpacity>
+                  {!completedOrdersSectionCollapsed &&
+                    completedOrdersList.map((order, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        style={styles.completedOrderCard}
+                        onPress={() => setDashboardSelectedOrder(order)}
+                        activeOpacity={0.7}>
+                        <View style={styles.completedOrderContent}>
+                          <View style={styles.completedOrderLeft}>
+                            <Text style={styles.completedOrderNumber}>
+                              {order.orderNumber}
+                            </Text>
+                            <Text style={styles.completedOrderCustomer}>
+                              {formatCustomerWithStore(order.customer, order.site)}
+                            </Text>
+                          </View>
+                          <View style={styles.completedOrderRight}>
+                            <Icon name="check-circle" size={20} color={colors.success} />
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
                 </View>
               )}
             </ScrollView>
@@ -2400,50 +2446,58 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     </View>
 
                     <View style={[styles.detailActionsRow]}>
-                      {isOrderReadyForManifest(selectedOrder) && (
+                      {isSelectedOrderCompleted ? (
+                        <Text style={styles.detailActionsOrderCompletedText}>
+                          Order completed
+                        </Text>
+                      ) : (
                         <>
-                          <Button
-                            title={hasManifestForOrder(selectedOrder.orderNumber) ? 'Open Manifest' : 'Generate manifest'}
-                            variant="primary"
-                            size="lg"
-                            style={styles.detailActionsRowButton}
-                            onPress={() => {
-                              if (selectedOrder) {
-                                handleGenerateManifestForOrder(selectedOrder);
-                              }
-                            }}
-                          />
-                          {hasManifestForOrder(selectedOrder.orderNumber) && (
+                          {isOrderReadyForManifest(selectedOrder) && (
+                            <>
+                              <Button
+                                title={hasManifestForOrder(selectedOrder.orderNumber) ? 'Open Manifest' : 'Generate manifest'}
+                                variant="primary"
+                                size="lg"
+                                style={styles.detailActionsRowButton}
+                                onPress={() => {
+                                  if (selectedOrder) {
+                                    handleGenerateManifestForOrder(selectedOrder);
+                                  }
+                                }}
+                              />
+                              {hasManifestForOrder(selectedOrder.orderNumber) && (
+                                <Button
+                                  title="Void manifest"
+                                  variant="destructive"
+                                  size="lg"
+                                  style={styles.detailActionsRowButton}
+                                  onPress={voidManifest}
+                                />
+                              )}
+                            </>
+                          )}
+                          {selectedOrder.programs.every((p) =>
+                            isServiceTypeNoShip(selectedOrder.orderNumber, p),
+                          ) ? (
                             <Button
-                              title="Void manifest"
-                              variant="destructive"
+                              title="Complete Order as No-Ship"
+                              variant="primary"
                               size="lg"
                               style={styles.detailActionsRowButton}
-                              onPress={voidManifest}
+                              onPress={() => {
+                                if (!selectedOrder) return;
+                                setCompletedOrders((prev) =>
+                                  prev.includes(selectedOrder.orderNumber)
+                                    ? prev
+                                    : [...prev, selectedOrder.orderNumber],
+                                );
+                                setSelectedServiceTypeToStart(null);
+                              }}
                             />
+                          ) : (
+                            null
                           )}
                         </>
-                      )}
-                      {selectedOrder.programs.every((p) =>
-                        isServiceTypeNoShip(selectedOrder.orderNumber, p),
-                      ) ? (
-                        <Button
-                          title="Complete Order as No-Ship"
-                          variant="primary"
-                          size="lg"
-                          style={styles.detailActionsRowButton}
-                          onPress={() => {
-                            if (!selectedOrder) return;
-                            setCompletedOrders((prev) =>
-                              prev.includes(selectedOrder.orderNumber)
-                                ? prev
-                                : [...prev, selectedOrder.orderNumber],
-                            );
-                            setSelectedServiceTypeToStart(null);
-                          }}
-                        />
-                      ) : (
-                        null
                       )}
                     </View>
                   </CardContent>
@@ -3564,68 +3618,74 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         </View>
                       )}
                       <View style={styles.detailActionsRow}>
-                        {isOrderReadyForManifest(dashboardSelectedOrder) && (
-                          <>
-                            <Button
-                              title={hasManifestForOrder(dashboardSelectedOrder.orderNumber) ? 'Open Manifest' : 'Generate manifest'}
-                              variant="primary"
-                              size="lg"
-                              style={styles.detailActionsRowButton}
-                              onPress={() => {
-                                handleGenerateManifestForOrder(dashboardSelectedOrder);
-                              }}
-                            />
-                            {hasManifestForOrder(dashboardSelectedOrder.orderNumber) && (
-                              <Button
-                                title="Void manifest"
-                                variant="destructive"
-                                size="lg"
-                                style={styles.detailActionsRowButton}
-                                onPress={voidManifest}
-                              />
-                            )}
-                          </>
-                        )}
-                        {dashboardSelectedOrder.programs.every((p) =>
-                          isServiceTypeNoShip(dashboardSelectedOrder.orderNumber, p),
-                        ) ? (
-                          <Button
-                            title="Complete Order as No-Ship"
-                            variant="primary"
-                            size="lg"
-                            style={styles.detailActionsRowButton}
-                            onPress={() => {
-                              if (!dashboardSelectedOrder) return;
-                              setCompletedOrders((prev) =>
-                                prev.includes(dashboardSelectedOrder.orderNumber)
-                                  ? prev
-                                  : [...prev, dashboardSelectedOrder.orderNumber],
-                              );
-                              setSelectedServiceTypeToStart(null);
-                            }}
-                          />
+                        {isOrderCompleted(dashboardSelectedOrder.orderNumber) ? (
+                          <Text style={styles.detailActionsOrderCompletedText}>
+                            Order completed
+                          </Text>
                         ) : (
                           <>
-                            {hasManifestForOrder(dashboardSelectedOrder.orderNumber) && (
-                              <Text style={styles.badgePromptMessage}>
-                                Void the manifest to edit or start service types.
-                              </Text>
+                            {isOrderReadyForManifest(dashboardSelectedOrder) && (
+                              <>
+                                <Button
+                                  title={hasManifestForOrder(dashboardSelectedOrder.orderNumber) ? 'Open Manifest' : 'Generate manifest'}
+                                  variant="primary"
+                                  size="lg"
+                                  style={styles.detailActionsRowButton}
+                                  onPress={() => {
+                                    handleGenerateManifestForOrder(dashboardSelectedOrder);
+                                  }}
+                                />
+                                {hasManifestForOrder(dashboardSelectedOrder.orderNumber) && (
+                                  <Button
+                                    title="Void manifest"
+                                    variant="destructive"
+                                    size="lg"
+                                    style={styles.detailActionsRowButton}
+                                    onPress={voidManifest}
+                                  />
+                                )}
+                              </>
                             )}
-                            <Button
-                              title="Start"
-                              variant="primary"
-                              size="lg"
-                              style={styles.detailActionsRowButton}
-                              disabled={
-                                hasManifestForOrder(dashboardSelectedOrder.orderNumber) ||
-                                selectedServiceTypeToStart == null ||
-                                isServiceTypeNoShip(
-                                  dashboardSelectedOrder.orderNumber,
-                                  selectedServiceTypeToStart,
-                                )
-                              }
-                              onPress={async () => {
-                                const order = dashboardSelectedOrder;
+                            {dashboardSelectedOrder.programs.every((p) =>
+                              isServiceTypeNoShip(dashboardSelectedOrder.orderNumber, p),
+                            ) ? (
+                              <Button
+                                title="Complete Order as No-Ship"
+                                variant="primary"
+                                size="lg"
+                                style={styles.detailActionsRowButton}
+                                onPress={() => {
+                                  if (!dashboardSelectedOrder) return;
+                                  setCompletedOrders((prev) =>
+                                    prev.includes(dashboardSelectedOrder.orderNumber)
+                                      ? prev
+                                      : [...prev, dashboardSelectedOrder.orderNumber],
+                                  );
+                                  setSelectedServiceTypeToStart(null);
+                                }}
+                              />
+                            ) : (
+                              <>
+                                {hasManifestForOrder(dashboardSelectedOrder.orderNumber) && (
+                                  <Text style={styles.badgePromptMessage}>
+                                    Void the manifest to edit or start service types.
+                                  </Text>
+                                )}
+                                <Button
+                                  title="Start"
+                                  variant="primary"
+                                  size="lg"
+                                  style={styles.detailActionsRowButton}
+                                  disabled={
+                                    hasManifestForOrder(dashboardSelectedOrder.orderNumber) ||
+                                    selectedServiceTypeToStart == null ||
+                                    isServiceTypeNoShip(
+                                      dashboardSelectedOrder.orderNumber,
+                                      selectedServiceTypeToStart,
+                                    )
+                                  }
+                                  onPress={async () => {
+                                    const order = dashboardSelectedOrder;
                               const stId = selectedServiceTypeToStart;
                               if (!order || !stId || !username) return;
                               if (isServiceTypeNoShip(order.orderNumber, stId)) return;
@@ -3670,8 +3730,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                               }
                             }}
                           />
-                          </>
-                        )}
+                                </>
+                              )}
+                            </>
+                          )}
                       </View>
                     </>
                   )}
@@ -3813,36 +3875,43 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               </>
             )}
 
-            {/* Completed Orders Section */}
+            {/* Completed Orders Section - collapsed at bottom */}
             {completedOrdersList.length > 0 && (
               <View style={styles.completedOrdersSection}>
-                <View style={styles.completedOrdersHeader}>
+                <TouchableOpacity
+                  style={styles.completedOrdersHeaderRow}
+                  onPress={() => setCompletedOrdersSectionCollapsed(prev => !prev)}
+                  activeOpacity={0.7}>
                   <View style={styles.completedOrdersTitleRow}>
-                    <Icon name="check-circle" size={20} color={colors.success} style={styles.completedOrdersIcon} />
+                    <Icon name="check-circle" size={18} color={colors.success} style={styles.completedOrdersIcon} />
                     <Text style={styles.completedOrdersTitle}>
                       Completed ({completedOrdersList.length})
                     </Text>
+                    <Icon
+                      name={completedOrdersSectionCollapsed ? 'keyboard-arrow-down' : 'keyboard-arrow-up'}
+                      size={24}
+                      color={colors.mutedForeground}
+                    />
                   </View>
-                </View>
-                {completedOrdersList.map((order, index) => (
-                  <View
-                    key={index}
-                    style={styles.completedOrderCard}>
-                    <View style={styles.completedOrderContent}>
-                      <View style={styles.completedOrderLeft}>
-                        <Text style={styles.completedOrderNumber}>
-                          {order.orderNumber}
-                        </Text>
-                        <Text style={styles.completedOrderCustomer}>
-                          {formatCustomerWithStore(order.customer, order.site)}
-                        </Text>
-                      </View>
-                      <View style={styles.completedOrderRight}>
-                        <Icon name="check-circle" size={24} color={colors.success} />
+                </TouchableOpacity>
+                {!completedOrdersSectionCollapsed &&
+                  completedOrdersList.map((order, index) => (
+                    <View key={index} style={styles.completedOrderCard}>
+                      <View style={styles.completedOrderContent}>
+                        <View style={styles.completedOrderLeft}>
+                          <Text style={styles.completedOrderNumber}>
+                            {order.orderNumber}
+                          </Text>
+                          <Text style={styles.completedOrderCustomer}>
+                            {formatCustomerWithStore(order.customer, order.site)}
+                          </Text>
+                        </View>
+                        <View style={styles.completedOrderRight}>
+                          <Icon name="check-circle" size={20} color={colors.success} />
+                        </View>
                       </View>
                     </View>
-                  </View>
-                ))}
+                  ))}
               </View>
             )}
           </ScrollView>
@@ -10730,12 +10799,17 @@ const styles = StyleSheet.create({
     color: colors.success,
     fontWeight: '500',
   },
-  // Completed Orders Section Styles
+  // Completed Orders Section Styles (collapsed at bottom, condensed list)
   completedOrdersSection: {
     marginTop: spacing.xl,
-    paddingTop: spacing.lg,
+    paddingTop: spacing.md,
     borderTopWidth: 2,
     borderTopColor: colors.border,
+  },
+  completedOrdersHeaderRow: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    marginBottom: spacing.xs,
   },
   completedOrdersHeader: {
     marginBottom: spacing.md,
@@ -10749,18 +10823,20 @@ const styles = StyleSheet.create({
     marginRight: spacing.xs / 2,
   },
   completedOrdersTitle: {
-    ...typography.lg,
+    ...typography.sm,
     fontWeight: '600',
     color: colors.success,
+    flex: 1,
   },
   completedOrderCard: {
     backgroundColor: colors.muted,
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    borderLeftWidth: 4,
+    borderRadius: borderRadius.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.xs,
+    borderLeftWidth: 3,
     borderLeftColor: colors.success,
-    opacity: 0.8,
+    opacity: 0.9,
   },
   completedOrderContent: {
     flexDirection: 'row',
@@ -10771,12 +10847,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   completedOrderNumber: {
-    ...typography.base,
+    ...typography.sm,
     fontWeight: '600',
     color: colors.foreground,
   },
   completedOrderCustomer: {
-    ...typography.sm,
+    ...typography.xs,
     color: colors.mutedForeground,
     marginTop: 2,
   },
@@ -12898,6 +12974,12 @@ const styles = StyleSheet.create({
   },
   detailActionsRowButton: {
     flex: 1,
+  },
+  detailActionsOrderCompletedText: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.success,
+    alignSelf: 'center',
   },
   detailActionsRowInCard: {
     marginTop: spacing.lg,
