@@ -191,6 +191,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const isSelectingServiceTypeRef = useRef(false);
   const [activeServiceTypeTimer, setActiveServiceTypeTimer] = useState<string | null>(null); // serviceTypeId that's currently timing
   const [showTimeEditModal, setShowTimeEditModal] = useState(false);
+  const [showBadgeStartEditModal, setShowBadgeStartEditModal] = useState(false);
+  const [badgePromptPayload, setBadgePromptPayload] = useState<{
+    order: OrderData;
+    program: string;
+    pending: boolean;
+    noship: boolean;
+  } | null>(null);
+  const [badgePromptNoShipMode, setBadgePromptNoShipMode] = useState(false);
+  const [badgeNoShipReasonCode, setBadgeNoShipReasonCode] = useState<NoShipReasonCode | ''>('');
+  const [badgeNoShipReasonNotes, setBadgeNoShipReasonNotes] = useState('');
   const [editingServiceTypeId, setEditingServiceTypeId] = useState<string | null>(null);
   const [editingTimeField, setEditingTimeField] = useState<'start' | 'end' | null>(null);
   const [editingTimeValue, setEditingTimeValue] = useState({hours: '12', minutes: '00', ampm: 'AM'});
@@ -238,6 +248,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [manifestTrackingNumber, setManifestTrackingNumber] = useState<
     string | null
   >(null);
+  /** Order number the current manifest belongs to (null when no manifest or after void). */
+  const [manifestOrderNumber, setManifestOrderNumber] = useState<string | null>(null);
   const [manifestData, setManifestData] = useState<{
     trackingNumber?: string;
     createdAt?: Date;
@@ -247,6 +259,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [showPrintOptions, setShowPrintOptions] = useState(false);
   const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [showVoidManifestConfirmModal, setShowVoidManifestConfirmModal] = useState(false);
+  const [showVoidManifestSuccessModal, setShowVoidManifestSuccessModal] = useState(false);
   const signatureRef = useRef<any>(null);
   const [materialsSupplies, setMaterialsSupplies] = useState<
     Array<{
@@ -701,6 +715,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     [noshipByOrderAndServiceType],
   );
 
+  /** True when a manifest has been generated for this order and not voided. */
+  const hasManifestForOrder = useCallback(
+    (orderNumber: string): boolean =>
+      Boolean(manifestTrackingNumber && manifestOrderNumber === orderNumber),
+    [manifestTrackingNumber, manifestOrderNumber],
+  );
+
   const upcomingOrders = useMemo(() => {
     const allOrders = MOCK_ORDERS || orders || [];
     return allOrders.filter(order => !isOrderCompleted(order.orderNumber));
@@ -847,6 +868,83 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     // Single service type or no service types - proceed with normal flow
     await proceedWithStartService(order);
   }, [truckId, username, proceedWithStartService, offlineStatus.isBlocked, checkOfflineBlock]);
+
+  // Start a specific service type and navigate to stream-selection (used when user taps "Start service" from badge)
+  const startServiceTypeAndNavigate = useCallback(
+    async (order: OrderData, program: string) => {
+      if (!username) return;
+      if (checkOfflineBlock()) return;
+      try {
+        await startTimeTracking(order.orderNumber, truckId, username);
+        const active = await getActiveTimeTracking();
+        setActiveTimeTracking(active);
+        const orderTracking = await getTimeTrackingForOrder(order.orderNumber);
+        setCurrentOrderTimeTracking(orderTracking);
+        if (orderTracking && !orderTracking.endTime) {
+          setElapsedTimeDisplay(getElapsedTimeDisplay(orderTracking));
+        }
+        await serviceTypeTimeService.startServiceType(
+          order.orderNumber,
+          program,
+          username,
+        );
+        setActiveServiceTypeTimer(program);
+        const entries = new Map<string, ServiceTypeTimeEntry>();
+        (order.programs || []).forEach(id => {
+          const e = serviceTypeTimeService.getTimeEntry(order.orderNumber, id);
+          if (e) entries.set(id, e);
+        });
+        setServiceTypeTimeEntries(entries);
+        setMaterialsSupplies([]);
+        setEquipmentPPE([]);
+        setSelectedOrderData(order);
+        setDashboardSelectedOrder(null);
+        setCurrentStep('stream-selection');
+        setOrderStatuses(prev => ({
+          ...prev,
+          [order.orderNumber]: 'Partial',
+        }));
+      } catch (error) {
+        console.error('Error starting service type:', error);
+        Alert.alert('Error', 'Failed to start service type time tracking');
+      }
+    },
+    [
+      truckId,
+      username,
+      getElapsedTimeDisplay,
+      checkOfflineBlock,
+    ],
+  );
+
+  // Prompt Start / Edit when user taps a service type badge on the dashboard (master-detail or full-screen)
+  const handleDashboardServiceTypeBadgePress = useCallback(
+    (order: OrderData, program: string, pending: boolean, noship: boolean) => {
+      setBadgePromptPayload({ order, program, pending, noship });
+      setBadgePromptNoShipMode(false);
+      setShowBadgeStartEditModal(true);
+    },
+    [],
+  );
+
+  const handleBadgePromptEdit = useCallback(() => {
+    if (!badgePromptPayload) return;
+    const { order, program } = badgePromptPayload;
+    setSelectedOrderData(order);
+    setActiveServiceTypeTimer(program);
+    setDashboardSelectedOrder(null);
+    setCurrentStep('container-summary');
+    setShowBadgeStartEditModal(false);
+    setBadgePromptPayload(null);
+  }, [badgePromptPayload]);
+
+  const handleBadgePromptStart = useCallback(async () => {
+    if (!badgePromptPayload) return;
+    const { order, program } = badgePromptPayload;
+    setShowBadgeStartEditModal(false);
+    setBadgePromptPayload(null);
+    await startServiceTypeAndNavigate(order, program);
+  }, [badgePromptPayload, startServiceTypeAndNavigate]);
 
   // No-Ship helpers (FR-3a.UI.8.3)
   const isServiceTypeNoShip = useCallback(
@@ -1027,7 +1125,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       }));
 
       if (allServiceTypesComplete) {
-        setCurrentStep('containers-review');
+        setCurrentStep('dashboard');
       } else {
         setCurrentStep('dashboard');
       }
@@ -1134,6 +1232,25 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return `M-${year}${month}${day}-${hours}${minutes}${seconds}-${sequence}`;
   }, []);
 
+  /** Generate manifest for order (if not already generated) and navigate to containers-review. */
+  const handleGenerateManifestForOrder = useCallback(
+    (order: OrderData) => {
+      setSelectedOrderData(order);
+      if (!hasManifestForOrder(order.orderNumber)) {
+        const trackingNumber = generateManifestTrackingNumber();
+        setManifestTrackingNumber(trackingNumber);
+        setManifestOrderNumber(order.orderNumber);
+        setManifestData(prev => ({
+          ...prev,
+          trackingNumber,
+          createdAt: new Date(),
+        }));
+      }
+      setCurrentStep('containers-review');
+    },
+    [hasManifestForOrder, generateManifestTrackingNumber],
+  );
+
   // Assign tracking number when labels are printed
   const assignTrackingNumberOnLabelPrint = useCallback(() => {
     if (!manifestTrackingNumber) {
@@ -1222,28 +1339,18 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     addedContainers,
   ]);
 
-  // Void manifest
+  // Void manifest: show confirm modal; on confirm clear state and show success modal
   const voidManifest = useCallback(() => {
-    Alert.alert(
-      'Void Manifest',
-      'Are you sure you want to void this manifest? This action cannot be undone.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Void',
-          style: 'destructive',
-          onPress: () => {
-            setManifestTrackingNumber(null);
-            setManifestData(null);
-            setSelectedPrograms({});
-            Alert.alert('Success', 'Manifest has been voided.');
-          },
-        },
-      ],
-    );
+    setShowVoidManifestConfirmModal(true);
+  }, []);
+
+  const confirmVoidManifest = useCallback(() => {
+    setManifestTrackingNumber(null);
+    setManifestOrderNumber(null);
+    setManifestData(null);
+    setSelectedPrograms({});
+    setShowVoidManifestConfirmModal(false);
+    setShowVoidManifestSuccessModal(true);
   }, []);
 
   // Scan manifest with camera
@@ -2067,7 +2174,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             {selectedOrder ? (
               <ScrollView
                 style={styles.detailPaneScroll}
-                contentContainerStyle={styles.detailPaneContent}>
+                contentContainerStyle={styles.detailPaneContent}
+                keyboardShouldPersistTaps="handled">
                 <View style={styles.detailPaneHeader}>
                   <Text style={styles.detailPaneTitle}>
                     {selectedOrder.orderNumber}
@@ -2246,20 +2354,84 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                               : inProgress
                                 ? styles.programBadgeTextInProgress
                                 : styles.programBadgeTextPending;
+                          const canEditOrder = !isSelectedOrderCompleted;
                           return (
-                            <Badge
+                            <Pressable
                               key={i}
-                              variant="outline"
-                              style={StyleSheet.flatten(badgeStyle)}
-                              textStyle={textStyle}
-                              title={serviceTypeService.getServiceTypeName(program)}>
-                              {serviceOrderNumber
-                                ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
-                                : serviceTypeService.formatForBadge(program)}
-                            </Badge>
+                              onPress={() => {
+                                if (canEditOrder && selectedOrder) {
+                                  handleDashboardServiceTypeBadgePress(
+                                    selectedOrder,
+                                    program,
+                                    pending,
+                                    noship,
+                                  );
+                                }
+                              }}
+                              disabled={!canEditOrder}
+                              style={({ pressed }) => [
+                                canEditOrder && pressed && { opacity: 0.7 },
+                                !canEditOrder && { opacity: 1 },
+                              ]}
+                              hitSlop={8}>
+                              <Badge
+                                variant="outline"
+                                style={StyleSheet.flatten(badgeStyle)}
+                                textStyle={textStyle}
+                                title={serviceTypeService.getServiceTypeName(program)}>
+                                {serviceOrderNumber
+                                  ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
+                                  : serviceTypeService.formatForBadge(program)}
+                              </Badge>
+                            </Pressable>
                           );
                         })}
                       </View>
+                    </View>
+
+                    <View style={[styles.detailActionsRow]}>
+                      {isOrderReadyForManifest(selectedOrder) && (
+                        <>
+                          <Button
+                            title={hasManifestForOrder(selectedOrder.orderNumber) ? 'Open Manifest' : 'Generate manifest'}
+                            variant="primary"
+                            size="lg"
+                            onPress={() => {
+                              if (selectedOrder) {
+                                handleGenerateManifestForOrder(selectedOrder);
+                              }
+                            }}
+                          />
+                          {hasManifestForOrder(selectedOrder.orderNumber) && (
+                            <Button
+                              title="Void manifest"
+                              variant="destructive"
+                              size="lg"
+                              onPress={voidManifest}
+                            />
+                          )}
+                        </>
+                      )}
+                      {selectedOrder.programs.every((p) =>
+                        isServiceTypeNoShip(selectedOrder.orderNumber, p),
+                      ) ? (
+                        <Button
+                          title="Complete Order as No-Ship"
+                          variant="primary"
+                          size="lg"
+                          onPress={() => {
+                            if (!selectedOrder) return;
+                            setCompletedOrders((prev) =>
+                              prev.includes(selectedOrder.orderNumber)
+                                ? prev
+                                : [...prev, selectedOrder.orderNumber],
+                            );
+                            setSelectedServiceTypeToStart(null);
+                          }}
+                        />
+                      ) : (
+                        null
+                      )}
                     </View>
                   </CardContent>
                 </Card>
@@ -2268,7 +2440,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   <View style={styles.detailNotesHeader}>
                     <Text style={styles.detailNotesTitle}>Service Notes</Text>
                     {hasDetailNotes && (
-                      <Badge variant="secondary" style={styles.detailNotesBadge}>
+                      <Badge variant="secondary">
                         Review
                       </Badge>
                     )}
@@ -2374,29 +2546,217 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       disabled
                       onPress={() => {}}
                     />
-                  ) : isOrderReadyForManifest(selectedOrder) ? (
-                    <Button
-                      title="Open Manifest"
-                      variant="primary"
-                      size="lg"
-                      onPress={() => {
-                        if (selectedOrder) {
-                          setSelectedOrderData(selectedOrder);
-                          setCurrentStep('containers-review');
-                        }
-                      }}
-                    />
                   ) : (
-                    <Button
-                      title="Start Service"
-                      variant="primary"
-                      size="lg"
-                      onPress={() => {
-                        if (selectedOrder) {
-                          handleStartService(selectedOrder);
-                        }
-                      }}
-                    />
+                    <>
+                      {/* <Text style={styles.detailLabel}>Service types</Text>
+                      <View style={styles.serviceTypeSelectionInlineList}>
+                        {selectedOrder.programs.map((serviceTypeId) => {
+                          const order = selectedOrder;
+                          const timeEntry = serviceTypeTimeEntries.get(serviceTypeId);
+                          const hasStartTime = timeEntry != null && timeEntry.startTime != null;
+                          const hasEndTime = timeEntry != null && timeEntry.endTime != null;
+                          const isNoShip = isServiceTypeNoShip(order.orderNumber, serviceTypeId);
+                          const isSelected = selectedServiceTypeToStart === serviceTypeId;
+                          const isSelectable = !isNoShip && !(hasStartTime && hasEndTime);
+                          const isInProgress = activeServiceTypeTimer === serviceTypeId;
+                          const isCompleted = !isNoShip && hasStartTime && hasEndTime;
+                          const isPending = !isNoShip && !isCompleted && !isInProgress;
+                          const isChoosingReason = noShipReasonServiceTypeId === serviceTypeId;
+                          const switchValue = isNoShip || isChoosingReason;
+                          return (
+                            <View
+                              key={serviceTypeId}
+                              style={[
+                                styles.serviceTypeSelectionItem,
+                                isPending && styles.serviceTypeSelectionItemPending,
+                                isInProgress && styles.serviceTypeSelectionItemInProgress,
+                                isCompleted && styles.serviceTypeSelectionItemCompleted,
+                                isNoShip && styles.serviceTypeSelectionItemNoShip,
+                                isSelected && styles.serviceTypeSelectionItemSelected,
+                              ]}>
+                              <View style={styles.serviceTypeSelectionItemContent}>
+                                <TouchableOpacity
+                                  style={styles.serviceTypeSelectionItemLeft}
+                                  onPress={() => {
+                                    if (!isSelectable) return;
+                                    setSelectedServiceTypeToStart(serviceTypeId);
+                                  }}
+                                  activeOpacity={0.7}
+                                  disabled={!isSelectable}>
+                                  <Text
+                                    style={[
+                                      styles.serviceTypeSelectionItemName,
+                                      isPending && styles.serviceTypeSelectionItemNamePending,
+                                      isInProgress && styles.serviceTypeSelectionItemNameInProgress,
+                                      isCompleted && styles.serviceTypeSelectionItemNameCompleted,
+                                      isNoShip && styles.serviceTypeSelectionItemNameNoShip,
+                                    ]}>
+                                    {serviceTypeService.formatForOrderDetails(serviceTypeId)}
+                                  </Text>
+                                  {!isNoShip && timeEntry?.durationMinutes != null && (
+                                    <Badge variant="outline" style={styles.serviceTypeSelectionDurationBadge}>
+                                      {serviceTypeTimeService.formatDuration(timeEntry.durationMinutes)}
+                                    </Badge>
+                                  )}
+                                  {!isNoShip && activeServiceTypeTimer === serviceTypeId && (
+                                    <Badge variant="secondary" style={styles.serviceTypeSelectionActiveBadge}>
+                                      Active
+                                    </Badge>
+                                  )}
+                                  {!isNoShip && hasStartTime && hasEndTime && (
+                                    <Badge variant="default" style={styles.serviceTypeSelectionCompletedBadge}>
+                                      Completed
+                                    </Badge>
+                                  )}
+                                  {isNoShip && (
+                                    <Badge variant="outline" style={styles.serviceTypeSelectionNoShipBadge}>
+                                      No-Ship
+                                    </Badge>
+                                  )}
+                                </TouchableOpacity>
+                                <View style={styles.serviceTypeSelectionNoShipToggleWrap}>
+                                  <Text style={styles.serviceTypeSelectionNoShipLabel} numberOfLines={1}>
+                                    No-Ship
+                                  </Text>
+                                  <Switch
+                                    value={switchValue}
+                                    onValueChange={(value) => {
+                                      if (value) {
+                                        if (hasStartTime && !hasEndTime) {
+                                          Alert.alert(
+                                            'No-Ship After Service Started',
+                                            'This service type has already been started. Do you want to mark it as No-Ship? You will need to provide a reason code.',
+                                            [
+                                              {text: 'Cancel', style: 'cancel'},
+                                              {
+                                                text: 'Mark as No-Ship',
+                                                onPress: () => {
+                                                  setNoShipReasonOrderNumber(order.orderNumber);
+                                                  setNoShipReasonServiceTypeId(serviceTypeId);
+                                                  setNoShipReasonCode('');
+                                                  setNoShipReasonNotes('');
+                                                },
+                                              },
+                                            ],
+                                          );
+                                          return;
+                                        }
+                                        setNoShipReasonOrderNumber(order.orderNumber);
+                                        setNoShipReasonServiceTypeId(serviceTypeId);
+                                        setNoShipReasonCode('');
+                                        setNoShipReasonNotes('');
+                                      } else {
+                                        if (isChoosingReason) {
+                                          setNoShipReasonOrderNumber(null);
+                                          setNoShipReasonServiceTypeId(null);
+                                          setNoShipReasonCode('');
+                                          setNoShipReasonNotes('');
+                                        } else {
+                                          clearNoShipForServiceType(order.orderNumber, serviceTypeId);
+                                          if (selectedServiceTypeToStart === serviceTypeId) {
+                                            setSelectedServiceTypeToStart(null);
+                                          }
+                                        }
+                                      }
+                                    }}
+                                  />
+                                </View>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                      {noShipReasonServiceTypeId != null &&
+                        noShipReasonOrderNumber === selectedOrder.orderNumber && (
+                        <View style={styles.noShipReasonInlinePanel}>
+                          <Text style={styles.noShipReasonInlineTitle}>Select No-Ship Reason</Text>
+                          <Text style={styles.serviceTypeSelectionModalDescription}>
+                            Required for audit and billing. Choose a reason code (Rule 52).
+                          </Text>
+                          <ScrollView
+                            style={styles.noShipReasonInlineList}
+                            keyboardShouldPersistTaps="handled"
+                            nestedScrollEnabled>
+                            {(Object.keys(NO_SHIP_REASON_CODES) as NoShipReasonCode[]).map((code) => (
+                              <TouchableOpacity
+                                key={code}
+                                style={[
+                                  styles.noShipReasonRow,
+                                  noShipReasonCode === code && styles.noShipReasonRowSelected,
+                                ]}
+                                onPress={() => setNoShipReasonCode(code)}>
+                                <Text style={styles.noShipReasonCode}>{code}</Text>
+                                <Text style={styles.noShipReasonLabel}>{getNoShipReasonLabel(code)}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                          {isOtherReason(noShipReasonCode) && (
+                            <View style={styles.noShipReasonNotesSection}>
+                              <Text style={styles.noShipReasonNotesLabel}>
+                                Notes (required, min {MIN_OTHER_NOTES_LENGTH} characters)
+                              </Text>
+                              <TextInput
+                                style={styles.noShipReasonNotesInput}
+                                value={noShipReasonNotes}
+                                onChangeText={setNoShipReasonNotes}
+                                placeholder="Enter reason details..."
+                                multiline
+                                numberOfLines={3}
+                              />
+                            </View>
+                          )}
+                          <View style={styles.noShipReasonInlineActions}>
+                            <Button
+                              title="Cancel"
+                              variant="outline"
+                              onPress={() => {
+                                setNoShipReasonOrderNumber(null);
+                                setNoShipReasonServiceTypeId(null);
+                                setNoShipReasonCode('');
+                                setNoShipReasonNotes('');
+                              }}
+                            />
+                            <Button
+                              title="Confirm"
+                              variant="primary"
+                              disabled={
+                                !noShipReasonCode ||
+                                (isOtherReason(noShipReasonCode) &&
+                                  noShipReasonNotes.trim().length < MIN_OTHER_NOTES_LENGTH)
+                              }
+                              onPress={() => {
+                                if (!noShipReasonOrderNumber || !noShipReasonServiceTypeId) return;
+                                if (!noShipReasonCode) return;
+                                if (
+                                  isOtherReason(noShipReasonCode) &&
+                                  noShipReasonNotes.trim().length < MIN_OTHER_NOTES_LENGTH
+                                )
+                                  return;
+                                setNoShipForServiceType(noShipReasonOrderNumber, noShipReasonServiceTypeId, {
+                                  reasonCode: noShipReasonCode as NoShipReasonCode,
+                                  ...(isOtherReason(noShipReasonCode)
+                                    ? {notes: noShipReasonNotes.trim()}
+                                    : {}),
+                                });
+                                setNoShipReasonOrderNumber(null);
+                                setNoShipReasonServiceTypeId(null);
+                                setNoShipReasonCode('');
+                                setNoShipReasonNotes('');
+                              }}
+                            />
+                          </View>
+                        </View>
+                      )}
+                      {selectedOrder.programs.every((p) =>
+                        isServiceTypeNoShip(selectedOrder.orderNumber, p),
+                      ) && (
+                        <View style={styles.serviceTypeSelectionModalAllNoShipBanner}>
+                          <Text style={styles.serviceTypeSelectionModalAllNoShipText}>
+                            All service types are No-Ship. Complete order as No-Ship (Rule 51).
+                          </Text>
+                        </View>
+                      )} */}
+                    </>
                   )}
                 </View>
               </ScrollView>
@@ -2633,7 +2993,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             ]}
             showsVerticalScrollIndicator={true}
             nestedScrollEnabled={true}
-            bounces={false}>
+            bounces={false}
+            keyboardShouldPersistTaps="handled">
             
             {/* Show order details if an order is selected */}
             {dashboardSelectedOrder ? (
@@ -2822,17 +3183,36 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                               : inProgress
                                 ? styles.programBadgeTextInProgress
                                 : styles.programBadgeTextPending;
+                          const canEditOrder = !isOrderCompleted(dashboardSelectedOrder.orderNumber);
                           return (
-                            <Badge
+                            <Pressable
                               key={i}
-                              variant="outline"
-                              style={StyleSheet.flatten(badgeStyle)}
-                              textStyle={textStyle}
-                              title={serviceTypeService.getServiceTypeName(program)}>
-                              {serviceOrderNumber
-                                ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
-                                : serviceTypeService.formatForBadge(program)}
-                            </Badge>
+                              onPress={() => {
+                                if (canEditOrder && dashboardSelectedOrder) {
+                                  handleDashboardServiceTypeBadgePress(
+                                    dashboardSelectedOrder,
+                                    program,
+                                    pending,
+                                    noship,
+                                  );
+                                }
+                              }}
+                              disabled={!canEditOrder}
+                              style={({ pressed }) => [
+                                canEditOrder && pressed && { opacity: 0.7 },
+                                !canEditOrder && { opacity: 1 },
+                              ]}
+                              hitSlop={8}>
+                              <Badge
+                                variant="outline"
+                                style={StyleSheet.flatten(badgeStyle)}
+                                textStyle={textStyle}
+                                title={serviceTypeService.getServiceTypeName(program)}>
+                                {serviceOrderNumber
+                                  ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
+                                  : serviceTypeService.formatForBadge(program)}
+                              </Badge>
+                            </Pressable>
                           );
                         })}
                       </View>
@@ -2950,27 +3330,323 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       disabled
                       onPress={() => {}}
                     />
-                  ) : isOrderReadyForManifest(dashboardSelectedOrder) ? (
-                    <Button
-                      title="Open Manifest"
-                      variant="primary"
-                      size="lg"
-                      onPress={() => {
-                        setSelectedOrderData(dashboardSelectedOrder);
-                        setCurrentStep('containers-review');
-                      }}
-                    />
                   ) : (
-                    <Button
-                      title="Start Service"
-                      variant="primary"
-                      size="lg"
-                      onPress={() => {
-                        if (dashboardSelectedOrder) {
-                          handleStartService(dashboardSelectedOrder);
-                        }
-                      }}
-                    />
+                    <>
+                      <Text style={styles.detailLabel}>Service types</Text>
+                      <View style={styles.serviceTypeSelectionInlineList}>
+                        {dashboardSelectedOrder.programs.map((serviceTypeId) => {
+                          const order = dashboardSelectedOrder;
+                          const timeEntry = serviceTypeTimeEntries.get(serviceTypeId);
+                          const hasStartTime = timeEntry != null && timeEntry.startTime != null;
+                          const hasEndTime = timeEntry != null && timeEntry.endTime != null;
+                          const isNoShip = isServiceTypeNoShip(order.orderNumber, serviceTypeId);
+                          const isSelected = selectedServiceTypeToStart === serviceTypeId;
+                          const isSelectable = !isNoShip && !(hasStartTime && hasEndTime);
+                          const isInProgress = activeServiceTypeTimer === serviceTypeId;
+                          const isCompleted = !isNoShip && hasStartTime && hasEndTime;
+                          const isPending = !isNoShip && !isCompleted && !isInProgress;
+                          const isChoosingReason = noShipReasonServiceTypeId === serviceTypeId;
+                          const switchValue = isNoShip || isChoosingReason;
+                          return (
+                            <View
+                              key={serviceTypeId}
+                              style={[
+                                styles.serviceTypeSelectionItem,
+                                isPending && styles.serviceTypeSelectionItemPending,
+                                isInProgress && styles.serviceTypeSelectionItemInProgress,
+                                isCompleted && styles.serviceTypeSelectionItemCompleted,
+                                isNoShip && styles.serviceTypeSelectionItemNoShip,
+                                isSelected && styles.serviceTypeSelectionItemSelected,
+                              ]}>
+                              <View style={styles.serviceTypeSelectionItemContent}>
+                                <TouchableOpacity
+                                  style={styles.serviceTypeSelectionItemLeft}
+                                  onPress={() => {
+                                    if (!isSelectable) return;
+                                    setSelectedServiceTypeToStart(serviceTypeId);
+                                  }}
+                                  activeOpacity={0.7}
+                                  disabled={!isSelectable}>
+                                  <Text
+                                    style={[
+                                      styles.serviceTypeSelectionItemName,
+                                      isPending && styles.serviceTypeSelectionItemNamePending,
+                                      isInProgress && styles.serviceTypeSelectionItemNameInProgress,
+                                      isCompleted && styles.serviceTypeSelectionItemNameCompleted,
+                                      isNoShip && styles.serviceTypeSelectionItemNameNoShip,
+                                    ]}>
+                                    {serviceTypeService.formatForOrderDetails(serviceTypeId)}
+                                  </Text>
+                                  {!isNoShip && timeEntry?.durationMinutes != null && (
+                                    <Badge variant="outline" style={styles.serviceTypeSelectionDurationBadge}>
+                                      {serviceTypeTimeService.formatDuration(timeEntry.durationMinutes)}
+                                    </Badge>
+                                  )}
+                                  {!isNoShip && activeServiceTypeTimer === serviceTypeId && (
+                                    <Badge variant="secondary" style={styles.serviceTypeSelectionActiveBadge}>
+                                      Active
+                                    </Badge>
+                                  )}
+                                  {!isNoShip && hasStartTime && hasEndTime && (
+                                    <Badge variant="default" style={styles.serviceTypeSelectionCompletedBadge}>
+                                      Completed
+                                    </Badge>
+                                  )}
+                                  {isNoShip && (
+                                    <Badge variant="outline" style={styles.serviceTypeSelectionNoShipBadge}>
+                                      No-Ship
+                                    </Badge>
+                                  )}
+                                </TouchableOpacity>
+                                <View style={styles.serviceTypeSelectionNoShipToggleWrap}>
+                                  <Text style={styles.serviceTypeSelectionNoShipLabel} numberOfLines={1}>
+                                    No-Ship
+                                  </Text>
+                                  <Switch
+                                    value={switchValue}
+                                    onValueChange={(value) => {
+                                      if (value) {
+                                        if (hasStartTime && !hasEndTime) {
+                                          Alert.alert(
+                                            'No-Ship After Service Started',
+                                            'This service type has already been started. Do you want to mark it as No-Ship? You will need to provide a reason code.',
+                                            [
+                                              {text: 'Cancel', style: 'cancel'},
+                                              {
+                                                text: 'Mark as No-Ship',
+                                                onPress: () => {
+                                                  setNoShipReasonOrderNumber(order.orderNumber);
+                                                  setNoShipReasonServiceTypeId(serviceTypeId);
+                                                  setNoShipReasonCode('');
+                                                  setNoShipReasonNotes('');
+                                                },
+                                              },
+                                            ],
+                                          );
+                                          return;
+                                        }
+                                        setNoShipReasonOrderNumber(order.orderNumber);
+                                        setNoShipReasonServiceTypeId(serviceTypeId);
+                                        setNoShipReasonCode('');
+                                        setNoShipReasonNotes('');
+                                      } else {
+                                        if (isChoosingReason) {
+                                          setNoShipReasonOrderNumber(null);
+                                          setNoShipReasonServiceTypeId(null);
+                                          setNoShipReasonCode('');
+                                          setNoShipReasonNotes('');
+                                        } else {
+                                          clearNoShipForServiceType(order.orderNumber, serviceTypeId);
+                                          if (selectedServiceTypeToStart === serviceTypeId) {
+                                            setSelectedServiceTypeToStart(null);
+                                          }
+                                        }
+                                      }
+                                    }}
+                                  />
+                                </View>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                      {noShipReasonServiceTypeId != null &&
+                        noShipReasonOrderNumber === dashboardSelectedOrder.orderNumber && (
+                        <View style={styles.noShipReasonInlinePanel}>
+                          <Text style={styles.noShipReasonInlineTitle}>Select No-Ship Reason</Text>
+                          <Text style={styles.serviceTypeSelectionModalDescription}>
+                            Required for audit and billing. Choose a reason code (Rule 52).
+                          </Text>
+                          <ScrollView
+                            style={styles.noShipReasonInlineList}
+                            keyboardShouldPersistTaps="handled"
+                            nestedScrollEnabled>
+                            {(Object.keys(NO_SHIP_REASON_CODES) as NoShipReasonCode[]).map((code) => (
+                              <TouchableOpacity
+                                key={code}
+                                style={[
+                                  styles.noShipReasonRow,
+                                  noShipReasonCode === code && styles.noShipReasonRowSelected,
+                                ]}
+                                onPress={() => setNoShipReasonCode(code)}>
+                                <Text style={styles.noShipReasonCode}>{code}</Text>
+                                <Text style={styles.noShipReasonLabel}>{getNoShipReasonLabel(code)}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                          {isOtherReason(noShipReasonCode) && (
+                            <View style={styles.noShipReasonNotesSection}>
+                              <Text style={styles.noShipReasonNotesLabel}>
+                                Notes (required, min {MIN_OTHER_NOTES_LENGTH} characters)
+                              </Text>
+                              <TextInput
+                                style={styles.noShipReasonNotesInput}
+                                value={noShipReasonNotes}
+                                onChangeText={setNoShipReasonNotes}
+                                placeholder="Enter reason details..."
+                                multiline
+                                numberOfLines={3}
+                              />
+                            </View>
+                          )}
+                          <View style={styles.noShipReasonInlineActions}>
+                            <Button
+                              title="Cancel"
+                              variant="outline"
+                              onPress={() => {
+                                setNoShipReasonOrderNumber(null);
+                                setNoShipReasonServiceTypeId(null);
+                                setNoShipReasonCode('');
+                                setNoShipReasonNotes('');
+                              }}
+                            />
+                            <Button
+                              title="Confirm"
+                              variant="primary"
+                              disabled={
+                                !noShipReasonCode ||
+                                (isOtherReason(noShipReasonCode) &&
+                                  noShipReasonNotes.trim().length < MIN_OTHER_NOTES_LENGTH)
+                              }
+                              onPress={() => {
+                                if (!noShipReasonOrderNumber || !noShipReasonServiceTypeId) return;
+                                if (!noShipReasonCode) return;
+                                if (
+                                  isOtherReason(noShipReasonCode) &&
+                                  noShipReasonNotes.trim().length < MIN_OTHER_NOTES_LENGTH
+                                )
+                                  return;
+                                setNoShipForServiceType(noShipReasonOrderNumber, noShipReasonServiceTypeId, {
+                                  reasonCode: noShipReasonCode as NoShipReasonCode,
+                                  ...(isOtherReason(noShipReasonCode)
+                                    ? {notes: noShipReasonNotes.trim()}
+                                    : {}),
+                                });
+                                setNoShipReasonOrderNumber(null);
+                                setNoShipReasonServiceTypeId(null);
+                                setNoShipReasonCode('');
+                                setNoShipReasonNotes('');
+                              }}
+                            />
+                          </View>
+                        </View>
+                      )}
+                      {dashboardSelectedOrder.programs.every((p) =>
+                        isServiceTypeNoShip(dashboardSelectedOrder.orderNumber, p),
+                      ) && (
+                        <View style={styles.serviceTypeSelectionModalAllNoShipBanner}>
+                          <Text style={styles.serviceTypeSelectionModalAllNoShipText}>
+                            All service types are No-Ship. Complete order as No-Ship (Rule 51).
+                          </Text>
+                        </View>
+                      )}
+                      <View style={styles.detailActionsRow}>
+                        {isOrderReadyForManifest(dashboardSelectedOrder) && (
+                          <>
+                            <Button
+                              title={hasManifestForOrder(dashboardSelectedOrder.orderNumber) ? 'Open Manifest' : 'Generate manifest'}
+                              variant="primary"
+                              size="lg"
+                              onPress={() => {
+                                handleGenerateManifestForOrder(dashboardSelectedOrder);
+                              }}
+                            />
+                            {hasManifestForOrder(dashboardSelectedOrder.orderNumber) && (
+                              <Button
+                                title="Void manifest"
+                                variant="destructive"
+                                size="lg"
+                                onPress={voidManifest}
+                              />
+                            )}
+                          </>
+                        )}
+                        {dashboardSelectedOrder.programs.every((p) =>
+                          isServiceTypeNoShip(dashboardSelectedOrder.orderNumber, p),
+                        ) ? (
+                          <Button
+                            title="Complete Order as No-Ship"
+                            variant="primary"
+                            size="lg"
+                            onPress={() => {
+                              if (!dashboardSelectedOrder) return;
+                              setCompletedOrders((prev) =>
+                                prev.includes(dashboardSelectedOrder.orderNumber)
+                                  ? prev
+                                  : [...prev, dashboardSelectedOrder.orderNumber],
+                              );
+                              setSelectedServiceTypeToStart(null);
+                            }}
+                          />
+                        ) : (
+                          <>
+                            {hasManifestForOrder(dashboardSelectedOrder.orderNumber) && (
+                              <Text style={styles.badgePromptMessage}>
+                                Void the manifest to edit or start service types.
+                              </Text>
+                            )}
+                            <Button
+                              title="Start"
+                              variant="primary"
+                              size="lg"
+                              disabled={
+                                hasManifestForOrder(dashboardSelectedOrder.orderNumber) ||
+                                selectedServiceTypeToStart == null ||
+                                isServiceTypeNoShip(
+                                  dashboardSelectedOrder.orderNumber,
+                                  selectedServiceTypeToStart,
+                                )
+                              }
+                              onPress={async () => {
+                                const order = dashboardSelectedOrder;
+                              const stId = selectedServiceTypeToStart;
+                              if (!order || !stId || !username) return;
+                              if (isServiceTypeNoShip(order.orderNumber, stId)) return;
+                              try {
+                                const timeEntry = serviceTypeTimeService.getTimeEntry(order.orderNumber, stId);
+                                const hasStart = timeEntry?.startTime != null;
+                                const hasEnd = timeEntry?.endTime != null;
+                                if (hasStart && !hasEnd) {
+                                  setActiveServiceTypeTimer(stId);
+                                  setSelectedServiceTypeToStart(null);
+                                  await proceedWithStartService(order);
+                                  return;
+                                }
+                                if (hasStart && hasEnd) {
+                                  Alert.alert(
+                                    'Service Type Already Completed',
+                                    'This service type has already been completed. Select another to start.',
+                                    [{text: 'OK'}],
+                                  );
+                                  return;
+                                }
+                                await serviceTypeTimeService.startServiceType(order.orderNumber, stId, username);
+                                setActiveServiceTypeTimer(stId);
+                                const entries = new Map<string, ServiceTypeTimeEntry>();
+                                order.programs.forEach((id) => {
+                                  const e = serviceTypeTimeService.getTimeEntry(order.orderNumber, id);
+                                  if (e) entries.set(id, e);
+                                });
+                                setServiceTypeTimeEntries(entries);
+                                setMaterialsSupplies([]);
+                                setEquipmentPPE([]);
+                                setSelectedOrderData(order);
+                                setDashboardSelectedOrder(null);
+                                setSelectedServiceTypeToStart(null);
+                                setCurrentStep('stream-selection');
+                                setOrderStatuses((prev) => ({
+                                  ...prev,
+                                  [order.orderNumber]: 'Partial',
+                                }));
+                              } catch (error) {
+                                Alert.alert('Error', 'Failed to start service type time tracking');
+                              }
+                            }}
+                          />
+                          </>
+                        )}
+                      </View>
+                    </>
                   )}
                 </View>
               </>
@@ -3055,17 +3731,34 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                             : inProgress
                               ? styles.programBadgeTextInProgress
                               : styles.programBadgeTextPending;
+                        const canEditOrder = !isOrderCompleted(order.orderNumber);
                         return (
-                          <Badge
+                          <Pressable
                             key={i}
-                            variant="outline"
-                            style={StyleSheet.flatten(badgeStyle)}
-                            textStyle={textStyle}
-                            title={serviceType?.name || program}>
-                            {serviceOrderNumber
-                              ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
-                              : serviceTypeService.formatForBadge(program)}
-                          </Badge>
+                            onPress={(e) => {
+                              if (canEditOrder) {
+                                handleDashboardServiceTypeBadgePress(
+                                  order,
+                                  program,
+                                  pending,
+                                  noship,
+                                );
+                              }
+                            }}
+                            style={({ pressed }) => [
+                              canEditOrder && pressed && { opacity: 0.7 },
+                            ]}
+                            hitSlop={8}>
+                            <Badge
+                              variant="outline"
+                              style={StyleSheet.flatten(badgeStyle)}
+                              textStyle={textStyle}
+                              title={serviceType?.name || program}>
+                              {serviceOrderNumber
+                                ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
+                                : serviceTypeService.formatForBadge(program)}
+                            </Badge>
+                          </Pressable>
                         );
                       })}
                     </View>
@@ -4406,6 +5099,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       onPress={() => setShowPrintOptions(true)}
                       style={styles.manifestActionButton}
                     />
+                    {manifestTrackingNumber ? (
+                      <Button
+                        title="Void manifest"
+                        variant="destructive"
+                        size="md"
+                        disabled={isCurrentOrderCompleted}
+                        onPress={voidManifest}
+                        style={styles.manifestActionButton}
+                      />
+                    ) : null}
                   </View>
                 </View>
               </CardContent>
@@ -6687,6 +7390,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const materialsCount = materialsSupplies.length;
     const equipmentCount = equipmentPPE.length;
 
+    // Disable Containers, Materials, Equipment, Photos on review/manifest and on service summary (order-service)
+    const isReviewOrManifestStep = currentStep === 'containers-review' || currentStep === 'manifest-management';
+    const isServiceSummaryStep = currentStep === 'order-service';
+    const quickActionsDisabled = isReviewOrManifestStep || isServiceSummaryStep;
+
     return (
       <View style={styles.quickActionsBar}>
         {/* Home Button */}
@@ -6701,9 +7409,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           style={[
             styles.quickActionButton,
             isTablet() && styles.quickActionButtonTablet,
+            quickActionsDisabled && { opacity: 0.5 },
           ]}
-          onPress={() => setCurrentStep('container-summary')}
-          activeOpacity={0.7}>
+          onPress={() => !quickActionsDisabled && setCurrentStep('container-summary')}
+          activeOpacity={0.7}
+          disabled={quickActionsDisabled}>
           <View style={styles.quickActionContent}>
             <Icon name="assignment" size={24} color={FOOTER_NAV_ICON_COLOR} />
             <Text style={styles.quickActionLabel}>Containers</Text>
@@ -6721,9 +7431,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           style={[
             styles.quickActionButton,
             isTablet() && styles.quickActionButtonTablet,
+            quickActionsDisabled && { opacity: 0.5 },
           ]}
-          onPress={() => setCurrentStep('materials-supplies')}
-          activeOpacity={0.7}>
+          onPress={() => !quickActionsDisabled && setCurrentStep('materials-supplies')}
+          activeOpacity={0.7}
+          disabled={quickActionsDisabled}>
           <View style={styles.quickActionContent}>
             <Icon name="inventory" size={24} color={FOOTER_NAV_ICON_COLOR} />
             <Text
@@ -6745,9 +7457,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           style={[
             styles.quickActionButton,
             isTablet() && styles.quickActionButtonTablet,
+            quickActionsDisabled && { opacity: 0.5 },
           ]}
-          onPress={() => setCurrentStep('equipment-ppe')}
-          activeOpacity={0.7}>
+          onPress={() => !quickActionsDisabled && setCurrentStep('equipment-ppe')}
+          activeOpacity={0.7}
+          disabled={quickActionsDisabled}>
           <View style={styles.quickActionContent}>
             <Icon name="security" size={24} color={FOOTER_NAV_ICON_COLOR} />
             <Text
@@ -6768,26 +7482,30 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
         {/* Photo Capture Button */}
         {selectedOrderData && (
-          <PhotoCaptureButton
-            orderNumber={selectedOrderData.orderNumber}
-            iconColor={FOOTER_NAV_ICON_COLOR}
-            onPhotoAdded={() => {
-              // Photo added successfully
-            }}
-            onViewPhotos={() => setShowPhotoGallery(true)}
-            onScanDocument={() => {
-              // Navigate to document scanning (existing functionality)
-              if (scannedDocsCount > 0) {
-                setShowDocumentOptionsMenu(true);
-              } else {
-                setShowDocumentTypeSelector(true);
-              }
-            }}
-            style={[
-              styles.quickActionButton,
-              isTablet() && styles.quickActionButtonTablet,
-            ]}
-          />
+          <View
+            style={[{ flex: 1 }, quickActionsDisabled && { opacity: 0.5 }]}
+            pointerEvents={quickActionsDisabled ? 'none' : 'auto'}>
+            <PhotoCaptureButton
+              orderNumber={selectedOrderData.orderNumber}
+              iconColor={FOOTER_NAV_ICON_COLOR}
+              onPhotoAdded={() => {
+                // Photo added successfully
+              }}
+              onViewPhotos={() => setShowPhotoGallery(true)}
+              onScanDocument={() => {
+                // Navigate to document scanning (existing functionality)
+                if (scannedDocsCount > 0) {
+                  setShowDocumentOptionsMenu(true);
+                } else {
+                  setShowDocumentTypeSelector(true);
+                }
+              }}
+              style={[
+                styles.quickActionButton,
+                isTablet() && styles.quickActionButtonTablet,
+              ]}
+            />
+          </View>
         )}
 
         {/* Document Options Menu - Bottom Sheet */}
@@ -7397,6 +8115,60 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     <SafeAreaView style={styles.safeArea}>
       {renderScreen()}
       <QuickActionsBar />
+
+      {/* Void Manifest – confirm */}
+      <Modal
+        visible={showVoidManifestConfirmModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowVoidManifestConfirmModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: spacing.lg }}>
+          <View style={styles.containersReviewDeleteModal}>
+            <Text style={styles.containersReviewDeleteTitle}>Void Manifest</Text>
+            <Text style={styles.containersReviewDeleteMessage}>
+              Are you sure you want to void this manifest? This action cannot be undone.
+            </Text>
+            <View style={styles.footer}>
+              <Button
+                title="Cancel"
+                variant="outline"
+                size="md"
+                onPress={() => setShowVoidManifestConfirmModal(false)}
+              />
+              <Button
+                title="Confirm"
+                variant="destructive"
+                size="md"
+                onPress={confirmVoidManifest}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Void Manifest – success */}
+      <Modal
+        visible={showVoidManifestSuccessModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowVoidManifestSuccessModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: spacing.lg }}>
+          <View style={styles.containersReviewDeleteModal}>
+            <Text style={styles.containersReviewDeleteTitle}>Manifest voided</Text>
+            <Text style={styles.containersReviewDeleteMessage}>
+              The manifest has been voided. You can generate a new manifest or edit service types again.
+            </Text>
+            <View style={styles.footer}>
+              <Button
+                title="OK"
+                variant="primary"
+                size="md"
+                onPress={() => setShowVoidManifestSuccessModal(false)}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
       
       {/* Job Notes Modal */}
       {hasJobNotes && jobNotesOrder && (
@@ -8474,6 +9246,209 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           </View>
         </Modal>
       )}
+
+      {/* Start / Edit service prompt when tapping a service type badge on dashboard */}
+      {showBadgeStartEditModal && badgePromptPayload && (() => {
+        const { order, program, pending, noship } = badgePromptPayload;
+        const orderHasManifest = hasManifestForOrder(order.orderNumber);
+        // When manifest exists for this order, user must void it before editing
+        const showStartButton = !orderHasManifest && pending && !noship;
+        const showEditButton = !orderHasManifest && !showStartButton;
+        const showMarkNoShipButton = !noship;
+        const showRemoveNoShipButton = noship;
+        const showVoidManifestPrompt = orderHasManifest;
+
+        const closeBadgeModal = () => {
+          setShowBadgeStartEditModal(false);
+          setBadgePromptPayload(null);
+          setBadgePromptNoShipMode(false);
+          setBadgeNoShipReasonCode('');
+          setBadgeNoShipReasonNotes('');
+        };
+
+        return (
+          <Modal
+            visible={showBadgeStartEditModal}
+            transparent
+            animationType="fade"
+            onRequestClose={closeBadgeModal}>
+            <Pressable
+              style={styles.serviceTypeSelectionModalOverlay}
+              onPress={closeBadgeModal}>
+              <View
+                style={[styles.serviceTypeSelectionModalContainer, styles.badgePromptContainer]}
+                pointerEvents="auto">
+                <View style={styles.badgePromptHeader}>
+                  <Text
+                    style={[styles.serviceTypeSelectionModalTitle, styles.badgePromptTitle]}
+                    numberOfLines={2}>
+                    {serviceTypeService.getServiceTypeName(program)}
+                    {order.serviceOrderNumbers?.[program]
+                      ? ` • ${order.serviceOrderNumbers[program]}`
+                      : ''}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={closeBadgeModal}
+                    style={styles.serviceTypeSelectionModalCloseButton}
+                    hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                    <Icon name="close" size={22} color={colors.foreground} />
+                  </TouchableOpacity>
+                </View>
+
+                {badgePromptNoShipMode ? (
+                  <>
+                    <Text style={styles.badgePromptMessage}>
+                      Select No-Ship reason (Rule 52). Required for audit and billing.
+                    </Text>
+                    <ScrollView
+                      style={styles.noShipReasonInlineList}
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled>
+                      {(Object.keys(NO_SHIP_REASON_CODES) as NoShipReasonCode[]).map((code) => (
+                        <TouchableOpacity
+                          key={code}
+                          style={[
+                            styles.noShipReasonRow,
+                            badgeNoShipReasonCode === code && styles.noShipReasonRowSelected,
+                          ]}
+                          onPress={() => setBadgeNoShipReasonCode(code)}>
+                          <Text style={styles.noShipReasonCode}>{code}</Text>
+                          <Text style={styles.noShipReasonLabel}>{getNoShipReasonLabel(code)}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                    {isOtherReason(badgeNoShipReasonCode) && (
+                      <View style={styles.noShipReasonNotesSection}>
+                        <Text style={styles.noShipReasonNotesLabel}>
+                          Notes (required, min {MIN_OTHER_NOTES_LENGTH} characters)
+                        </Text>
+                        <TextInput
+                          style={styles.noShipReasonNotesInput}
+                          value={badgeNoShipReasonNotes}
+                          onChangeText={setBadgeNoShipReasonNotes}
+                          placeholder="Enter reason details..."
+                          multiline
+                          numberOfLines={3}
+                        />
+                      </View>
+                    )}
+                    <View style={styles.badgePromptButtons}>
+                      <View style={styles.badgePromptButton}>
+                        <Button
+                          title="Cancel"
+                          variant="outline"
+                          onPress={() => {
+                            setBadgePromptNoShipMode(false);
+                            setBadgeNoShipReasonCode('');
+                            setBadgeNoShipReasonNotes('');
+                          }}
+                        />
+                      </View>
+                      <View style={styles.badgePromptButton}>
+                        <Button
+                          title="Confirm No-Ship"
+                          variant="primary"
+                          disabled={
+                            !badgeNoShipReasonCode ||
+                            (isOtherReason(badgeNoShipReasonCode) &&
+                              badgeNoShipReasonNotes.trim().length < MIN_OTHER_NOTES_LENGTH)
+                          }
+                          onPress={() => {
+                            if (!badgeNoShipReasonCode) return;
+                            if (
+                              isOtherReason(badgeNoShipReasonCode) &&
+                              badgeNoShipReasonNotes.trim().length < MIN_OTHER_NOTES_LENGTH
+                            )
+                              return;
+                            setNoShipForServiceType(order.orderNumber, program, {
+                              reasonCode: badgeNoShipReasonCode as NoShipReasonCode,
+                              ...(isOtherReason(badgeNoShipReasonCode)
+                                ? {notes: badgeNoShipReasonNotes.trim()}
+                                : {}),
+                            });
+                            setBadgeNoShipReasonCode('');
+                            setBadgeNoShipReasonNotes('');
+                            closeBadgeModal();
+                          }}
+                        />
+                      </View>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.badgePromptMessage}>
+                      {showVoidManifestPrompt
+                        ? 'A manifest has been generated for this order. Void the manifest to edit service types.'
+                        : showStartButton
+                          ? 'Start this service type?'
+                          : noship
+                            ? 'Edit this service type or change No-Ship?'
+                            : 'Edit or continue this service type?'}
+                    </Text>
+                    <View style={styles.badgePromptButtons}>
+                      {showVoidManifestPrompt ? (
+                        <View style={styles.badgePromptButton}>
+                          <Button
+                            title="Void manifest"
+                            variant="destructive"
+                            onPress={() => {
+                              voidManifest();
+                              closeBadgeModal();
+                            }}
+                          />
+                        </View>
+                      ) : null}
+                      {showEditButton ? (
+                        <View style={styles.badgePromptButton}>
+                          <Button
+                            title="Edit service"
+                            variant="outline"
+                            onPress={handleBadgePromptEdit}
+                          />
+                        </View>
+                      ) : null}
+                      {showStartButton ? (
+                        <View style={styles.badgePromptButton}>
+                          <Button
+                            title="Start service"
+                            variant="primary"
+                            onPress={handleBadgePromptStart}
+                          />
+                        </View>
+                      ) : null}
+                      {showMarkNoShipButton && !showVoidManifestPrompt ? (
+                        <View style={styles.badgePromptButton}>
+                          <Button
+                            title="Mark as No-Ship"
+                            variant="outline"
+                            onPress={() => {
+                              setBadgeNoShipReasonCode('');
+                              setBadgeNoShipReasonNotes('');
+                              setBadgePromptNoShipMode(true);
+                            }}
+                          />
+                        </View>
+                      ) : null}
+                      {showRemoveNoShipButton ? (
+                        <View style={styles.badgePromptButton}>
+                          <Button
+                            title="Remove No-Ship"
+                            variant="outline"
+                            onPress={() => {
+                              clearNoShipForServiceType(order.orderNumber, program);
+                              closeBadgeModal();
+                            }}
+                          />
+                        </View>
+                      ) : null}
+                    </View>
+                  </>
+                )}
+              </View>
+            </Pressable>
+          </Modal>
+        );
+      })()}
 
       {/* Service Type Selection Modal (FR-3a.UI.8.2) */}
       {pendingOrderForServiceTypeSelection && (
@@ -10467,11 +11442,20 @@ const styles = StyleSheet.create({
   containersReviewAddBtn: {
     marginTop: spacing.sm,
   },
+  confirmModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
   containersReviewDeleteModal: {
     backgroundColor: colors.background,
     margin: spacing.lg,
     padding: spacing.lg,
     borderRadius: borderRadius.lg,
+    minWidth: 280,
+    maxWidth: 400,
   },
   containersReviewDeleteTitle: {
     ...typography.lg,
@@ -10772,6 +11756,39 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 12,
     elevation: 10,
+  },
+  badgePromptContainer: {
+    padding: spacing.xl,
+    minWidth: 320,
+    maxWidth: 480,
+    width: '90%',
+  },
+  badgePromptHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: spacing.sm,
+  },
+  badgePromptTitle: {
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  badgePromptMessage: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  badgePromptButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  badgePromptButton: {
+    flexShrink: 0,
   },
   serviceTypeSelectionModalHeader: {
     flexDirection: 'row',
@@ -11839,6 +12856,22 @@ const styles = StyleSheet.create({
   },
   detailActions: {
     marginTop: spacing.lg,
+  },
+  detailActionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    marginTop: spacing.md,
+  },
+  detailActionsRowInCard: {
+    marginTop: spacing.lg,
+    paddingTop: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  serviceTypeSelectionInlineList: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
   },
   detailPaneEmpty: {
     flex: 1,

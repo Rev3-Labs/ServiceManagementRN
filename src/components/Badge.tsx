@@ -38,6 +38,8 @@ const styles = StyleSheet.create({
   },
   badge_secondary: {
     backgroundColor: colors.secondary,
+    color: colors.primaryForeground,
+
   },
   badge_outline: {
     backgroundColor: 'transparent',
