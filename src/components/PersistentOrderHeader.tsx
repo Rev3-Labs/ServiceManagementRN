@@ -124,28 +124,28 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
   };
 
   return (
-    <View style={styles.persistentOrderHeader}>
+    <View style={[styles.persistentOrderHeader, isCollapsed && styles.persistentOrderHeaderCollapsed]}>
       {/* Header Row with Back Button, Order Number, Toggle, and Time Tracking */}
-      <View style={styles.persistentHeaderTopRow}>
+      <View style={[styles.persistentHeaderTopRow, isCollapsed && styles.persistentHeaderTopRowCollapsed]}>
         {onBackPress && (
           <TouchableOpacity
             style={styles.backButton}
             onPress={onBackPress}
             hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Icon name="arrow-back" size={24} color={colors.foreground} />
+            <Icon name="arrow-back" size={22} color={colors.foreground} />
           </TouchableOpacity>
         )}
         <TouchableOpacity
-          style={[styles.persistentHeaderToggle, {flex: 1}]}
+          style={[styles.persistentHeaderToggle, {flex: 1, minWidth: 0}]}
           onPress={onToggleCollapse}
           activeOpacity={0.7}>
           <View style={styles.persistentHeaderTitleRow}>
-            <View style={styles.persistentHeaderTitleContent}>
-              <Text style={styles.persistentHeaderOrderNumber}>
+            <View style={[styles.persistentHeaderTitleContent, {minWidth: 0}]}>
+              <Text style={[styles.persistentHeaderOrderNumber, isCollapsed && styles.persistentHeaderOrderNumberCollapsed]} numberOfLines={1}>
                 {orderData.orderNumber}
               </Text>
               {serviceTypeBadges && serviceTypeBadges.length > 0 && (
-                <View style={styles.serviceTypeBadgesRow}>
+                <View style={[styles.serviceTypeBadgesRow, isCollapsed && styles.serviceTypeBadgesRowCollapsed]}>
                   {serviceTypeBadges.map(({serviceTypeId, srNumber, status}) => {
                     const label = srNumber
                       ? `${serviceTypeId} • ${srNumber}`
@@ -192,18 +192,17 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
             </View>
           </View>
         </TouchableOpacity>
-        <View style={styles.persistentHeaderRightActions}>
-          {serviceCenter && onViewServiceCenter && (
+        <View style={[styles.persistentHeaderRightActions, isCollapsed && styles.persistentHeaderRightActionsCollapsed]}>
+          {/* Collapsed: only validation + online status. Expanded: also service center, notes, sync. */}
+          {!isCollapsed && serviceCenter && onViewServiceCenter && (
             <TouchableOpacity
               onPress={onViewServiceCenter}
               style={styles.serviceCenterBadge}
               hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
               activeOpacity={0.7}>
               <Icon name="business" size={16} color={colors.primary} />
-              <Text style={styles.serviceCenterText}>
-                {isCollapsed 
-                  ? serviceCenterService.getDisplayFormat(true)
-                  : serviceCenterService.getDisplayFormat(false)}
+              <Text style={styles.serviceCenterText} numberOfLines={1}>
+                {serviceCenterService.getDisplayFormat(false)}
               </Text>
             </TouchableOpacity>
           )}
@@ -236,7 +235,7 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               </>
             )}
           </TouchableOpacity>
-          {hasJobNotes && onViewNotes && (
+          {!isCollapsed && hasJobNotes && onViewNotes && (
             <TouchableOpacity
               onPress={onViewNotes}
               style={styles.notesButton}
@@ -245,8 +244,7 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               <Icon name="assignment" size={20} color={colors.foreground} />
             </TouchableOpacity>
           )}
-          {/* Sync status + button - top right (FR-5.0.1, FR-5.0.3) */}
-          {onSync && (
+          {!isCollapsed && onSync && (
             <View style={styles.headerSyncRow}>
               <View
                 style={[
@@ -267,26 +265,24 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
                     ]}
                   />
                 )}
-                {!isCollapsed && (
-                  <Text
-                    style={[
-                      styles.headerSyncStatusText,
-                      (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) &&
-                        styles.headerSyncStatusTextError,
-                      (syncStatus === 'synced' || syncStatus === 'pending') && styles.headerSyncStatusTextSynced,
-                    ]}
-                    numberOfLines={1}>
-                    {syncStatus === 'syncing'
-                      ? 'Syncing...'
-                      : !offlineStatus.isOnline
-                        ? 'Offline'
-                        : syncStatus === 'error'
-                          ? 'Connection failed'
-                          : syncStatus === 'pending' && pendingSyncCount > 0
-                            ? `Pending (${pendingSyncCount})`
-                            : 'Synced'}
-                  </Text>
-                )}
+                <Text
+                  style={[
+                    styles.headerSyncStatusText,
+                    (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) &&
+                      styles.headerSyncStatusTextError,
+                    (syncStatus === 'synced' || syncStatus === 'pending') && styles.headerSyncStatusTextSynced,
+                  ]}
+                  numberOfLines={1}>
+                  {syncStatus === 'syncing'
+                    ? 'Syncing...'
+                    : !offlineStatus.isOnline
+                      ? 'Offline'
+                      : syncStatus === 'error'
+                        ? 'Connection failed'
+                        : syncStatus === 'pending' && pendingSyncCount > 0
+                          ? `Pending (${pendingSyncCount})`
+                          : 'Synced'}
+                </Text>
               </View>
               <TouchableOpacity
                 onPress={onSync}
@@ -311,7 +307,7 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               </TouchableOpacity>
             </View>
           )}
-          {/* Connection Status Indicator - Always Visible */}
+          {/* Connection/online status - always visible (collapsed + expanded) */}
           <TouchableOpacity
             style={[
               styles.connectionStatusButton,
@@ -521,10 +517,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },
+  persistentOrderHeaderCollapsed: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+  },
   persistentHeaderTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    flexWrap: 'wrap',
+  },
+  persistentHeaderTopRowCollapsed: {
+    gap: spacing.sm,
   },
   backButton: {
     padding: spacing.xs,
@@ -547,11 +551,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.foreground,
   },
+  persistentHeaderOrderNumberCollapsed: {
+    ...typography.base,
+  },
   serviceTypeBadgesRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.xs,
     marginTop: spacing.xs,
+  },
+  serviceTypeBadgesRowCollapsed: {
+    marginTop: spacing.xs / 2,
+    gap: spacing.xs / 2,
   },
   serviceTypeBadge: {
     paddingHorizontal: spacing.sm,
@@ -686,6 +697,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+  },
+  persistentHeaderRightActionsCollapsed: {
+    gap: spacing.xs,
+  },
+  serviceCenterBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.primary + '30',
+    backgroundColor: colors.primary + '15',
+    marginRight: spacing.xs,
+  },
+  serviceCenterBadgeCollapsed: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  serviceCenterText: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.primary,
   },
   notesButton: {
     padding: spacing.xs,
@@ -915,21 +950,18 @@ const styles = StyleSheet.create({
   headerSyncButtonBadge: {
     marginLeft: spacing.xs,
   },
-  serviceCenterBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  headerSyncRowCollapsed: {
     gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    backgroundColor: colors.primary + '15',
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.primary + '30',
-    marginRight: spacing.sm,
+    marginRight: spacing.xs,
   },
-  serviceCenterText: {
-    ...typography.sm,
-    fontWeight: '600',
-    color: colors.primary,
+  headerSyncStatusChipCollapsed: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  headerSyncButtonCollapsed: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+    minWidth: 32,
+    justifyContent: 'center',
   },
 });
