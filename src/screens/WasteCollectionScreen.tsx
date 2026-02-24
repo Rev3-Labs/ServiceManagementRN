@@ -4896,7 +4896,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   </View>
                 </View>
 
-                {manifestData?.scannedImageUri ? (
+                {(manifestData?.scannedImageUri ||
+                  scannedDocuments.some(
+                    doc =>
+                      doc.orderNumber === selectedOrderData?.orderNumber &&
+                      doc.documentType === 'manifest',
+                  )) ? (
                   <View style={styles.scannedImageIndicator}>
                     <View style={styles.manifestSuccessRow}>
                       <Icon name="check-circle" size={18} color={colors.success} style={styles.manifestSuccessIcon} />
@@ -4911,19 +4916,22 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   <Text style={styles.manifestActionsLabel}>Manifest actions</Text>
                   <View style={styles.manifestActionsRow}>
                     <Button
+                      title="Scan Manifest"
+                      variant="outline"
+                      size="md"
+                      disabled={isCurrentOrderCompleted}
+                      onPress={() => {
+                        setPendingDocumentType('manifest');
+                        setShowCaptureMethodSelector(true);
+                      }}
+                      style={styles.manifestActionButton}
+                    />
+                    <Button
                       title="Sign Manifest"
                       variant="outline"
                       size="md"
                       disabled={isCurrentOrderCompleted}
                       onPress={() => setShowSignatureModal(true)}
-                      style={styles.manifestActionButton}
-                    />
-                    <Button
-                      title="Print Preview"
-                      variant="outline"
-                      size="md"
-                      disabled={isCurrentOrderCompleted}
-                      onPress={() => setShowPrintPreview(true)}
                       style={styles.manifestActionButton}
                     />
                     <Button
@@ -5544,6 +5552,25 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 showsVerticalScrollIndicator={true}>
                 <TouchableOpacity
                   style={styles.bottomSheetOptionButton}
+                  onPress={() => {
+                    setShowPrintOptions(false);
+                    setShowPrintPreview(true);
+                  }}
+                  activeOpacity={0.7}>
+                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#E0E7FF'}]}>
+                    <Icon name="visibility" size={24} color={colors.foreground} />
+                  </View>
+                  <View style={styles.bottomSheetOptionInfo}>
+                    <Text style={styles.bottomSheetOptionLabel}>Print Preview</Text>
+                    <Text style={styles.bottomSheetOptionDesc}>
+                      Preview the manifest before printing
+                    </Text>
+                  </View>
+                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.bottomSheetOptionButton}
                   onPress={async () => {
                     setShowPrintOptions(false);
                     await printManifest();
@@ -5575,25 +5602,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     <Text style={styles.bottomSheetOptionLabel}>Print LDR</Text>
                     <Text style={styles.bottomSheetOptionDesc}>
                       Print the Land Disposal Restrictions notification
-                    </Text>
-                  </View>
-                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.bottomSheetOptionButton}
-                  onPress={() => {
-                    setShowPrintOptions(false);
-                    voidManifest();
-                  }}
-                  activeOpacity={0.7}>
-                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEE2E2'}]}>
-                    <Icon name="error" size={24} color={colors.destructive} />
-                  </View>
-                  <View style={styles.bottomSheetOptionInfo}>
-                    <Text style={styles.bottomSheetOptionLabel}>Void Manifest</Text>
-                    <Text style={styles.bottomSheetOptionDesc}>
-                      Void the current manifest document
                     </Text>
                   </View>
                   <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
