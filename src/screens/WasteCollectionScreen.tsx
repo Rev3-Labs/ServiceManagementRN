@@ -4715,7 +4715,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   </Text>
                 </View>
                 {list.length === 0 ? (
-                  <Text style={styles.containersReviewEmpty}>No containers added for this service type.</Text>
+                  <View>
+                    <Text style={styles.containersReviewEmpty}>No containers added for this service type.</Text>
+                    {isServiceTypeNoShip(selectedOrderData.orderNumber, stId) && (
+                      <Text style={styles.containersReviewNoShipNote}>Marked as No-Ship.</Text>
+                    )}
+                  </View>
                 ) : (
                   list.map((c, idx) => (
                     <Card key={c.id} style={styles.containerSummaryCard}>
@@ -4745,17 +4750,19 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     </Card>
                   ))
                 )}
-                <Button
-                  title={`Add container to ${serviceTypeService.formatForBadge(stId)}${srNumber ? ` (${srNumber})` : ''}`}
-                  variant="outline"
-                  size="sm"
-                  onPress={() => {
-                    setActiveServiceTypeTimer(stId);
-                    setReturnToContainersReviewAfterAdd(true);
-                    setCurrentStep('stream-selection');
-                  }}
-                  style={styles.containersReviewAddBtn}
-                />
+                {!isServiceTypeNoShip(selectedOrderData.orderNumber, stId) && (
+                  <Button
+                    title={`Add container to ${serviceTypeService.formatForBadge(stId)}${srNumber ? ` (${srNumber})` : ''}`}
+                    variant="outline"
+                    size="sm"
+                    onPress={() => {
+                      setActiveServiceTypeTimer(stId);
+                      setReturnToContainersReviewAfterAdd(true);
+                      setCurrentStep('stream-selection');
+                    }}
+                    style={styles.containersReviewAddBtn}
+                  />
+                )}
               </View>
             );
           })}
@@ -11298,6 +11305,12 @@ const styles = StyleSheet.create({
     color: colors.mutedForeground,
     fontStyle: 'italic',
     paddingVertical: spacing.sm,
+  },
+  containersReviewNoShipNote: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontStyle: 'italic',
+    marginTop: spacing.xs,
   },
   containersReviewAddBtn: {
     marginTop: spacing.sm,
