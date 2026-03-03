@@ -5,6 +5,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1234',
     customer: 'Acme Manufacturing',
+    orderType: 'Waste Services',
     site: 'Building A - Main Facility',
     city: 'Denver',
     state: 'CO',
@@ -46,6 +47,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1235',
     customer: 'Walmart',
+    orderType: 'Retail',
     site: 'Store #1234',
     city: 'Aurora',
     state: 'CO',
@@ -80,6 +82,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1236',
     customer: 'Target Corporation',
+    orderType: 'Retail',
     site: 'Distribution Center #567',
     city: 'Commerce City',
     state: 'CO',
@@ -128,6 +131,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1237',
     customer: 'Home Depot',
+    orderType: 'Retail',
     site: 'Store #890',
     city: 'Boulder',
     state: 'CO',
@@ -146,6 +150,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1238',
     customer: 'Costco Wholesale',
+    orderType: 'Retail',
     site: 'Warehouse #234',
     city: 'Westminster',
     state: 'CO',
@@ -168,6 +173,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1239',
     customer: 'Denver General Hospital',
+    orderType: 'Healthcare',
     site: 'Main Campus - Waste Management',
     city: 'Denver',
     state: 'CO',
@@ -197,6 +203,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1240',
     customer: 'Oncology Care Center',
+    orderType: 'Healthcare',
     site: 'Chemotherapy Waste Disposal',
     city: 'Aurora',
     state: 'CO',
@@ -225,6 +232,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1241',
     customer: 'Industrial Chemical Solutions',
+    orderType: 'Waste Services',
     site: 'Main Warehouse',
     city: 'Commerce City',
     state: 'CO',
@@ -254,6 +262,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1242',
     customer: 'Tech Manufacturing Inc',
+    orderType: 'Waste Services',
     site: 'Production Facility',
     city: 'Boulder',
     state: 'CO',
@@ -278,6 +287,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1243',
     customer: 'Medical Examiner Office',
+    orderType: 'Healthcare',
     site: 'Pathology Department',
     city: 'Denver',
     state: 'CO',
@@ -305,6 +315,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1244',
     customer: 'Chemical Spill Response',
+    orderType: 'Waste Services',
     site: 'Emergency Site - Highway 36',
     city: 'Boulder',
     state: 'CO',
@@ -331,6 +342,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1245',
     customer: 'Regional Medical Center',
+    orderType: 'Pharmacy',
     site: 'Pharmacy Department - Controlled Substances',
     city: 'Denver',
     state: 'CO',
@@ -373,6 +385,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1246',
     customer: 'Community Health Clinic',
+    orderType: 'DEA',
     site: 'Controlled Substances Disposal',
     city: 'Aurora',
     state: 'CO',
@@ -402,6 +415,7 @@ export const MOCK_ORDERS: OrderData[] = [
   {
     orderNumber: 'WO-2024-1247',
     customer: 'Veterinary Hospital',
+    orderType: 'DEA',
     site: 'Animal Pharmacy - Controlled Substances',
     city: 'Boulder',
     state: 'CO',

@@ -7,8 +7,16 @@ import WasteCollectionScreen from './src/screens/WasteCollectionScreen';
 import MaterialsSuppliesScreen from './src/screens/MaterialsSuppliesScreen';
 import ServiceCloseoutScreen from './src/screens/ServiceCloseoutScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import ProjectedInventoryScreen from './src/screens/ProjectedInventoryScreen';
 
-type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings';
+type Screen =
+  | 'Login'
+  | 'Manifest'
+  | 'WasteCollection'
+  | 'MaterialsSupplies'
+  | 'ServiceCloseout'
+  | 'Settings'
+  | 'ProjectedInventory';
 
 interface NavigationState {
   currentScreen: Screen;
@@ -85,6 +93,13 @@ function App(): React.JSX.Element {
         return (
           <SettingsScreen
             username={username}
+            onNavigate={navigate}
+            onGoBack={goBack}
+          />
+        );
+      case 'ProjectedInventory':
+        return (
+          <ProjectedInventoryScreen
             onNavigate={navigate}
             onGoBack={goBack}
           />

@@ -104,7 +104,14 @@ export interface ScannedDocument {
   captureMethod?: 'Camera' | 'Gallery';
 }
 
-export type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings';
+export type Screen =
+  | 'Login'
+  | 'Manifest'
+  | 'WasteCollection'
+  | 'MaterialsSupplies'
+  | 'ServiceCloseout'
+  | 'Settings'
+  | 'ProjectedInventory';
 
 export interface WasteCollectionScreenProps {
   username?: string;

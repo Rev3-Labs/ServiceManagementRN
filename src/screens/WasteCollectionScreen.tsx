@@ -89,6 +89,37 @@ import {
   ValidationIssue,
 } from '../types/wasteCollection';
 import {MOCK_ORDERS} from '../data/mockOrders';
+import {safeAsyncStorage} from '../utils/storage';
+
+const DASHBOARD_INVENTORY_COLUMNS = ['55DF', '55DM', '30DF', '30DM', 'Tote', '18DF', '8DF', 'Other'];
+/** Map container type codes (from add-container flow) to projected inventory column keys. */
+const CONTAINER_CODE_TO_PROJECTED_COLUMN: Record<string, string> = {
+  '55G': '55DF',
+  '30G': '30DF',
+  '85G': '55DM',
+  '95T': 'Tote',
+  '1YD': 'Tote',
+  '2YD': 'Tote',
+  '4YD': 'Tote',
+  '5G': '30DM',
+  'CYL': 'Other',
+};
+/** Business type colors for dashboard Service List (light bg + contrasting text, like Order Information service type badges). */
+const BUSINESS_TYPE_CONFIG: Record<string, { label: string; bg: string; border: string; text: string }> = {
+  'waste services': { label: 'Waste Services', bg: '#ea580c22', border: '#ea580c', text: '#ea580c' },
+  retail: { label: 'Retail', bg: '#2563eb22', border: '#2563eb', text: '#2563eb' },
+  healthcare: { label: 'Healthcare', bg: '#0d948822', border: '#0d9488', text: '#0d9488' },
+  pharmacy: { label: 'Pharmacy', bg: '#7c3aed22', border: '#7c3aed', text: '#7c3aed' },
+  dea: { label: 'DEA', bg: '#dc262622', border: '#dc2626', text: '#dc2626' },
+};
+function getBusinessTypeStyle(orderType: string | undefined): { label: string; bg: string; border: string; text: string } {
+  const key = (orderType || 'waste services').toLowerCase().trim();
+  return BUSINESS_TYPE_CONFIG[key] ?? BUSINESS_TYPE_CONFIG['waste services'];
+}
+const INVENTORY_SUMMARY_STORAGE_KEY = '@inventory_summary';
+const DEFAULT_INVENTORY_SUMMARY: Record<string, number> = {
+  '55DF': 6, '55DM': 7, '30DF': 8, '30DM': 4, 'Tote': 0, '18DF': 16, '8DF': 10, 'Other': 0,
+};
 import {MATERIALS_CATALOG} from '../data/materialsCatalog';
 import {PersistentOrderHeader} from '../components/PersistentOrderHeader';
 import {PhotoCaptureButton} from '../components/PhotoCaptureButton';
@@ -240,6 +271,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       status?: 'loaded' | 'in_transit' | 'dropped';
       /** Service type this container was added under; used to show only current service type on add-containers screen. */
       serviceTypeId?: string;
+      /** Order this container belongs to; used for per-customer projected inventory aggregation. */
+      orderNumber?: string;
     }>
   >([]);
   const [selectedPrograms, setSelectedPrograms] = useState<
@@ -332,6 +365,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }>
   >([]);
   const [useMasterDetail, setUseMasterDetail] = useState(true); // Toggle for master-detail view (default: true)
+  const [dashboardViewTab, setDashboardViewTab] = useState<'orders' | 'dashboard'>('dashboard'); // Toggle between landing tiles and upcoming orders; default to dashboard tab after login
+  const [dashboardServiceListExpandedOrderNumber, setDashboardServiceListExpandedOrderNumber] = useState<string | null>(null);
+  const [dashboardInventorySummary, setDashboardInventorySummary] = useState<Record<string, number>>(DEFAULT_INVENTORY_SUMMARY);
+  const [dashboardInventoryOtherText, setDashboardInventoryOtherText] = useState('');
+  const [inventorySaveStatus, setInventorySaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const dashboardScrollRef = useRef<ScrollView | null>(null);
+  const dashboardScrollYRef = useRef(0);
   const [dashboardSelectedOrder, setDashboardSelectedOrder] =
     useState<OrderData | null>(null); // Selected order in master-detail view
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
@@ -391,6 +431,77 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     });
     return unsubscribe;
   }, []);
+
+  // Load persisted inventory summary on mount
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const raw = await safeAsyncStorage.getItem(INVENTORY_SUMMARY_STORAGE_KEY);
+        if (cancelled) return;
+        if (raw) {
+          const parsed = JSON.parse(raw) as unknown;
+          let sourceCounts: Record<string, number> = {};
+          if (typeof parsed === 'object' && parsed !== null) {
+            const maybeCounts = (parsed as {counts?: unknown}).counts;
+            if (typeof maybeCounts === 'object' && maybeCounts !== null) {
+              sourceCounts = maybeCounts as Record<string, number>;
+            } else {
+              sourceCounts = parsed as Record<string, number>;
+            }
+          }
+
+          const merged = {...DEFAULT_INVENTORY_SUMMARY};
+          DASHBOARD_INVENTORY_COLUMNS.forEach(col => {
+            if (col === 'Other') return;
+            if (typeof sourceCounts[col] === 'number' && sourceCounts[col] >= 0) {
+              merged[col] = sourceCounts[col];
+            }
+          });
+          setDashboardInventorySummary(merged);
+          const otherText =
+            typeof parsed === 'object' && parsed !== null
+              ? (parsed as {otherText?: unknown}).otherText
+              : undefined;
+          if (typeof otherText === 'string') {
+            setDashboardInventoryOtherText(otherText);
+          }
+        }
+      } catch (_) {
+        // ignore parse/storage errors, keep defaults
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveInventorySummary = useCallback(async () => {
+    setInventorySaveStatus('saving');
+    try {
+      await safeAsyncStorage.setItem(
+        INVENTORY_SUMMARY_STORAGE_KEY,
+        JSON.stringify({
+          counts: dashboardInventorySummary,
+          otherText: dashboardInventoryOtherText,
+        }),
+      );
+      setInventorySaveStatus('saved');
+      setTimeout(() => setInventorySaveStatus('idle'), 2500);
+    } catch (_) {
+      setInventorySaveStatus('idle');
+    }
+  }, [dashboardInventorySummary, dashboardInventoryOtherText]);
+
+  // Preserve dashboard scroll position while editing inventory counts or when expanding/collapsing Service List notes.
+  useEffect(() => {
+    if (dashboardViewTab !== 'dashboard') return;
+    requestAnimationFrame(() => {
+      dashboardScrollRef.current?.scrollTo({
+        y: dashboardScrollYRef.current,
+        animated: false,
+      });
+    });
+  }, [dashboardInventorySummary, dashboardInventoryOtherText, inventorySaveStatus, dashboardViewTab, dashboardServiceListExpandedOrderNumber]);
 
   // Subscribe to photo changes for current order
   useEffect(() => {
@@ -1890,6 +2001,297 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     });
   }, [streamSearchQuery, recentlyUsedProfiles]);
 
+  // Shared dashboard tab content (design system: Card sections, Table tokens, a11y)
+  const renderDashboardTabContent = (activeOrders: OrderData[]) => {
+    const projectedByOrder = activeOrders.reduce<Record<string, Record<string, number>>>(
+      (acc, order) => {
+        const perColumn: Record<string, number> = {};
+        DASHBOARD_INVENTORY_COLUMNS.forEach(col => {
+          if (col !== 'Other') perColumn[col] = 0;
+        });
+        acc[order.orderNumber] = perColumn;
+        return acc;
+      },
+      {},
+    );
+
+    addedContainers.forEach(container => {
+      const orderNumber = container.orderNumber;
+      const rawCode = container.containerType;
+      if (!orderNumber || !rawCode) return;
+      const col = CONTAINER_CODE_TO_PROJECTED_COLUMN[rawCode] ?? rawCode;
+      if (!(orderNumber in projectedByOrder)) return;
+      if (!(col in projectedByOrder[orderNumber])) return;
+      projectedByOrder[orderNumber][col] += 1;
+    });
+
+    const projectedTotals: Record<string, number> = {};
+    DASHBOARD_INVENTORY_COLUMNS.forEach(col => {
+      if (col === 'Other') return;
+      projectedTotals[col] = activeOrders.reduce(
+        (sum, order) => sum + (projectedByOrder[order.orderNumber]?.[col] ?? 0),
+        0,
+      );
+    });
+
+    return (
+    <View style={styles.dashboardContentRow}>
+      <ScrollView
+        ref={dashboardScrollRef}
+        style={styles.dashboardRightScroll}
+        contentContainerStyle={styles.dashboardRightContent}
+        showsVerticalScrollIndicator={true}
+        onScroll={(event) => {
+          dashboardScrollYRef.current = event.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
+        keyboardShouldPersistTaps="handled">
+        <Card style={styles.dashboardSectionCard}>
+          <CardHeader style={styles.dashboardCardHeaderRow}>
+            <CardTitle style={styles.dashboardCardTitle}>
+              <CardTitleText>Service List</CardTitleText>
+            </CardTitle>
+            <Text style={styles.dashboardSectionBadge}>Routes: {activeOrders.length}</Text>
+          </CardHeader>
+          <CardContent>
+            <View style={styles.dashboardTable}>
+              <View style={styles.dashboardTableHeaderRow}>
+                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColNum]}>#</Text>
+                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCustomer]}>CUSTOMER NAME</Text>
+                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCity]}>CITY STATE</Text>
+                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColType]}>BUSINESS TYPE</Text>
+                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColNotes]}>NOTES</Text>
+              </View>
+              {activeOrders.map((order, idx) => (
+                <View key={order.orderNumber}>
+                  <TouchableOpacity
+                    style={styles.dashboardTableRow}
+                    onPress={() => setDashboardServiceListExpandedOrderNumber(prev => prev === order.orderNumber ? null : order.orderNumber)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${order.customer}, ${order.city} ${order.state}. ${dashboardServiceListExpandedOrderNumber === order.orderNumber ? 'Collapse' : 'Expand'} notes`}
+                    accessibilityState={{expanded: dashboardServiceListExpandedOrderNumber === order.orderNumber}}>
+                    <Text style={[styles.dashboardTableCell, styles.dashboardTableColNum]}>{idx + 1}</Text>
+                    <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer]} numberOfLines={1}>{order.customer}</Text>
+                    <Text style={[styles.dashboardTableCell, styles.dashboardTableColCity]}>{order.city}, {order.state}</Text>
+                    <View style={[styles.dashboardTableCell, styles.dashboardTableColType]}>
+                      {(() => {
+                        const style = getBusinessTypeStyle(order.orderType);
+                        const label = order.orderType || style.label;
+                        return (
+                          <View style={[styles.dashboardBusinessTypeBadge, { backgroundColor: style.bg, borderColor: style.border }]}>
+                            <Text style={[styles.dashboardBusinessTypeBadgeText, { color: style.text }]} numberOfLines={1}>{label}</Text>
+                          </View>
+                        );
+                      })()}
+                    </View>
+                    <Text style={[styles.dashboardTableCell, styles.dashboardTableColNotes]}>
+                      <Text style={styles.dashboardViewLink}>View</Text>
+                    </Text>
+                  </TouchableOpacity>
+                  {dashboardServiceListExpandedOrderNumber === order.orderNumber && (
+                    <View style={styles.serviceListExpanded}>
+                      {order.generatorStatus && (
+                        <View style={styles.serviceListExpandedRow}>
+                          <Text style={styles.serviceListExpandedLabel}>GENERATOR NOTES:</Text>
+                          <Text style={styles.serviceListExpandedValue}>
+                            {order.generatorStatus}{order.epaId ? '. EPA ID: Yes' : ''}
+                          </Text>
+                        </View>
+                      )}
+                      {order.siteAccessNotes && (
+                        <View style={styles.serviceListExpandedRow}>
+                          <Text style={styles.serviceListExpandedLabel}>SITE NOTES:</Text>
+                          <Text style={styles.serviceListExpandedValue}>{order.siteAccessNotes}</Text>
+                        </View>
+                      )}
+                      {order.previousServiceNotes && order.previousServiceNotes.length > 0 && (
+                        <View style={styles.serviceListExpandedRow}>
+                          <Text style={styles.serviceListExpandedLabel}>TECHNICIAN NOTES:</Text>
+                          <Text style={styles.serviceListExpandedValue}>
+                            {order.previousServiceNotes.map(n => `${n.note} (${n.technician || n.date})`).join('. ')}
+                          </Text>
+                        </View>
+                      )}
+                      {order.customerSpecialInstructions && (
+                        <View style={styles.serviceListExpandedRow}>
+                          <Text style={styles.serviceListExpandedLabel}>JOB SHEET NOTES:</Text>
+                          <Text style={styles.serviceListExpandedValue}>{order.customerSpecialInstructions}</Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          </CardContent>
+        </Card>
+        <Card style={styles.dashboardSectionCard}>
+          <CardHeader>
+            <View style={styles.dashboardCardHeaderRow}>
+              <CardTitle style={styles.dashboardCardTitle}>
+                <CardTitleText>Projected Inventory</CardTitleText>
+              </CardTitle>
+              <View style={[styles.dashboardInventoryActions, styles.dashboardInventoryActionsInHeader]}>
+                <Button
+                  title={inventorySaveStatus === 'saving' ? 'Saving...' : inventorySaveStatus === 'saved' ? 'Saved' : 'Save current counts'}
+                  onPress={saveInventorySummary}
+                  variant="primary"
+                  size="sm"
+                  disabled={inventorySaveStatus === 'saving'}
+                  loading={inventorySaveStatus === 'saving'}
+                />
+                {inventorySaveStatus === 'saved' && (
+                  <Text style={styles.dashboardInventorySavedText}>Saved. Counts will be restored next time.</Text>
+                )}
+              </View>
+            </View>
+            <Text style={styles.dashboardSectionNote}>Based on prior service data for each customer</Text>
+          </CardHeader>
+          <CardContent>
+            <ScrollView horizontal showsHorizontalScrollIndicator={true} contentContainerStyle={styles.dashboardTableScrollContent}>
+              <View style={[styles.dashboardTable, styles.dashboardTableInHorizontalScroll]}>
+                <View style={styles.dashboardTableHeaderRow}>
+                  <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCustomer]}>Customer</Text>
+                  {DASHBOARD_INVENTORY_COLUMNS.map(col => (
+                    <Text
+                      key={col}
+                      style={[
+                        styles.dashboardTableHeaderCell,
+                        styles.dashboardTableInventoryCell,
+                        col === 'Other' && styles.dashboardTableOtherInventoryCell,
+                        styles.dashboardTableInventoryHeaderText,
+                      ]}>
+                      {col}
+                    </Text>
+                  ))}
+                </View>
+                <View style={[styles.dashboardTableRow, styles.dashboardInventoryEditableRow]}>
+                  <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>
+                    CURRENT
+                  </Text>
+                  {DASHBOARD_INVENTORY_COLUMNS.map(col => {
+                    const isOtherColumn = col === 'Other';
+                    const value = isOtherColumn
+                      ? dashboardInventoryOtherText
+                      : String(dashboardInventorySummary[col] ?? 0);
+                    return (
+                      <View
+                        key={col}
+                        style={[
+                          styles.dashboardTableCell,
+                          styles.dashboardTableInventoryCell,
+                          col === 'Other' && styles.dashboardTableOtherInventoryCell,
+                          styles.dashboardInventoryCurrentCell,
+                        ]}>
+                        <TextInput
+                          style={[
+                            styles.dashboardInventoryInput,
+                            isOtherColumn && styles.dashboardInventoryOtherInput,
+                          ]}
+                          value={value}
+                          onChangeText={(text) => {
+                            if (isOtherColumn) {
+                              setDashboardInventoryOtherText(text);
+                              return;
+                            }
+                            if (text === '') {
+                              setDashboardInventorySummary(prev => ({...prev, [col]: 0}));
+                              return;
+                            }
+                            const n = parseInt(text, 10);
+                            if (!Number.isNaN(n) && n >= 0) {
+                              setDashboardInventorySummary(prev => ({...prev, [col]: n}));
+                            }
+                          }}
+                          onBlur={(e) => {
+                            if (isOtherColumn) return;
+                            const v = e.nativeEvent.text;
+                            if (v === '' || Number.isNaN(parseInt(v, 10))) {
+                              setDashboardInventorySummary(prev => ({...prev, [col]: 0}));
+                            }
+                          }}
+                          keyboardType={isOtherColumn ? 'default' : 'number-pad'}
+                          placeholder={isOtherColumn ? 'Custom text' : '0'}
+                          placeholderTextColor={colors.mutedForeground}
+                          accessibilityLabel={`${col} current quantity`}
+                        />
+                      </View>
+                    );
+                  })}
+                </View>
+              {activeOrders.slice(0, 5).map(order => (
+                <View key={order.orderNumber} style={styles.dashboardTableRow}>
+                  <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer]} numberOfLines={1}>{order.customer}</Text>
+                  {DASHBOARD_INVENTORY_COLUMNS.map(col => (
+                    <Text
+                      key={col}
+                      style={[
+                        styles.dashboardTableCell,
+                        styles.dashboardTableInventoryCell,
+                        col === 'Other' && styles.dashboardTableOtherInventoryCell,
+                      ]}>
+                      {col === 'Other' ? '—' : String(projectedByOrder[order.orderNumber]?.[col] ?? 0)}
+                    </Text>
+                  ))}
+                </View>
+              ))}
+              <View style={[styles.dashboardTableRow, styles.dashboardTableTotalRow]}>
+                <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>TOTAL PROJECTED</Text>
+                {DASHBOARD_INVENTORY_COLUMNS.map(col => (
+                  <Text
+                    key={col}
+                    style={[
+                      styles.dashboardTableCell,
+                      styles.dashboardTableInventoryCell,
+                      col === 'Other' && styles.dashboardTableOtherInventoryCell,
+                    ]}>
+                    {col === 'Other' ? '—' : String(projectedTotals[col] ?? 0)}
+                  </Text>
+                ))}
+              </View>
+                  <View style={[styles.dashboardTableRow, styles.dashboardTableRemainingRow]}>
+                    <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>REMAINING</Text>
+                    {DASHBOARD_INVENTORY_COLUMNS.map(col => {
+                      if (col === 'Other') {
+                        return (
+                          <Text
+                            key={col}
+                            style={[
+                              styles.dashboardTableCell,
+                              styles.dashboardTableInventoryCell,
+                              styles.dashboardTableOtherInventoryCell,
+                            ]}>
+                            —
+                          </Text>
+                        );
+                      }
+                      const current = dashboardInventorySummary[col] ?? 0;
+                      const projected = projectedTotals[col] ?? 0;
+                      const remaining = current - projected;
+                      return (
+                        <Text
+                          key={col}
+                          style={[
+                            styles.dashboardTableCell,
+                            styles.dashboardTableInventoryCell,
+                            remaining < 0 && styles.dashboardTableRemainingNegative,
+                            remaining > 0 && styles.dashboardTableRemainingPositive,
+                          ]}>
+                          {remaining}
+                        </Text>
+                      );
+                    })}
+                  </View>
+                </View>
+            </ScrollView>
+          </CardContent>
+        </Card>
+      </ScrollView>
+    </View>
+  );
+  };
+
   // Master-Detail Dashboard Screen (for tablets)
   const DashboardScreenMasterDetail = () => {
     const allOrders = MOCK_ORDERS || orders || [];
@@ -2075,6 +2477,28 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           </Text>
         </View>
 
+        <View style={styles.dashboardTabBar}>
+          <TouchableOpacity
+            style={[styles.dashboardTab, dashboardViewTab === 'dashboard' && styles.dashboardTabActive]}
+            onPress={() => setDashboardViewTab('dashboard')}
+            activeOpacity={0.8}
+            accessibilityRole="tab"
+            accessibilityState={{selected: dashboardViewTab === 'dashboard'}}>
+            <Text style={[styles.dashboardTabText, dashboardViewTab === 'dashboard' && styles.dashboardTabTextActive]}>Dashboard</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.dashboardTab, dashboardViewTab === 'orders' && styles.dashboardTabActive]}
+            onPress={() => setDashboardViewTab('orders')}
+            activeOpacity={0.8}
+            accessibilityRole="tab"
+            accessibilityState={{selected: dashboardViewTab === 'orders'}}>
+            <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Upcoming Orders</Text>
+          </TouchableOpacity>
+        </View>
+
+        {dashboardViewTab === 'dashboard' ? (
+          renderDashboardTabContent(activeOrders)
+        ) : (
         <View style={styles.masterDetailContainer}>
           {/* Master Pane - Orders List */}
           <View style={[styles.masterPane, {width: getSidebarWidth()}]}>
@@ -2839,6 +3263,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             )}
           </View>
         </View>
+        )}
       </View>
     );
   };
@@ -2909,6 +3334,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       <View style={styles.container}>
         <View style={styles.headerCompact}>
           <View style={styles.headerCompactLeft}>
+            <TouchableOpacity
+              style={styles.headerCompactDashboard}
+              onPress={() => setDashboardViewTab('dashboard')}
+              activeOpacity={0.7}
+              hitSlop={8}
+              accessibilityLabel="Dashboard tab"
+              accessibilityRole="button">
+              <Icon name="home" size={22} color={colors.primary} />
+              <Text style={styles.headerCompactDashboardText}>Dashboard</Text>
+            </TouchableOpacity>
             <Text style={styles.headerCompactTitle} numberOfLines={1}>
               Upcoming Orders
             </Text>
@@ -3047,15 +3482,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   <Text style={styles.headerMenuItemText}>Master-Detail</Text>
                 </TouchableOpacity>
               )}
-              {onGoBack && (
+              {(onGoBack || onNavigate) && (
                 <TouchableOpacity
                   style={styles.headerMenuItem}
                   onPress={() => {
                     setShowHeaderMenuModal(false);
-                    onGoBack();
+                    setDashboardViewTab('dashboard');
                   }}
                   activeOpacity={0.7}>
-                  <Text style={styles.headerMenuItemText}>Back</Text>
+                  <Text style={styles.headerMenuItemText}>Back to Dashboard</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -3070,6 +3505,28 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           </Text>
         </View>
 
+        <View style={styles.dashboardTabBar}>
+          <TouchableOpacity
+            style={[styles.dashboardTab, dashboardViewTab === 'dashboard' && styles.dashboardTabActive]}
+            onPress={() => setDashboardViewTab('dashboard')}
+            activeOpacity={0.8}
+            accessibilityRole="tab"
+            accessibilityState={{selected: dashboardViewTab === 'dashboard'}}>
+            <Text style={[styles.dashboardTabText, dashboardViewTab === 'dashboard' && styles.dashboardTabTextActive]}>Dashboard</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.dashboardTab, dashboardViewTab === 'orders' && styles.dashboardTabActive]}
+            onPress={() => setDashboardViewTab('orders')}
+            activeOpacity={0.8}
+            accessibilityRole="tab"
+            accessibilityState={{selected: dashboardViewTab === 'orders'}}>
+            <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Upcoming Orders</Text>
+          </TouchableOpacity>
+        </View>
+
+        {dashboardViewTab === 'dashboard' ? (
+          renderDashboardTabContent(activeOrders)
+        ) : (
         <View style={styles.scrollViewContainer}>
           <ScrollView
             style={styles.scrollView}
@@ -3651,6 +4108,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             )}
           </ScrollView>
         </View>
+        )}
       </View>
     );
   };
@@ -4314,6 +4772,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   shippingLabelBarcode, // Unique shipping label barcode
                   status: 'loaded' as const, // FR-3a.EXT.3.2: active on truck until dropped
                   serviceTypeId: activeServiceTypeTimer ?? undefined, // For filtering by current service type on add-containers screen
+                  orderNumber, // For projected inventory by customer/order
                   ...(requiresCylinderCount && cylinderCount ? { cylinderCount: parseInt(cylinderCount) || 0 } : {}),
                 };
 
@@ -10284,6 +10743,18 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     minWidth: 0,
   },
+  headerCompactDashboard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+    paddingRight: spacing.sm,
+  },
+  headerCompactDashboardText: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.primary,
+  },
   headerCompactTitle: {
     ...typography.base,
     fontWeight: '700',
@@ -10461,6 +10932,293 @@ const styles = StyleSheet.create({
     ...typography.sm,
     fontWeight: '600',
     color: colors.foreground,
+  },
+  dashboardTabBar: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  dashboardTab: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    minHeight: touchTargets.comfortable,
+    justifyContent: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
+  },
+  dashboardTabActive: {
+    borderBottomColor: colors.primary,
+  },
+  dashboardTabText: {
+    ...typography.base,
+    fontWeight: '500',
+    color: colors.mutedForeground,
+  },
+  dashboardTabTextActive: {
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  dashboardContentRow: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  dashboardRightScroll: {
+    flex: 1,
+  },
+  dashboardRightContent: {
+    flexGrow: 1,
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl,
+    width: '100%',
+  },
+  dashboardSectionCard: {
+    marginBottom: spacing.xl,
+    width: '100%',
+
+  },
+  dashboardCardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dashboardCardTitle: {
+    marginBottom: 0,
+  },
+  dashboardSectionBadge: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  dashboardSectionNote: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: spacing.md,
+  },
+  dashboardTable: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+    backgroundColor: colors.background,
+    width: '100%',
+
+  },
+  dashboardTableInHorizontalScroll: {
+    alignSelf: 'flex-start',
+  },
+  dashboardTableHeaderRow: {
+    flexDirection: 'row',
+    backgroundColor: colors.card,
+    borderBottomWidth: 2,
+    borderBottomColor: colors.border,
+  },
+  dashboardTableHeaderCell: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  dashboardTableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    alignItems: 'center',
+    minHeight: touchTargets.min,
+    width: '100%',
+
+  },
+  dashboardTableCell: {
+    ...typography.base,
+    color: colors.foreground,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  dashboardTableColNum: {
+    // width: 40,
+    // minWidth: 40,
+  },
+  dashboardTableColCustomer: {
+    flex: 1,
+    minWidth: 140,
+  },
+  dashboardTableColCity: {
+    // width: 120,
+    // minWidth: 120,
+  },
+  dashboardTableColType: {
+    // width: 140,
+    // minWidth: 140,
+  },
+  dashboardBusinessTypeBadge: {
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
+    maxWidth: '100%',
+  },
+  dashboardBusinessTypeBadgeText: {
+    ...typography.xs,
+    fontWeight: '600',
+  },
+  dashboardTableColNotes: {
+    // width: 120,
+    // minWidth: 120,
+  },
+  dashboardTableInventoryCell: {
+    width: 96,
+    minWidth: 96,
+    flexShrink: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    textAlign: 'center',
+  },
+  dashboardTableOtherInventoryCell: {
+    width: 180,
+    minWidth: 180,
+    alignItems: 'stretch',
+  },
+  dashboardTableInventoryHeaderText: {
+    textAlign: 'center',
+  },
+  dashboardTableScrollContent: {
+    alignSelf: 'flex-start',
+    width: '100%',
+
+  },
+  dashboardInventorySubtitle: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.mutedForeground,
+    marginBottom: spacing.sm,
+  },
+  dashboardInventoryEditableRow: {
+    backgroundColor: colors.muted + '40',
+  },
+  dashboardInventoryCellWithStepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    minWidth: 130,
+  },
+  dashboardInventoryList: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+    backgroundColor: colors.background,
+  },
+  dashboardInventoryListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    minHeight: touchTargets.min,
+  },
+  dashboardInventoryListLabel: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+    minWidth: 70,
+  },
+  dashboardInventoryRowControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  dashboardInventoryCurrentCell: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  dashboardInventoryStepperBtn: {
+    width: touchTargets.min - 8,
+    height: touchTargets.min - 8,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dashboardInventoryInput: {
+    ...typography.base,
+    color: colors.foreground,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.xs,
+    width: '100%',
+    minWidth: 0,
+    textAlign: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.inputBackground,
+  },
+  dashboardInventoryOtherInput: {
+    textAlign: 'left',
+    paddingHorizontal: spacing.sm,
+  },
+  dashboardInventoryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginTop: spacing.md,
+    flexWrap: 'wrap',
+  },
+  dashboardInventoryActionsInHeader: {
+    marginTop: 0,
+    justifyContent: 'flex-end',
+  },
+  dashboardInventorySavedText: {
+    ...typography.sm,
+    color: colors.success,
+  },
+  dashboardViewLink: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  serviceListExpanded: {
+    backgroundColor: colors.muted,
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  serviceListExpandedRow: {
+    marginBottom: spacing.sm,
+  },
+  serviceListExpandedLabel: {
+    ...typography.xs,
+    fontWeight: '700',
+    color: colors.mutedForeground,
+    marginBottom: spacing.xs,
+  },
+  serviceListExpandedValue: {
+    ...typography.base,
+    color: colors.foreground,
+  },
+  dashboardTableTotalRow: {
+    backgroundColor: colors.secondary,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  dashboardTableRemainingRow: {
+    backgroundColor: colors.muted,
+  },
+  dashboardTableTotalLabel: {
+    fontWeight: '700',
+  },
+  dashboardTableRemainingNegative: {
+    color: colors.destructive,
+    fontWeight: '600',
+  },
+  dashboardTableRemainingPositive: {
+    color: colors.warning,
+    fontWeight: '600',
   },
   pageTitleRow: {
     flexDirection: 'row',
