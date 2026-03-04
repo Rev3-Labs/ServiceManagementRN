@@ -2058,8 +2058,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               <View style={styles.dashboardTableHeaderRow}>
                 <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColNum]}>#</Text>
                 <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCustomer]}>CUSTOMER NAME</Text>
-                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCity]}>CITY STATE</Text>
-                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColType]}>BUSINESS TYPE</Text>
+                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCity]}>LOCATION</Text>
+                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColType]}>TYPE</Text>
                 <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColNotes]}>NOTES</Text>
               </View>
               {activeOrders.map((order, idx) => (
@@ -11009,6 +11009,7 @@ const styles = StyleSheet.create({
   },
   dashboardTableHeaderRow: {
     flexDirection: 'row',
+    alignItems: 'stretch',
     backgroundColor: colors.card,
     borderBottomWidth: 2,
     borderBottomColor: colors.border,
@@ -11019,37 +11020,43 @@ const styles = StyleSheet.create({
     color: colors.foreground,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
+    textAlign: 'left',
   },
   dashboardTableRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    alignItems: 'center',
     minHeight: touchTargets.min,
     width: '100%',
-
   },
   dashboardTableCell: {
     ...typography.base,
     color: colors.foreground,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
+    textAlign: 'left',
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
   dashboardTableColNum: {
-    // width: 40,
-    // minWidth: 40,
+    width: 80,
+    minWidth: 80,
+    flexShrink: 0,
   },
   dashboardTableColCustomer: {
     flex: 1,
-    minWidth: 140,
+    minWidth: 180,
   },
   dashboardTableColCity: {
-    // width: 120,
-    // minWidth: 120,
+    width: 180,
+    minWidth: 180,
+    flexShrink: 0,
   },
   dashboardTableColType: {
-    // width: 140,
-    // minWidth: 140,
+    width: 180,
+    minWidth: 180,
+    flexShrink: 0,
   },
   dashboardBusinessTypeBadge: {
     alignSelf: 'flex-start',
@@ -11064,8 +11071,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   dashboardTableColNotes: {
-    // width: 120,
-    // minWidth: 120,
+    width: 96,
+    minWidth: 96,
+    flexShrink: 0,
   },
   dashboardTableInventoryCell: {
     width: 96,
