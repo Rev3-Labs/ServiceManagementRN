@@ -24,6 +24,11 @@ export interface OrderData {
   serviceOrderNumbers?: Record<string, string>; // Maps program ID to service order number (e.g., "SR12345678")
   serviceDate: string;
   requiredDate?: string; // MM/DD/YYYY format
+  plannedArrival?: string; // e.g. "9:00 AM"
+  actualArrival?: string;
+  plannedDurationMinutes?: number;
+  actualDurationMinutes?: number;
+  pace?: string; // e.g. "On time", "Ahead", "Behind"
   generatorStatus?: 'LQG' | 'SQG' | 'CESQG' | 'VSQG'; // Large Quantity Generator, Small Quantity Generator, etc.
   epaId?: boolean; // Whether EPA ID is present
   status: 'Scheduled' | 'Partial' | 'In Progress' | 'Blocked' | 'Completed';

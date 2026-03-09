@@ -92,6 +92,19 @@ import {MOCK_ORDERS} from '../data/mockOrders';
 import {safeAsyncStorage} from '../utils/storage';
 
 const DASHBOARD_INVENTORY_COLUMNS = ['55DF', '55DM', '30DF', '30DM', 'Tote', '18DF', '8DF', 'Other'];
+/** Simulated containers needed per customer for the route (for demo when no addedContainers). One entry per order index. */
+const SIMULATED_CONTAINERS_BY_ORDER_INDEX: Record<string, number>[] = [
+  { '55DF': 2, '55DM': 0, '30DF': 1, '30DM': 0, 'Tote': 0, '18DF': 1, '8DF': 0, 'Other': 0 },
+  { '55DF': 0, '55DM': 1, '30DF': 2, '30DM': 0, 'Tote': 1, '18DF': 0, '8DF': 0, 'Other': 1 },
+  { '55DF': 1, '55DM': 1, '30DF': 0, '30DM': 1, 'Tote': 2, '18DF': 0, '8DF': 1, 'Other': 0 },
+  { '55DF': 3, '55DM': 0, '30DF': 1, '30DM': 0, 'Tote': 0, '18DF': 2, '8DF': 0, 'Other': 1 },
+  { '55DF': 0, '55DM': 2, '30DF': 0, '30DM': 1, 'Tote': 3, '18DF': 0, '8DF': 0, 'Other': 0 },
+  { '55DF': 2, '55DM': 0, '30DF': 2, '30DM': 1, 'Tote': 1, '18DF': 0, '8DF': 1, 'Other': 0 },
+  { '55DF': 1, '55DM': 1, '30DF': 1, '30DM': 0, 'Tote': 2, '18DF': 1, '8DF': 0, 'Other': 1 },
+  { '55DF': 0, '55DM': 0, '30DF': 3, '30DM': 2, 'Tote': 0, '18DF': 1, '8DF': 2, 'Other': 0 },
+  { '55DF': 2, '55DM': 1, '30DF': 0, '30DM': 0, 'Tote': 1, '18DF': 0, '8DF': 0, 'Other': 0 },
+  { '55DF': 1, '55DM': 0, '30DF': 1, '30DM': 1, 'Tote': 2, '18DF': 2, '8DF': 1, 'Other': 1 },
+];
 /** Map container type codes (from add-container flow) to projected inventory column keys. */
 const CONTAINER_CODE_TO_PROJECTED_COLUMN: Record<string, string> = {
   '55G': '55DF',
@@ -116,10 +129,54 @@ function getBusinessTypeStyle(orderType: string | undefined): { label: string; b
   const key = (orderType || 'waste services').toLowerCase().trim();
   return BUSINESS_TYPE_CONFIG[key] ?? BUSINESS_TYPE_CONFIG['waste services'];
 }
+
+/** On-truck inventory cell: local state so parent doesn't re-render on keystroke (avoids focus loss). Reports draft via onDraftChange; parent uses committed value for After route until Save. */
+const InventoryOnTruckCell = memo(function InventoryOnTruckCell(props: {
+  columnKey: string;
+  committedValue: number;
+  saveGeneration: number;
+  onDraftChange: (key: string, value: number) => void;
+  cellStyle: ViewStyle[];
+  inputStyle: ViewStyle;
+  otherCellStyle?: ViewStyle;
+  placeholderTextColor: string;
+}) {
+  const { columnKey, committedValue, saveGeneration, onDraftChange, cellStyle, inputStyle, otherCellStyle, placeholderTextColor } = props;
+  const [value, setValue] = useState(() => String(committedValue ?? 0));
+  useEffect(() => {
+    setValue(String(committedValue ?? 0));
+  }, [committedValue, saveGeneration]);
+  return (
+    <View style={[cellStyle, columnKey === 'Other' && otherCellStyle]}>
+      <TextInput
+        style={inputStyle}
+        value={value}
+        onChangeText={(text) => {
+          setValue(text);
+          const n = text === '' ? 0 : parseInt(text, 10);
+          if (!Number.isNaN(n) && n >= 0) onDraftChange(columnKey, n);
+        }}
+        onBlur={() => {
+          const n = value === '' ? 0 : parseInt(value, 10);
+          if (value === '' || !Number.isNaN(n)) onDraftChange(columnKey, value === '' ? 0 : n);
+        }}
+        keyboardType="number-pad"
+        placeholder="0"
+        placeholderTextColor={placeholderTextColor}
+        accessibilityLabel={`${columnKey} on truck now`}
+      />
+    </View>
+  );
+});
+
 const INVENTORY_SUMMARY_STORAGE_KEY = '@inventory_summary';
 const DEFAULT_INVENTORY_SUMMARY: Record<string, number> = {
   '55DF': 6, '55DM': 7, '30DF': 8, '30DM': 4, 'Tote': 0, '18DF': 16, '8DF': 10, 'Other': 0,
 };
+
+/** Example route IDs (state code + number). Used for default current route and route selection. */
+const ROUTE_IDS = ['WA01', 'WA02', 'OR01', 'CA01', 'CA02', 'CA03', 'AZ01', 'CO01', 'TX01', 'IL01'];
+const DEFAULT_ROUTE_ID = 'CO01'; // Colorado – matches Denver/CO mock data
 import {MATERIALS_CATALOG} from '../data/materialsCatalog';
 import {PersistentOrderHeader} from '../components/PersistentOrderHeader';
 import {PhotoCaptureButton} from '../components/PhotoCaptureButton';
@@ -368,12 +425,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [dashboardViewTab, setDashboardViewTab] = useState<'orders' | 'dashboard'>('dashboard'); // Toggle between landing tiles and upcoming orders; default to dashboard tab after login
   const [dashboardServiceListExpandedOrderNumber, setDashboardServiceListExpandedOrderNumber] = useState<string | null>(null);
   const [dashboardInventorySummary, setDashboardInventorySummary] = useState<Record<string, number>>(DEFAULT_INVENTORY_SUMMARY);
-  const [dashboardInventoryOtherText, setDashboardInventoryOtherText] = useState('');
+  const [inventorySaveGeneration, setInventorySaveGeneration] = useState(0);
+  const inventoryDraftRef = useRef<Record<string, number>>({});
   const [inventorySaveStatus, setInventorySaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const dashboardScrollRef = useRef<ScrollView | null>(null);
   const dashboardScrollYRef = useRef(0);
   const [dashboardSelectedOrder, setDashboardSelectedOrder] =
     useState<OrderData | null>(null); // Selected order in master-detail view
+  const [dashboardRouteId, setDashboardRouteId] = useState<string>(''); // Route ID for dashboard header (e.g. from API)
+  const [dashboardDutyStatus, setDashboardDutyStatus] = useState<string>('On duty'); // Current duty status for dashboard header
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
@@ -453,19 +513,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
           const merged = {...DEFAULT_INVENTORY_SUMMARY};
           DASHBOARD_INVENTORY_COLUMNS.forEach(col => {
-            if (col === 'Other') return;
             if (typeof sourceCounts[col] === 'number' && sourceCounts[col] >= 0) {
               merged[col] = sourceCounts[col];
             }
           });
           setDashboardInventorySummary(merged);
-          const otherText =
-            typeof parsed === 'object' && parsed !== null
-              ? (parsed as {otherText?: unknown}).otherText
-              : undefined;
-          if (typeof otherText === 'string') {
-            setDashboardInventoryOtherText(otherText);
-          }
         }
       } catch (_) {
         // ignore parse/storage errors, keep defaults
@@ -478,19 +530,24 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const saveInventorySummary = useCallback(async () => {
     setInventorySaveStatus('saving');
     try {
+      const draft = {...dashboardInventorySummary};
+      DASHBOARD_INVENTORY_COLUMNS.forEach(col => {
+        if (inventoryDraftRef.current[col] !== undefined) {
+          draft[col] = inventoryDraftRef.current[col];
+        }
+      });
+      setDashboardInventorySummary(draft);
       await safeAsyncStorage.setItem(
         INVENTORY_SUMMARY_STORAGE_KEY,
-        JSON.stringify({
-          counts: dashboardInventorySummary,
-          otherText: dashboardInventoryOtherText,
-        }),
+        JSON.stringify({ counts: draft }),
       );
+      setInventorySaveGeneration(g => g + 1);
       setInventorySaveStatus('saved');
       setTimeout(() => setInventorySaveStatus('idle'), 2500);
     } catch (_) {
       setInventorySaveStatus('idle');
     }
-  }, [dashboardInventorySummary, dashboardInventoryOtherText]);
+  }, [dashboardInventorySummary]);
 
   // Preserve dashboard scroll position while editing inventory counts or when expanding/collapsing Service List notes.
   useEffect(() => {
@@ -501,7 +558,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         animated: false,
       });
     });
-  }, [dashboardInventorySummary, dashboardInventoryOtherText, inventorySaveStatus, dashboardViewTab, dashboardServiceListExpandedOrderNumber]);
+  }, [dashboardInventorySummary, inventorySaveStatus, dashboardViewTab, dashboardServiceListExpandedOrderNumber]);
 
   // Subscribe to photo changes for current order
   useEffect(() => {
@@ -636,16 +693,44 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }
   }, []);
 
-  // Load truck ID for the user
+  // Default vehicle when user has none saved (e.g. first login)
+  const DEFAULT_TRUCK_NUMBER = 'TRK-1045';
+  const DEFAULT_TRAILER_NUMBER = 'TRL-0893';
+
+  // Load truck, trailer, and truck ID for the user (dashboard header and settings)
   const loadTruckId = useCallback(async () => {
     if (!username) return;
     try {
-      const id = await getUserTruckId(username);
-      if (id) {
-        setTruckId(id);
+      const [id, truck, trailer] = await Promise.all([
+        getUserTruckId(username),
+        getUserTruck(username),
+        getUserTrailer(username),
+      ]);
+      if (id) setTruckId(id);
+      if (truck) {
+        setSelectedTruck({ number: truck.number, description: truck.description });
+      } else if (id) {
+        const truckByNumber = vehicleService.getTruckByNumber(id);
+        if (truckByNumber) {
+          setSelectedTruck({ number: truckByNumber.number, description: truckByNumber.description });
+        }
+      } else {
+        const defaultTruck = vehicleService.getTruckByNumber(DEFAULT_TRUCK_NUMBER);
+        if (defaultTruck) {
+          setTruckId(defaultTruck.number);
+          setSelectedTruck({ number: defaultTruck.number, description: defaultTruck.description });
+        }
+      }
+      if (trailer) {
+        setSelectedTrailer({ number: trailer.number, description: trailer.description });
+      } else {
+        const defaultTrailer = vehicleService.getTrailerByNumber(DEFAULT_TRAILER_NUMBER);
+        if (defaultTrailer) {
+          setSelectedTrailer({ number: defaultTrailer.number, description: defaultTrailer.description });
+        }
       }
     } catch (error) {
-      console.error('Error loading truck ID:', error);
+      console.error('Error loading truck/trailer:', error);
     }
   }, [username]);
 
@@ -672,12 +757,19 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     loadActiveTimeTracking();
   }, [username]);
 
-  // Reload truck ID when returning to dashboard (e.g., after saving in Settings)
+  // Reload truck/trailer when returning to dashboard (e.g., after saving in Settings)
   useEffect(() => {
     if (currentStep === 'dashboard') {
       loadTruckId();
     }
   }, [currentStep, loadTruckId]);
+
+  // Populate default route ID when on dashboard (state code + number format, e.g. CO01)
+  useEffect(() => {
+    if (currentStep === 'dashboard' && !dashboardRouteId) {
+      setDashboardRouteId(DEFAULT_ROUTE_ID);
+    }
+  }, [currentStep, dashboardRouteId]);
 
 
 
@@ -2003,11 +2095,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
   // Shared dashboard tab content (design system: Card sections, Table tokens, a11y)
   const renderDashboardTabContent = (activeOrders: OrderData[]) => {
+    // Per-customer containers needed for the route: simulated only (no longer from captured containers).
     const projectedByOrder = activeOrders.reduce<Record<string, Record<string, number>>>(
       (acc, order) => {
         const perColumn: Record<string, number> = {};
         DASHBOARD_INVENTORY_COLUMNS.forEach(col => {
-          if (col !== 'Other') perColumn[col] = 0;
+          perColumn[col] = 0;
         });
         acc[order.orderNumber] = perColumn;
         return acc;
@@ -2015,19 +2108,17 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       {},
     );
 
-    addedContainers.forEach(container => {
-      const orderNumber = container.orderNumber;
-      const rawCode = container.containerType;
-      if (!orderNumber || !rawCode) return;
-      const col = CONTAINER_CODE_TO_PROJECTED_COLUMN[rawCode] ?? rawCode;
-      if (!(orderNumber in projectedByOrder)) return;
-      if (!(col in projectedByOrder[orderNumber])) return;
-      projectedByOrder[orderNumber][col] += 1;
+    activeOrders.forEach((order, idx) => {
+      const simulated = SIMULATED_CONTAINERS_BY_ORDER_INDEX[idx % SIMULATED_CONTAINERS_BY_ORDER_INDEX.length];
+      if (!simulated || !(order.orderNumber in projectedByOrder)) return;
+      DASHBOARD_INVENTORY_COLUMNS.forEach(col => {
+        const need = simulated[col] ?? 0;
+        projectedByOrder[order.orderNumber][col] = need;
+      });
     });
 
     const projectedTotals: Record<string, number> = {};
     DASHBOARD_INVENTORY_COLUMNS.forEach(col => {
-      if (col === 'Other') return;
       projectedTotals[col] = activeOrders.reduce(
         (sum, order) => sum + (projectedByOrder[order.orderNumber]?.[col] ?? 0),
         0,
@@ -2054,75 +2145,108 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             <Text style={styles.dashboardSectionBadge}>Routes: {activeOrders.length}</Text>
           </CardHeader>
           <CardContent>
-            <View style={styles.dashboardTable}>
-              <View style={styles.dashboardTableHeaderRow}>
-                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColNum]}>#</Text>
-                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCustomer]}>CUSTOMER NAME</Text>
-                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCity]}>LOCATION</Text>
-                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColType]}>TYPE</Text>
-                <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColNotes]}>NOTES</Text>
-              </View>
-              {activeOrders.map((order, idx) => (
-                <View key={order.orderNumber}>
-                  <TouchableOpacity
-                    style={styles.dashboardTableRow}
-                    onPress={() => setDashboardServiceListExpandedOrderNumber(prev => prev === order.orderNumber ? null : order.orderNumber)}
-                    activeOpacity={0.8}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${order.customer}, ${order.city} ${order.state}. ${dashboardServiceListExpandedOrderNumber === order.orderNumber ? 'Collapse' : 'Expand'} notes`}
-                    accessibilityState={{expanded: dashboardServiceListExpandedOrderNumber === order.orderNumber}}>
-                    <Text style={[styles.dashboardTableCell, styles.dashboardTableColNum]}>{idx + 1}</Text>
-                    <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer]} numberOfLines={1}>{order.customer}</Text>
-                    <Text style={[styles.dashboardTableCell, styles.dashboardTableColCity]}>{order.city}, {order.state}</Text>
-                    <View style={[styles.dashboardTableCell, styles.dashboardTableColType]}>
-                      {(() => {
-                        const style = getBusinessTypeStyle(order.orderType);
-                        const label = order.orderType || style.label;
-                        return (
-                          <View style={[styles.dashboardBusinessTypeBadge, { backgroundColor: style.bg, borderColor: style.border }]}>
-                            <Text style={[styles.dashboardBusinessTypeBadgeText, { color: style.text }]} numberOfLines={1}>{label}</Text>
+            <View style={styles.serviceListCardList}>
+              {activeOrders.map((order, idx) => {
+                const typeStyle = getBusinessTypeStyle(order.orderType);
+                const typeLabel = order.orderType || typeStyle.label;
+                const isExpanded = dashboardServiceListExpandedOrderNumber === order.orderNumber;
+                const hasNotes = Boolean(
+                  order.generatorStatus ||
+                  order.siteAccessNotes ||
+                  (order.previousServiceNotes && order.previousServiceNotes.length > 0) ||
+                  order.customerSpecialInstructions,
+                );
+                return (
+                  <View key={order.orderNumber} style={styles.serviceListCardWrapper}>
+                    <TouchableOpacity
+                        style={[styles.serviceListCard, isExpanded && styles.serviceListCardDetailsBlockNotesOpen]}
+                      onPress={() => setDashboardServiceListExpandedOrderNumber(prev => prev === order.orderNumber ? null : order.orderNumber)}
+                      activeOpacity={0.9}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${order.customer}, ${order.city} ${order.state}. ${isExpanded ? 'Collapse' : 'Expand'} notes`}
+                      accessibilityState={{expanded: isExpanded}}>
+                      <View style={styles.serviceListCardHeader}>
+                        <Text style={styles.serviceListCardNum}>{idx + 1}</Text>
+                        <Text style={styles.serviceListCardCustomer} numberOfLines={2}>{order.customer}</Text>
+                        <View style={[styles.dashboardBusinessTypeBadge, { backgroundColor: typeStyle.bg, borderColor: typeStyle.border }]}>
+                          <Text style={[styles.dashboardBusinessTypeBadgeText, { color: typeStyle.text }]} numberOfLines={1}>{typeLabel}</Text>
+                        </View>
+                      </View>
+                      <Text style={styles.serviceListCardLocation} numberOfLines={1}>{order.city}, {order.state}</Text>
+                      <View style={styles.serviceListCardDetailsBlock}>
+                        <View style={styles.serviceListCardGrid}>
+                          <View style={styles.serviceListCardGridRowWithNotes}>
+                            <View style={styles.serviceListCardGridRow}>
+                            <View style={styles.serviceListCardField}>
+                              <Text style={styles.serviceListCardFieldLabel}>Planned arrival</Text>
+                              <Text style={styles.serviceListCardFieldValue} numberOfLines={1}>{order.plannedArrival ?? '—'}</Text>
+                            </View>
+                            <View style={styles.serviceListCardField}>
+                              <Text style={styles.serviceListCardFieldLabel}>Actual arrival</Text>
+                              <Text style={styles.serviceListCardFieldValue} numberOfLines={1}>{order.actualArrival ?? '—'}</Text>
+                            </View>
+                            <View style={styles.serviceListCardField}>
+                              <Text style={styles.serviceListCardFieldLabel}>Planned duration</Text>
+                              <Text style={styles.serviceListCardFieldValue} numberOfLines={1}>
+                                {order.plannedDurationMinutes != null ? `${order.plannedDurationMinutes} min` : '—'}
+                              </Text>
+                            </View>
+                            <View style={styles.serviceListCardField}>
+                              <Text style={styles.serviceListCardFieldLabel}>Actual duration</Text>
+                              <Text style={styles.serviceListCardFieldValue} numberOfLines={1}>
+                                {order.actualDurationMinutes != null ? `${order.actualDurationMinutes} min` : '—'}
+                              </Text>
+                            </View>
+                            <View style={styles.serviceListCardField}>
+                              <Text style={styles.serviceListCardFieldLabel}>Pace</Text>
+                              <Text style={styles.serviceListCardFieldValue} numberOfLines={1}>{order.pace ?? '—'}</Text>
+                            </View>
                           </View>
-                        );
-                      })()}
-                    </View>
-                    <Text style={[styles.dashboardTableCell, styles.dashboardTableColNotes]}>
-                      <Text style={styles.dashboardViewLink}>View</Text>
-                    </Text>
-                  </TouchableOpacity>
-                  {dashboardServiceListExpandedOrderNumber === order.orderNumber && (
-                    <View style={styles.serviceListExpanded}>
-                      {order.generatorStatus && (
-                        <View style={styles.serviceListExpandedRow}>
-                          <Text style={styles.serviceListExpandedLabel}>GENERATOR NOTES:</Text>
-                          <Text style={styles.serviceListExpandedValue}>
-                            {order.generatorStatus}{order.epaId ? '. EPA ID: Yes' : ''}
-                          </Text>
+                            {hasNotes && (
+                              <Text style={styles.serviceListCardNotesLink}>
+                                {isExpanded ? 'Hide notes' : 'View notes'}
+                              </Text>
+                            )}
+                          </View>
                         </View>
-                      )}
-                      {order.siteAccessNotes && (
-                        <View style={styles.serviceListExpandedRow}>
-                          <Text style={styles.serviceListExpandedLabel}>SITE NOTES:</Text>
-                          <Text style={styles.serviceListExpandedValue}>{order.siteAccessNotes}</Text>
-                        </View>
-                      )}
-                      {order.previousServiceNotes && order.previousServiceNotes.length > 0 && (
-                        <View style={styles.serviceListExpandedRow}>
-                          <Text style={styles.serviceListExpandedLabel}>TECHNICIAN NOTES:</Text>
-                          <Text style={styles.serviceListExpandedValue}>
-                            {order.previousServiceNotes.map(n => `${n.note} (${n.technician || n.date})`).join('. ')}
-                          </Text>
-                        </View>
-                      )}
-                      {order.customerSpecialInstructions && (
-                        <View style={styles.serviceListExpandedRow}>
-                          <Text style={styles.serviceListExpandedLabel}>JOB SHEET NOTES:</Text>
-                          <Text style={styles.serviceListExpandedValue}>{order.customerSpecialInstructions}</Text>
-                        </View>
-                      )}
-                    </View>
-                  )}
-                </View>
-              ))}
+                      </View>
+
+                    </TouchableOpacity>
+                    {isExpanded && hasNotes && (
+                      <View style={styles.serviceListExpanded}>
+                        {order.generatorStatus && (
+                          <View style={styles.serviceListExpandedBlock}>
+                            <Text style={styles.serviceListExpandedLabel}>Generator notes</Text>
+                            <Text style={styles.serviceListExpandedValue}>
+                              {order.generatorStatus}{order.epaId ? '. EPA ID: Yes' : ''}
+                            </Text>
+                          </View>
+                        )}
+                        {order.siteAccessNotes && (
+                          <View style={styles.serviceListExpandedBlock}>
+                            <Text style={styles.serviceListExpandedLabel}>Site notes</Text>
+                            <Text style={styles.serviceListExpandedValue}>{order.siteAccessNotes}</Text>
+                          </View>
+                        )}
+                        {order.previousServiceNotes && order.previousServiceNotes.length > 0 && (
+                          <View style={styles.serviceListExpandedBlock}>
+                            <Text style={styles.serviceListExpandedLabel}>Technician notes</Text>
+                            <Text style={styles.serviceListExpandedValue}>
+                              {order.previousServiceNotes.map(n => `${n.note} (${n.technician || n.date})`).join('. ')}
+                            </Text>
+                          </View>
+                        )}
+                        {order.customerSpecialInstructions && (
+                          <View style={styles.serviceListExpandedBlock}>
+                            <Text style={styles.serviceListExpandedLabel}>Job sheet notes</Text>
+                            <Text style={styles.serviceListExpandedValue}>{order.customerSpecialInstructions}</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
             </View>
           </CardContent>
         </Card>
@@ -2130,11 +2254,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           <CardHeader>
             <View style={styles.dashboardCardHeaderRow}>
               <CardTitle style={styles.dashboardCardTitle}>
-                <CardTitleText>Projected Inventory</CardTitleText>
+                <CardTitleText>Inventory check</CardTitleText>
               </CardTitle>
               <View style={[styles.dashboardInventoryActions, styles.dashboardInventoryActionsInHeader]}>
                 <Button
-                  title={inventorySaveStatus === 'saving' ? 'Saving...' : inventorySaveStatus === 'saved' ? 'Saved' : 'Save current counts'}
+                  title={inventorySaveStatus === 'saving' ? 'Saving...' : inventorySaveStatus === 'saved' ? 'Saved' : 'Save Truck Inventory'}
                   onPress={saveInventorySummary}
                   variant="primary"
                   size="sm"
@@ -2142,7 +2266,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   loading={inventorySaveStatus === 'saving'}
                 />
                 {inventorySaveStatus === 'saved' && (
-                  <Text style={styles.dashboardInventorySavedText}>Saved. Counts will be restored next time.</Text>
+                  <Text style={styles.dashboardInventorySavedText}>Saved.</Text>
                 )}
               </View>
             </View>
@@ -2152,7 +2276,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             <ScrollView horizontal showsHorizontalScrollIndicator={true} contentContainerStyle={styles.dashboardTableScrollContent}>
               <View style={[styles.dashboardTable, styles.dashboardTableInHorizontalScroll]}>
                 <View style={styles.dashboardTableHeaderRow}>
-                  <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCustomer]}>Customer</Text>
+                  <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCustomer]}>&nbsp;</Text>
                   {DASHBOARD_INVENTORY_COLUMNS.map(col => (
                     <Text
                       key={col}
@@ -2168,59 +2292,64 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 </View>
                 <View style={[styles.dashboardTableRow, styles.dashboardInventoryEditableRow]}>
                   <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>
-                    CURRENT
+                    On truck
                   </Text>
-                  {DASHBOARD_INVENTORY_COLUMNS.map(col => {
-                    const isOtherColumn = col === 'Other';
-                    const value = isOtherColumn
-                      ? dashboardInventoryOtherText
-                      : String(dashboardInventorySummary[col] ?? 0);
-                    return (
-                      <View
-                        key={col}
-                        style={[
-                          styles.dashboardTableCell,
-                          styles.dashboardTableInventoryCell,
-                          col === 'Other' && styles.dashboardTableOtherInventoryCell,
-                          styles.dashboardInventoryCurrentCell,
-                        ]}>
-                        <TextInput
-                          style={[
-                            styles.dashboardInventoryInput,
-                            isOtherColumn && styles.dashboardInventoryOtherInput,
-                          ]}
-                          value={value}
-                          onChangeText={(text) => {
-                            if (isOtherColumn) {
-                              setDashboardInventoryOtherText(text);
-                              return;
-                            }
-                            if (text === '') {
-                              setDashboardInventorySummary(prev => ({...prev, [col]: 0}));
-                              return;
-                            }
-                            const n = parseInt(text, 10);
-                            if (!Number.isNaN(n) && n >= 0) {
-                              setDashboardInventorySummary(prev => ({...prev, [col]: n}));
-                            }
-                          }}
-                          onBlur={(e) => {
-                            if (isOtherColumn) return;
-                            const v = e.nativeEvent.text;
-                            if (v === '' || Number.isNaN(parseInt(v, 10))) {
-                              setDashboardInventorySummary(prev => ({...prev, [col]: 0}));
-                            }
-                          }}
-                          keyboardType={isOtherColumn ? 'default' : 'number-pad'}
-                          placeholder={isOtherColumn ? 'Custom text' : '0'}
-                          placeholderTextColor={colors.mutedForeground}
-                          accessibilityLabel={`${col} current quantity`}
-                        />
-                      </View>
-                    );
-                  })}
+                  {DASHBOARD_INVENTORY_COLUMNS.map(col => (
+                    <InventoryOnTruckCell
+                      key={col}
+                      columnKey={col}
+                      committedValue={dashboardInventorySummary[col] ?? 0}
+                      saveGeneration={inventorySaveGeneration}
+                      onDraftChange={(key, value) => {
+                        inventoryDraftRef.current[key] = value;
+                      }}
+                      cellStyle={[
+                        styles.dashboardTableCell,
+                        styles.dashboardTableInventoryCell,
+                        styles.dashboardInventoryCurrentCell,
+                      ]}
+                      inputStyle={styles.dashboardInventoryInput}
+                      otherCellStyle={styles.dashboardTableOtherInventoryCell}
+                      placeholderTextColor={colors.mutedForeground}
+                    />
+                  ))}
                 </View>
-              {activeOrders.slice(0, 5).map(order => (
+              <View style={[styles.dashboardTableRow, styles.dashboardTableTotalRow]}>
+                <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>Needed for route</Text>
+                {DASHBOARD_INVENTORY_COLUMNS.map(col => (
+                  <Text
+                    key={col}
+                    style={[
+                      styles.dashboardTableCell,
+                      styles.dashboardTableInventoryCell,
+                      col === 'Other' && styles.dashboardTableOtherInventoryCell,
+                    ]}>
+                    {String(projectedTotals[col] ?? 0)}
+                  </Text>
+                ))}
+              </View>
+              <View style={[styles.dashboardTableRow, styles.dashboardTableRemainingRow]}>
+                <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>After route</Text>
+                {DASHBOARD_INVENTORY_COLUMNS.map(col => {
+                  const onTruck = dashboardInventorySummary[col] ?? 0; // committed (saved) counts only; draft updates after Save
+                  const needed = projectedTotals[col] ?? 0;
+                  const afterRoute = onTruck - needed;
+                  return (
+                    <Text
+                      key={col}
+                      style={[
+                        styles.dashboardTableCell,
+                        styles.dashboardTableInventoryCell,
+                        col === 'Other' && styles.dashboardTableOtherInventoryCell,
+                        afterRoute < 0 && styles.dashboardTableRemainingNegative,
+                        afterRoute > 0 && styles.dashboardTableRemainingPositive,
+                      ]}>
+                      {afterRoute < 0 ? `Short ${Math.abs(afterRoute)}` : afterRoute}
+                    </Text>
+                  );
+                })}
+              </View>
+              {activeOrders.map(order => (
                 <View key={order.orderNumber} style={styles.dashboardTableRow}>
                   <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer]} numberOfLines={1}>{order.customer}</Text>
                   {DASHBOARD_INVENTORY_COLUMNS.map(col => (
@@ -2231,58 +2360,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         styles.dashboardTableInventoryCell,
                         col === 'Other' && styles.dashboardTableOtherInventoryCell,
                       ]}>
-                      {col === 'Other' ? '—' : String(projectedByOrder[order.orderNumber]?.[col] ?? 0)}
+                      {String(projectedByOrder[order.orderNumber]?.[col] ?? 0)}
                     </Text>
                   ))}
                 </View>
               ))}
-              <View style={[styles.dashboardTableRow, styles.dashboardTableTotalRow]}>
-                <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>TOTAL PROJECTED</Text>
-                {DASHBOARD_INVENTORY_COLUMNS.map(col => (
-                  <Text
-                    key={col}
-                    style={[
-                      styles.dashboardTableCell,
-                      styles.dashboardTableInventoryCell,
-                      col === 'Other' && styles.dashboardTableOtherInventoryCell,
-                    ]}>
-                    {col === 'Other' ? '—' : String(projectedTotals[col] ?? 0)}
-                  </Text>
-                ))}
-              </View>
-                  <View style={[styles.dashboardTableRow, styles.dashboardTableRemainingRow]}>
-                    <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>REMAINING</Text>
-                    {DASHBOARD_INVENTORY_COLUMNS.map(col => {
-                      if (col === 'Other') {
-                        return (
-                          <Text
-                            key={col}
-                            style={[
-                              styles.dashboardTableCell,
-                              styles.dashboardTableInventoryCell,
-                              styles.dashboardTableOtherInventoryCell,
-                            ]}>
-                            —
-                          </Text>
-                        );
-                      }
-                      const current = dashboardInventorySummary[col] ?? 0;
-                      const projected = projectedTotals[col] ?? 0;
-                      const remaining = current - projected;
-                      return (
-                        <Text
-                          key={col}
-                          style={[
-                            styles.dashboardTableCell,
-                            styles.dashboardTableInventoryCell,
-                            remaining < 0 && styles.dashboardTableRemainingNegative,
-                            remaining > 0 && styles.dashboardTableRemainingPositive,
-                          ]}>
-                          {remaining}
-                        </Text>
-                      );
-                    })}
-                  </View>
                 </View>
             </ScrollView>
           </CardContent>
@@ -2361,6 +2443,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       );
     };
 
+    const dashboardDate = useMemo(() => {
+      const d = new Date();
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }, []);
+
     return (
       <View style={styles.container}>
         <View style={styles.header}>
@@ -2369,37 +2456,63 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               style={styles.headerContent}
               onPress={() => onNavigate?.('Settings')}
               activeOpacity={0.7}>
-              <Text style={styles.headerTitle}>
+              <Text style={styles.dashboardWelcomeTitle}>
                 {username ? `Welcome, ${username}` : 'Welcome'}
               </Text>
-              {selectedTruck ? (
-                <View>
-                  <Text style={styles.headerSubtitle}>
-                    Truck: {selectedTruck.number}
+              <View style={styles.dashboardHeaderBar}>
+                <View style={styles.dashboardHeaderItem}>
+                  <Text style={styles.dashboardHeaderItemLabel}>Truck</Text>
+                  <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
+                    {selectedTruck ? selectedTruck.number : truckId || '—'}
                   </Text>
-                  {selectedTrailer && (
-                    <Text style={styles.headerSubtitle}>
-                      Trailer: {selectedTrailer.number}
+                </View>
+                <View style={styles.dashboardHeaderDivider} />
+                <View style={styles.dashboardHeaderItem}>
+                  <Text style={styles.dashboardHeaderItemLabel}>Trailer</Text>
+                  <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
+                    {selectedTrailer ? selectedTrailer.number : '—'}
+                  </Text>
+                </View>
+                <View style={styles.dashboardHeaderDivider} />
+                <View style={styles.dashboardHeaderItem}>
+                  <Text style={styles.dashboardHeaderItemLabel}>Date</Text>
+                  <Text style={styles.dashboardHeaderItemValue}>{dashboardDate}</Text>
+                </View>
+                <View style={styles.dashboardHeaderDivider} />
+                <View style={styles.dashboardHeaderItem}>
+                  <Text style={styles.dashboardHeaderItemLabel}>Route</Text>
+                  <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
+                    {dashboardRouteId || '—'}
+                  </Text>
+                </View>
+                <View style={styles.dashboardHeaderDivider} />
+                <View style={[styles.dashboardHeaderItem, styles.dashboardHeaderItemStatus]}>
+                  <Text style={styles.dashboardHeaderItemLabel}>Status</Text>
+                  <View style={[styles.dashboardHeaderStatusBadge, dashboardDutyStatus === 'On duty' && styles.dashboardHeaderStatusBadgeActive]}>
+                    <Text style={[styles.dashboardHeaderStatusText, dashboardDutyStatus === 'On duty' && styles.dashboardHeaderStatusTextActive]} numberOfLines={1}>
+                      {dashboardDutyStatus}
                     </Text>
+                  </View>
+                </View>
+                <View style={styles.dashboardHeaderDivider} />
+                <View>
+                  {serviceCenter && (
+                    <View style={styles.dashboardHeaderServiceCenterWrap}>
+                      <TouchableOpacity
+                        style={styles.serviceCenterBadge}
+                        onPress={() => setShowServiceCenterModal(true)}
+                        activeOpacity={0.7}>
+                        <Icon name="business" size={16} color={colors.primary} />
+                        <Text style={styles.serviceCenterText} numberOfLines={1}>
+                          {serviceCenterService.getDisplayFormat(false)}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   )}
                 </View>
-              ) : truckId ? (
-                <Text style={styles.headerSubtitle}>Truck: {truckId}</Text>
-              ) : (
-                <Text style={styles.headerSubtitle}>Set Vehicle</Text>
-              )}
+              </View>
             </TouchableOpacity>
-                        {serviceCenter && (
-              <TouchableOpacity
-                style={styles.serviceCenterBadge}
-                onPress={() => setShowServiceCenterModal(true)}
-                activeOpacity={0.7}>
-                <Icon name="business" size={16} color={colors.primary} />
-                <Text style={styles.serviceCenterText}>
-                  {serviceCenterService.getDisplayFormat(false)}
-                </Text>
-              </TouchableOpacity>
-            )}
+            
             {getOfflineLimitMessage()}
           </View>
           <View style={styles.headerActions}>
@@ -2648,7 +2761,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 contentContainerStyle={styles.detailPaneContent}
                 keyboardShouldPersistTaps="handled">
                 <View style={styles.detailPaneHeader}>
-                  <Text style={styles.detailPaneTitle}>
+                  <Text style={styles.detailPaneTitle} numberOfLines={1}>
                     {selectedOrder.orderNumber}
                   </Text>
                   <Badge
@@ -3275,6 +3388,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     // Split orders into active and completed
     const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
     const completedOrdersList = allOrders.filter(order => isOrderCompleted(order.orderNumber));
+    const dashboardDate = useMemo(() => {
+      const d = new Date();
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }, []);
     const hasDashboardNotes = dashboardSelectedOrder
       ? hasOrderNotes(dashboardSelectedOrder)
       : false;
@@ -3334,7 +3451,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       <View style={styles.container}>
         <View style={styles.headerCompact}>
           <View style={styles.headerCompactLeft}>
-            <TouchableOpacity
+            {/* <TouchableOpacity
               style={styles.headerCompactDashboard}
               onPress={() => setDashboardViewTab('dashboard')}
               activeOpacity={0.7}
@@ -3346,30 +3463,35 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             </TouchableOpacity>
             <Text style={styles.headerCompactTitle} numberOfLines={1}>
               Upcoming Orders
-            </Text>
-            {serviceCenter && (
-              <TouchableOpacity
-                style={styles.headerCompactServiceCenter}
-                onPress={() => setShowServiceCenterModal(true)}
-                activeOpacity={0.7}
-                hitSlop={8}>
-                <Icon name="business" size={16} color={colors.primary} />
-              </TouchableOpacity>
-            )}
+            </Text> */}
+
             <TouchableOpacity
               style={styles.headerCompactUser}
               onPress={() => onNavigate?.('Settings')}
               activeOpacity={0.7}
               hitSlop={8}>
-              <Text style={styles.headerCompactUserText} numberOfLines={1}>
-                {username || 'User'}
-                {' · '}
-                {selectedTruck
-                  ? selectedTrailer
-                    ? `${selectedTruck.number} / ${selectedTrailer.number}`
-                    : selectedTruck.number
-                  : 'Set Vehicle'}
-              </Text>
+              <View style={styles.dashboardHeaderCompactMeta}>
+                <View style={styles.dashboardHeaderCompactRow}>
+                  <Text style={styles.dashboardHeaderCompactName} numberOfLines={1}>
+                    {username || 'User'}
+                  </Text>
+                  <View style={[styles.dashboardHeaderCompactStatusBadge, dashboardDutyStatus === 'On duty' && styles.dashboardHeaderStatusBadgeActive]}>
+                    <Text style={[styles.dashboardHeaderCompactStatusText, dashboardDutyStatus === 'On duty' && styles.dashboardHeaderStatusTextActive]} numberOfLines={1}>
+                      {dashboardDutyStatus}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.dashboardHeaderCompactDetail} numberOfLines={2}>
+                  {selectedTruck ? selectedTruck.number : truckId || '—'}
+                  {'  ·  '}
+                  {selectedTrailer ? selectedTrailer.number : '—'}
+                  {'  ·  '}
+                  {dashboardDate}
+                  {dashboardRouteId ? `  ·  ${dashboardRouteId}` : ''}
+                  {serviceCenter && `  ·  ${serviceCenterService.getDisplayFormat(false)}`}
+                </Text>
+
+              </View>
             </TouchableOpacity>
             {getOfflineLimitMessage()}
           </View>
@@ -3549,7 +3671,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     <Icon name="arrow-back" size={20} color={colors.foreground} />
                     <Text style={styles.backButtonText}>Back to Orders</Text>
                   </TouchableOpacity>
-                  <Text style={styles.detailPaneTitle}>
+                  <Text style={styles.detailPaneTitle} numberOfLines={1}>
                     {dashboardSelectedOrder.orderNumber}
                   </Text>
                   <Badge
@@ -10628,17 +10750,89 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'flex-end',
+    flexWrap: 'wrap',
     gap: spacing.md,
     flex: 1,
+    minWidth: 0,
+    maxWidth: '100%',
   },
   headerContent: {
-
+    flex: 1,
+    minWidth: 0,
+    maxWidth: '100%',
+  },
+  dashboardWelcomeTitle: {
+    ...typography.xl,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.sm,
+  },
+  dashboardHeaderBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    backgroundColor: colors.muted,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+    gap: 0,
+    alignSelf: 'baseline',
+    maxWidth: '100%',
+  },
+  dashboardHeaderItem: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  dashboardHeaderItemLabel: {
+    ...typography.xs,
+    color: colors.mutedForeground,
+  },
+  dashboardHeaderItemValue: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.foreground,
+    maxWidth: 100,
+  },
+  dashboardHeaderDivider: {
+    width: 1,
+    height: 16,
+    backgroundColor: colors.border,
+  },
+  dashboardHeaderItemStatus: {
+    paddingLeft: spacing.sm,
+  },
+  dashboardHeaderStatusBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.secondary,
+  },
+  dashboardHeaderStatusBadgeActive: {
+    backgroundColor: colors.primary + '22',
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  dashboardHeaderStatusText: {
+    ...typography.xs,
+    fontWeight: '600',
+    color: colors.mutedForeground,
+  },
+  dashboardHeaderStatusTextActive: {
+    color: colors.primary,
+  },
+  dashboardHeaderServiceCenterWrap: {
+    marginLeft: spacing.md,
+    flexShrink: 0,
   },
   serviceCenterBadge: {
     flexDirection: 'row',
@@ -10722,11 +10916,14 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: spacing.md,
+    flexShrink: 0,
   },
   // Full-screen compact header (progressive disclosure)
   headerCompact: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
@@ -10735,11 +10932,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.card,
+    gap: spacing.sm,
   },
   headerCompactLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    flexWrap: 'wrap',
     gap: spacing.sm,
     minWidth: 0,
   },
@@ -10766,16 +10965,51 @@ const styles = StyleSheet.create({
   },
   headerCompactUser: {
     flex: 1,
-    minWidth: 0,
+    minWidth: 120,
+    maxWidth: '100%',
   },
   headerCompactUserText: {
     ...typography.sm,
     color: colors.mutedForeground,
   },
+  dashboardHeaderCompactMeta: {
+    flexDirection: 'column',
+    minWidth: 0,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  dashboardHeaderCompactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  dashboardHeaderCompactName: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  dashboardHeaderCompactStatusBadge: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.secondary,
+  },
+  dashboardHeaderCompactStatusText: {
+    ...typography.xs,
+    fontWeight: '600',
+    color: colors.mutedForeground,
+  },
+  dashboardHeaderCompactDetail: {
+    ...typography.xs,
+    color: colors.mutedForeground,
+    marginTop: spacing.xs / 2,
+    lineHeight: 20,
+  },
   headerCompactActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    flexShrink: 0,
   },
   headerMoreButton: {
     padding: spacing.xs,
@@ -11058,6 +11292,31 @@ const styles = StyleSheet.create({
     minWidth: 180,
     flexShrink: 0,
   },
+  dashboardTableColPlannedArrival: {
+    width: 110,
+    minWidth: 110,
+    flexShrink: 0,
+  },
+  dashboardTableColActualArrival: {
+    width: 110,
+    minWidth: 110,
+    flexShrink: 0,
+  },
+  dashboardTableColPlannedDuration: {
+    width: 120,
+    minWidth: 120,
+    flexShrink: 0,
+  },
+  dashboardTableColActualDuration: {
+    width: 120,
+    minWidth: 120,
+    flexShrink: 0,
+  },
+  dashboardTableColPace: {
+    width: 80,
+    minWidth: 80,
+    flexShrink: 0,
+  },
   dashboardBusinessTypeBadge: {
     alignSelf: 'flex-start',
     paddingVertical: spacing.xs,
@@ -11190,24 +11449,124 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '600',
   },
-  serviceListExpanded: {
-    backgroundColor: colors.muted,
-    padding: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+  serviceListCardList: {
+    gap: spacing.md,
   },
-  serviceListExpandedRow: {
+  serviceListCardWrapper: {
+    marginBottom: 0,
+  },
+  serviceListCard: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    overflow: 'hidden',
+  },
+  serviceListCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  serviceListCardNum: {
+    ...typography.sm,
+    fontWeight: '700',
+    color: colors.mutedForeground,
+    minWidth: 28,
+    textAlign: 'center',
+  },
+  serviceListCardCustomer: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+    flex: 1,
+    minWidth: 0,
+  },
+  serviceListCardLocation: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginBottom: spacing.md,
+    paddingLeft: 36,
+  },
+  serviceListCardDetailsBlock: {
+    backgroundColor: colors.muted + '40',
+    padding: spacing.md,
     marginBottom: spacing.sm,
+  },
+  serviceListCardDetailsBlockNotesOpen: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  serviceListCardGrid: {
+    gap: spacing.sm,
+  },
+  serviceListCardGridRowWithNotes: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+  },
+  serviceListCardGridRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.lg,
+    flex: 1,
+    minWidth: 0,
+  },
+  serviceListCardField: {
+    minWidth: 88,
+  },
+  serviceListCardFieldLabel: {
+    ...typography.xs,
+    color: colors.mutedForeground,
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  serviceListCardFieldValue: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  serviceListCardNotesLink: {
+    ...typography.sm,
+    color: colors.primary,
+    fontWeight: '600',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  serviceListExpanded: {
+    backgroundColor: colors.muted + '60',
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderTopWidth: 1,
+    borderBottomLeftRadius: borderRadius.lg,
+    borderBottomRightRadius: borderRadius.lg,
+    gap: spacing.sm,
+  },
+  serviceListExpandedBlock: {
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    paddingHorizontal: spacing.md,
   },
   serviceListExpandedLabel: {
     ...typography.xs,
     fontWeight: '700',
     color: colors.mutedForeground,
     marginBottom: spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   serviceListExpandedValue: {
     ...typography.base,
     color: colors.foreground,
+    lineHeight: 22,
   },
   dashboardTableTotalRow: {
     backgroundColor: colors.secondary,
@@ -13352,19 +13711,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     display: 'flex',
     flexDirection: 'column',
+    minWidth: 0,
   },
   detailPaneScroll: {
     flex: 1,
   },
   detailPaneContent: {
-    padding: spacing.lg,
+    padding: spacing.xl,
+    paddingBottom: spacing.xxl,
   },
   detailPaneHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.lg,
-    paddingBottom: spacing.md,
+    gap: spacing.md,
+    marginBottom: spacing.xl,
+    paddingBottom: spacing.lg,
     borderBottomWidth: 2,
     borderBottomColor: colors.border,
   },
@@ -13372,12 +13734,15 @@ const styles = StyleSheet.create({
     ...typography['2xl'],
     fontWeight: '600',
     color: colors.foreground,
+    flex: 1,
+    minWidth: 0,
   },
   contactCard: {
-    marginBottom: spacing.lg,
-    backgroundColor: colors.primary + '08', // Light tint to make it prominent
+    marginBottom: spacing.xl,
+    backgroundColor: colors.primary + '08',
     borderWidth: 2,
     borderColor: colors.primary + '30',
+    borderRadius: borderRadius.lg,
   },
   contactRow: {
     flexDirection: 'row',
@@ -13434,7 +13799,8 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
   },
   detailCard: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.xl,
+    borderRadius: borderRadius.lg,
   },
   detailNotesSection: {
     marginBottom: spacing.lg,
@@ -13501,7 +13867,7 @@ const styles = StyleSheet.create({
     flexWrap: 'nowrap',
     gap: spacing.md,
     marginTop: spacing.md,
-    alignSelf: 'stretch',
+    alignSelf: 'baseline',
   },
   detailActionsRowButton: {
     flex: 1,
