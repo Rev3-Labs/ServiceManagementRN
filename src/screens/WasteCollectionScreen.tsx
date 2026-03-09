@@ -4940,6 +4940,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const isCurrentOrderCompleted = selectedOrderData
       ? isOrderCompleted(selectedOrderData.orderNumber)
       : false;
+    const manifestGenerated = selectedOrderData
+      ? hasManifestForOrder(selectedOrderData.orderNumber)
+      : false;
+    const canEditContainers = !manifestGenerated && !isCurrentOrderCompleted;
     // Only show containers for the current service type on this screen (not all orders/service types)
     const containersForCurrentServiceType = useMemo(
       () =>
@@ -5115,7 +5119,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           <View style={styles.containerSummaryInfoCard} />
                         )}
                       </View>
-                      {!isCurrentOrderCompleted && (
+                      {canEditContainers && (
                         <TouchableOpacity
                           style={styles.deleteButton}
                           onPress={() => handleDeleteContainer(container.id, index)}
@@ -5143,9 +5147,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             title="+ Add Container"
             variant="outline"
             size="md"
-            disabled={isCurrentOrderCompleted}
+            disabled={isCurrentOrderCompleted || manifestGenerated}
             onPress={() => {
-              if (!isCurrentOrderCompleted) {
+              if (canEditContainers) {
                 setCurrentStep('stream-selection');
               }
             }}
@@ -5236,6 +5240,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   // Order-level containers review: all service types and their containers; add/delete before manifest
   const OrderContainersReviewScreen = () => {
     const [deleteConfirm, setDeleteConfirm] = useState<{ id: string } | null>(null);
+    const manifestGenerated = selectedOrderData
+      ? hasManifestForOrder(selectedOrderData.orderNumber)
+      : false;
 
     const containersByServiceType = useMemo(() => {
       const map = new Map<string, typeof activeContainers>();
@@ -5280,7 +5287,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         />
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           <Text style={styles.summaryText}>
-            Review and edit containers by service type before creating the manifest. You can add or delete containers for any service type.
+            {manifestGenerated
+              ? 'A manifest has been generated for this order. Containers cannot be added or deleted.'
+              : 'Review and edit containers by service type before creating the manifest. You can add or delete containers for any service type.'}
           </Text>
           {selectedOrderData.programs.map(stId => {
             const list = containersByServiceType.get(stId) ?? [];
@@ -5324,16 +5333,18 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           </Text>
                         </View>
                       </View>
+                      {!manifestGenerated && (
                       <TouchableOpacity
                         style={styles.deleteButton}
                         onPress={() => setDeleteConfirm({ id: c.id })}
                         activeOpacity={0.7}>
                         <Text style={styles.deleteButtonText}>Delete</Text>
                       </TouchableOpacity>
+                    )}
                     </Card>
                   ))
                 )}
-                {!isServiceTypeNoShip(selectedOrderData.orderNumber, stId) && (
+                {!manifestGenerated && !isServiceTypeNoShip(selectedOrderData.orderNumber, stId) && (
                   <Button
                     title={`Add container to ${serviceTypeService.formatForBadge(stId)}${srNumber ? ` (${srNumber})` : ''}`}
                     variant="outline"
@@ -5361,9 +5372,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       <Text style={styles.containerSummaryNetWeightValue}>{c.netWeight} lbs</Text>
                     </View>
                   </View>
-                  <TouchableOpacity style={styles.deleteButton} onPress={() => setDeleteConfirm({ id: c.id })} activeOpacity={0.7}>
-                    <Text style={styles.deleteButtonText}>Delete</Text>
-                  </TouchableOpacity>
+                  {!manifestGenerated && (
+                    <TouchableOpacity style={styles.deleteButton} onPress={() => setDeleteConfirm({ id: c.id })} activeOpacity={0.7}>
+                      <Text style={styles.deleteButtonText}>Delete</Text>
+                    </TouchableOpacity>
+                  )}
                 </Card>
               ))}
             </View>
