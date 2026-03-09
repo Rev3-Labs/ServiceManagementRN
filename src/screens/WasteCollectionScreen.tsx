@@ -414,6 +414,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [showDropWasteModal, setShowDropWasteModal] = useState(false);
   const [showDocumentOptionsMenu, setShowDocumentOptionsMenu] = useState(false);
   const [showCaptureMethodSelector, setShowCaptureMethodSelector] = useState(false);
+  /** When true, Capture Method modal shows only "Capture Now" (from Manifest Shipment "Scan manifest" only). */
+  const [captureFromManifestScanView, setCaptureFromManifestScanView] = useState(false);
   const [equipmentPPE, setEquipmentPPE] = useState<
     Array<{
       id: string;
@@ -5510,6 +5512,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       disabled={isCurrentOrderCompleted}
                       onPress={() => {
                         setPendingDocumentType('manifest');
+                        setCaptureFromManifestScanView(true);
                         setShowCaptureMethodSelector(true);
                       }}
                       style={styles.manifestActionButton}
@@ -7550,6 +7553,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     // Handle the actual capture based on method
     const handleCaptureWithMethod = async (method: 'camera' | 'gallery') => {
       setShowCaptureMethodSelector(false);
+      setCaptureFromManifestScanView(false);
       const documentType = pendingDocumentType;
       if (!documentType) return;
       
@@ -8096,68 +8100,101 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           </View>
         </Modal>
 
-        {/* Capture Method Selector - Camera or Gallery */}
+        {/* Capture Method Selector - Camera or Gallery (or "Capture Now" only when from Manifest Shipment Scan manifest) */}
         <Modal
           visible={showCaptureMethodSelector}
           transparent
           animationType="slide"
-          onRequestClose={() => setShowCaptureMethodSelector(false)}>
+          onRequestClose={() => {
+            setShowCaptureMethodSelector(false);
+            setCaptureFromManifestScanView(false);
+          }}>
           <View style={styles.bottomSheetOverlay}>
             <TouchableOpacity
               style={{flex: 1}}
               activeOpacity={1}
-              onPress={() => setShowCaptureMethodSelector(false)}
+              onPress={() => {
+                setShowCaptureMethodSelector(false);
+                setCaptureFromManifestScanView(false);
+              }}
             />
             <View style={styles.bottomSheetContent}>
               <View style={styles.bottomSheetHandle} />
               
               <View style={styles.bottomSheetHeader}>
-                <Text style={styles.bottomSheetTitle}>Capture Method</Text>
+                <Text style={styles.bottomSheetTitle}>
+                  {captureFromManifestScanView ? 'Scan manifest' : 'Capture Method'}
+                </Text>
                 <Text style={styles.bottomSheetSubtitle}>
-                  Choose how to capture the document
+                  {captureFromManifestScanView
+                    ? 'Capture the manifest document now'
+                    : 'Choose how to capture the document'}
                 </Text>
               </View>
               
               <ScrollView 
                 contentContainerStyle={styles.bottomSheetBodyContent}
                 showsVerticalScrollIndicator={true}>
-                <TouchableOpacity
-                  style={styles.bottomSheetOptionButton}
-                  onPress={() => handleCaptureWithMethod('camera')}
-                  activeOpacity={0.7}>
-                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
-                    <Icon name="camera-alt" size={24} color={colors.foreground} />
-                  </View>
-                  <View style={styles.bottomSheetOptionInfo}>
-                    <Text style={styles.bottomSheetOptionLabel}>Take Photo</Text>
-                    <Text style={styles.bottomSheetOptionDesc}>
-                      Use camera to capture the document
-                    </Text>
-                  </View>
-                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
-                </TouchableOpacity>
+                {captureFromManifestScanView ? (
+                  <TouchableOpacity
+                    style={styles.bottomSheetOptionButton}
+                    onPress={() => handleCaptureWithMethod('camera')}
+                    activeOpacity={0.7}>
+                    <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
+                      <Icon name="camera-alt" size={24} color={colors.foreground} />
+                    </View>
+                    <View style={styles.bottomSheetOptionInfo}>
+                      <Text style={styles.bottomSheetOptionLabel}>Capture Now</Text>
+                      <Text style={styles.bottomSheetOptionDesc}>
+                        Use camera to capture the manifest
+                      </Text>
+                    </View>
+                    <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
+                  </TouchableOpacity>
+                ) : (
+                  <>
+                    <TouchableOpacity
+                      style={styles.bottomSheetOptionButton}
+                      onPress={() => handleCaptureWithMethod('camera')}
+                      activeOpacity={0.7}>
+                      <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
+                        <Icon name="camera-alt" size={24} color={colors.foreground} />
+                      </View>
+                      <View style={styles.bottomSheetOptionInfo}>
+                        <Text style={styles.bottomSheetOptionLabel}>Take Photo</Text>
+                        <Text style={styles.bottomSheetOptionDesc}>
+                          Use camera to capture the document
+                        </Text>
+                      </View>
+                      <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
+                    </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.bottomSheetOptionButton}
-                  onPress={() => handleCaptureWithMethod('gallery')}
-                  activeOpacity={0.7}>
-                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEF3C7'}]}>
-                    <Icon name="folder" size={24} color={colors.foreground} />
-                  </View>
-                  <View style={styles.bottomSheetOptionInfo}>
-                    <Text style={styles.bottomSheetOptionLabel}>Choose from Files</Text>
-                    <Text style={styles.bottomSheetOptionDesc}>
-                      Select an existing image file
-                    </Text>
-                  </View>
-                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
-                </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.bottomSheetOptionButton}
+                      onPress={() => handleCaptureWithMethod('gallery')}
+                      activeOpacity={0.7}>
+                      <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEF3C7'}]}>
+                        <Icon name="folder" size={24} color={colors.foreground} />
+                      </View>
+                      <View style={styles.bottomSheetOptionInfo}>
+                        <Text style={styles.bottomSheetOptionLabel}>Choose from Files</Text>
+                        <Text style={styles.bottomSheetOptionDesc}>
+                          Select an existing image file
+                        </Text>
+                      </View>
+                      <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                  </>
+                )}
               </ScrollView>
 
               <View style={styles.bottomSheetFooter}>
                 <TouchableOpacity
                   style={styles.bottomSheetCancelButton}
-                  onPress={() => setShowCaptureMethodSelector(false)}>
+                  onPress={() => {
+                    setShowCaptureMethodSelector(false);
+                    setCaptureFromManifestScanView(false);
+                  }}>
                   <Text style={styles.bottomSheetCancelText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
