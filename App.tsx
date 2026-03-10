@@ -73,6 +73,7 @@ function App(): React.JSX.Element {
             username={username}
             onNavigate={navigate}
             onGoBack={goBack}
+            isPostLogin={navigationState.previousScreens.slice(-1)[0] === 'Login'}
           />
         );
       case 'MaterialsSupplies':

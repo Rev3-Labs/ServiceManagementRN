@@ -227,8 +227,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   onLogout,
   onNavigate,
   onGoBack,
+  isPostLogin = false,
 }) => {
   const [currentStep, setCurrentStep] = useState<FlowStep>('dashboard');
+  const [showPostLoginSyncOverlay, setShowPostLoginSyncOverlay] = useState(false);
+  const postLoginOverlayShownAtRef = useRef<number | null>(null);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [checklistAnswers, setChecklistAnswers] = useState<ChecklistAnswer[] | null>(null);
   const [selectedOrderData, setSelectedOrderData] = useState<OrderData | null>(
@@ -967,11 +970,37 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     };
   }, []);
 
-  // Handle manual sync
+  // Post-login sync overlay: show when landing after login, dismiss when sync completes (with minimum display time)
+  useEffect(() => {
+    if (isPostLogin && !showPostLoginSyncOverlay && postLoginOverlayShownAtRef.current === null) {
+      setShowPostLoginSyncOverlay(true);
+      postLoginOverlayShownAtRef.current = Date.now();
+    }
+  }, [isPostLogin, showPostLoginSyncOverlay]);
+
+  useEffect(() => {
+    if (!showPostLoginSyncOverlay || postLoginOverlayShownAtRef.current === null) return;
+    const syncDone = syncStatus === 'synced' || syncStatus === 'pending';
+    const syncFailedOrOffline = syncStatus === 'error' || !offlineStatus.isOnline;
+    const shouldDismiss = syncDone || syncFailedOrOffline;
+    if (!shouldDismiss) return;
+    const elapsed = Date.now() - postLoginOverlayShownAtRef.current;
+    const minDisplayMs = syncFailedOrOffline ? 5000 : 2000;
+    if (elapsed >= minDisplayMs) {
+      setShowPostLoginSyncOverlay(false);
+    } else {
+      const timer = setTimeout(() => setShowPostLoginSyncOverlay(false), minDisplayMs - elapsed);
+      return () => clearTimeout(timer);
+    }
+  }, [showPostLoginSyncOverlay, syncStatus, offlineStatus.isOnline]);
+
+  // Handle manual sync (from header Sync button); show overlay, close after 10s (real sync runs in background)
   const handleManualSync = useCallback(async () => {
+    setShowPostLoginSyncOverlay(true);
+    postLoginOverlayShownAtRef.current = Date.now();
+    setTimeout(() => setShowPostLoginSyncOverlay(false), 10 * 1000);
     try {
       await syncService.manualSync();
-      Alert.alert('Success', 'Data synced successfully');
     } catch (error: any) {
       Alert.alert(
         'Sync Failed',
@@ -8589,10 +8618,51 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     setCurrentStep(issue.screen);
   }, []);
 
+  const handleContactSupport = useCallback(() => {
+    const url = 'mailto:support@cleanearth.com?subject=Route%20sync%20taking%20longer%20than%2030%20minutes';
+    Linking.canOpenURL(url).then(can => can && Linking.openURL(url)).catch(() => {});
+  }, []);
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      {renderScreen()}
-      <QuickActionsBar />
+      {isPostLogin && showPostLoginSyncOverlay ? (
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.background }]} />
+      ) : (
+        <>
+          {renderScreen()}
+          <QuickActionsBar />
+        </>
+      )}
+
+      {/* Post-login sync overlay: calm, full-screen until sync completes; not dismissible by tapping outside or back */}
+      <Modal
+        visible={showPostLoginSyncOverlay}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {}}>
+        <Pressable style={styles.postLoginSyncOverlay} onPress={() => {}}>
+          <View style={styles.postLoginSyncCard}>
+            <ActivityIndicator size="large" color={colors.primary} style={styles.postLoginSyncSpinner} />
+            <Text style={styles.postLoginSyncTitle}>Syncing your route data</Text>
+            <Text style={styles.postLoginSyncSubtitle}>
+              This may take a few minutes. Your route and orders will appear when sync is complete.
+            </Text>
+            <View style={styles.postLoginSyncSupportRow}>
+              <Text style={styles.postLoginSyncSupportLabel}>
+                If it takes longer than 30 minutes,
+              </Text>
+              <TouchableOpacity
+                onPress={handleContactSupport}
+                activeOpacity={0.7}
+                accessibilityRole="link"
+                accessibilityLabel="Contact support">
+                <Text style={styles.postLoginSyncSupportLink}>contact support</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
 
       {/* Void Manifest – confirm */}
       <Modal
@@ -10759,6 +10829,60 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     // @ts-ignore - web-specific style
     position: 'relative',
+  },
+  postLoginSyncOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  postLoginSyncCard: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.xxl,
+    maxWidth: 400,
+    width: '100%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  postLoginSyncSpinner: {
+    marginBottom: spacing.lg,
+  },
+  postLoginSyncTitle: {
+    ...typography.xl,
+    fontWeight: '600',
+    color: colors.foreground,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  postLoginSyncSubtitle: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: spacing.lg,
+  },
+  postLoginSyncSupportRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
+  postLoginSyncSupportLabel: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  postLoginSyncSupportLink: {
+    ...typography.sm,
+    color: colors.primary,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
   appHeader: {
     backgroundColor: colors.card,

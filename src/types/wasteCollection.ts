@@ -123,6 +123,8 @@ export interface WasteCollectionScreenProps {
   onLogout?: () => void;
   onNavigate?: (screen: Screen) => void;
   onGoBack?: () => void;
+  /** True when user just navigated from Login; show sync-in-progress overlay until sync completes. */
+  isPostLogin?: boolean;
 }
 
 export interface ValidationIssue {
