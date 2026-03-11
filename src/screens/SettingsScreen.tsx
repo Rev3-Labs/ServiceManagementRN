@@ -39,7 +39,7 @@ import {serviceCenterService} from '../services/serviceCenterService';
 import {vehicleService, Truck, Trailer} from '../services/vehicleService';
 import {Input} from '../components/Input';
 
-type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings';
+type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings' | 'DebugSql';
 
 interface SettingsScreenProps {
   username?: string;
@@ -47,8 +47,11 @@ interface SettingsScreenProps {
   onGoBack?: () => void;
 }
 
+const isAdminUser = (username?: string) => username?.toLowerCase() === 'admin';
+
 const SettingsScreen: React.FC<SettingsScreenProps> = ({
   username,
+  onNavigate,
   onGoBack,
 }) => {
   const [truckId, setTruckId] = useState(''); // Keep for backward compatibility display
@@ -616,6 +619,28 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </View>
           </CardContent>
         </Card>
+
+        {/* Debug mode (admin only) */}
+        {isAdminUser(username) && onNavigate && (
+          <Card style={styles.settingsCard}>
+            <CardHeader>
+              <CardTitle>
+                <CardTitleText>Debug mode</CardTitleText>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Text style={styles.description}>
+                Run SQL queries against the backend (admin only).
+              </Text>
+              <Button
+                title="Open SQL Console"
+                variant="outline"
+                size="md"
+                onPress={() => onNavigate('DebugSql')}
+              />
+            </CardContent>
+          </Card>
+        )}
       </ScrollView>
 
       {/* Success Notification */}

@@ -8,6 +8,7 @@ import MaterialsSuppliesScreen from './src/screens/MaterialsSuppliesScreen';
 import ServiceCloseoutScreen from './src/screens/ServiceCloseoutScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import ProjectedInventoryScreen from './src/screens/ProjectedInventoryScreen';
+import {DebugSqlScreen} from './src/screens/DebugSqlScreen';
 
 type Screen =
   | 'Login'
@@ -16,17 +17,21 @@ type Screen =
   | 'MaterialsSupplies'
   | 'ServiceCloseout'
   | 'Settings'
-  | 'ProjectedInventory';
+  | 'ProjectedInventory'
+  | 'DebugSql';
 
 interface NavigationState {
   currentScreen: Screen;
   previousScreens: Screen[];
+  /** True only when we just navigated from Login → WasteCollection (so sync overlay shows once). False when returning via Back. */
+  showPostLoginSyncOnWasteCollection: boolean;
 }
 
 function App(): React.JSX.Element {
   const [navigationState, setNavigationState] = useState<NavigationState>({
     currentScreen: 'Login',
     previousScreens: [],
+    showPostLoginSyncOnWasteCollection: false,
   });
   const [username, setUsername] = useState<string>('');
 
@@ -34,6 +39,8 @@ function App(): React.JSX.Element {
     setNavigationState(prev => ({
       currentScreen: screen,
       previousScreens: [...prev.previousScreens, prev.currentScreen],
+      showPostLoginSyncOnWasteCollection:
+        screen === 'WasteCollection' && prev.currentScreen === 'Login',
     }));
   };
 
@@ -41,9 +48,13 @@ function App(): React.JSX.Element {
     setNavigationState(prev => {
       const newPreviousScreens = [...prev.previousScreens];
       const previousScreen = newPreviousScreens.pop() as Screen;
+      const landingOnWasteCollection = previousScreen === 'WasteCollection';
       return {
         currentScreen: previousScreen || 'Login',
         previousScreens: newPreviousScreens,
+        showPostLoginSyncOnWasteCollection: landingOnWasteCollection
+          ? false
+          : prev.showPostLoginSyncOnWasteCollection,
       };
     });
   };
@@ -73,7 +84,7 @@ function App(): React.JSX.Element {
             username={username}
             onNavigate={navigate}
             onGoBack={goBack}
-            isPostLogin={navigationState.previousScreens.slice(-1)[0] === 'Login'}
+            isPostLogin={navigationState.showPostLoginSyncOnWasteCollection}
           />
         );
       case 'MaterialsSupplies':
@@ -105,6 +116,8 @@ function App(): React.JSX.Element {
             onGoBack={goBack}
           />
         );
+      case 'DebugSql':
+        return <DebugSqlScreen onGoBack={goBack} />;
       default:
         return <LoginScreen onLogin={() => navigate('Manifest')} />;
     }
