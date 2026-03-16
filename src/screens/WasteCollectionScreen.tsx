@@ -439,6 +439,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     useState<OrderData | null>(null); // Selected order in master-detail view
   const [dashboardRouteId, setDashboardRouteId] = useState<string>(''); // Route ID for dashboard header (e.g. from API)
   const [dashboardDutyStatus, setDashboardDutyStatus] = useState<string>('On duty'); // Current duty status for dashboard header
+  const [dashboardStartOfDay, setDashboardStartOfDay] = useState<number | null>(null); // Timestamp for start of driver's day (local session only)
+  const [dashboardDutyElapsedMs, setDashboardDutyElapsedMs] = useState<number>(0); // Elapsed time on duty since start of day (approximate)
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
@@ -454,6 +456,24 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [selectedServiceTypeToStart, setSelectedServiceTypeToStart] = useState<string | null>(null);
   // When true, container-summary shows "Back to containers review" (user came from containers-review to add a container)
   const [returnToContainersReviewAfterAdd, setReturnToContainersReviewAfterAdd] = useState(false);
+
+  // Initialize a local \"start of day\" timestamp once per session so we can show Start / Time on duty in headers
+  useEffect(() => {
+    if (dashboardStartOfDay === null) {
+      setDashboardStartOfDay(Date.now());
+    }
+  }, [dashboardStartOfDay]);
+
+  // Keep a lightweight timer running to approximate \"time on duty\" since start of day
+  useEffect(() => {
+    if (dashboardStartOfDay === null) return;
+    // Sync immediately
+    setDashboardDutyElapsedMs(Date.now() - dashboardStartOfDay);
+    const intervalId = setInterval(() => {
+      setDashboardDutyElapsedMs(Date.now() - dashboardStartOfDay);
+    }, 60 * 1000); // update roughly once a minute
+    return () => clearInterval(intervalId);
+  }, [dashboardStartOfDay]);
 
   // FR-3a.EXT.3.2/3.3: Active = Loaded/In-Transit (not dropped); aggregation from active only
   const activeContainers = useMemo(
@@ -2323,7 +2343,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 </View>
                 <View style={[styles.dashboardTableRow, styles.dashboardInventoryEditableRow]}>
                   <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>
-                    On truck
+                    Supplies Loaded
                   </Text>
                   {DASHBOARD_INVENTORY_COLUMNS.map(col => (
                     <InventoryOnTruckCell
@@ -2346,7 +2366,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   ))}
                 </View>
               <View style={[styles.dashboardTableRow, styles.dashboardTableTotalRow]}>
-                <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>Needed for route</Text>
+                <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>Supplies Needed</Text>
                 {DASHBOARD_INVENTORY_COLUMNS.map(col => (
                   <Text
                     key={col}
@@ -2360,7 +2380,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 ))}
               </View>
               <View style={[styles.dashboardTableRow, styles.dashboardTableRemainingRow]}>
-                <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>After route</Text>
+                <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>Supplies Delta</Text>
                 {DASHBOARD_INVENTORY_COLUMNS.map(col => {
                   const onTruck = dashboardInventorySummary[col] ?? 0; // committed (saved) counts only; draft updates after Save
                   const needed = projectedTotals[col] ?? 0;
@@ -2505,15 +2525,25 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   </Text>
                 </View>
                 <View style={styles.dashboardHeaderDivider} />
-                <View style={styles.dashboardHeaderItem}>
-                  <Text style={styles.dashboardHeaderItemLabel}>Date</Text>
-                  <Text style={styles.dashboardHeaderItemValue}>{dashboardDate}</Text>
-                </View>
                 <View style={styles.dashboardHeaderDivider} />
                 <View style={styles.dashboardHeaderItem}>
                   <Text style={styles.dashboardHeaderItemLabel}>Route</Text>
                   <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
                     {dashboardRouteId || '—'}
+                  </Text>
+                </View>
+                <View style={styles.dashboardHeaderDivider} />
+                <View style={styles.dashboardHeaderItem}>
+                  <Text style={styles.dashboardHeaderItemLabel}>Start of day</Text>
+                  <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
+                    {dashboardStartOfDay ? serviceTypeTimeService.formatTime(dashboardStartOfDay) : '—'}
+                  </Text>
+                </View>
+                <View style={styles.dashboardHeaderDivider} />
+                <View style={styles.dashboardHeaderItem}>
+                  <Text style={styles.dashboardHeaderItemLabel}>Time on duty</Text>
+                  <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
+                    {formatDuration(dashboardDutyElapsedMs)}
                   </Text>
                 </View>
                 <View style={styles.dashboardHeaderDivider} />
@@ -2622,22 +2652,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         </View>
 
         <View style={styles.dashboardTabBar}>
-          <TouchableOpacity
-            style={[styles.dashboardTab, dashboardViewTab === 'dashboard' && styles.dashboardTabActive]}
-            onPress={() => setDashboardViewTab('dashboard')}
-            activeOpacity={0.8}
-            accessibilityRole="tab"
-            accessibilityState={{selected: dashboardViewTab === 'dashboard'}}>
-            <Text style={[styles.dashboardTabText, dashboardViewTab === 'dashboard' && styles.dashboardTabTextActive]}>Dashboard</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.dashboardTab, dashboardViewTab === 'orders' && styles.dashboardTabActive]}
-            onPress={() => setDashboardViewTab('orders')}
-            activeOpacity={0.8}
-            accessibilityRole="tab"
-            accessibilityState={{selected: dashboardViewTab === 'orders'}}>
-            <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Upcoming Orders</Text>
-          </TouchableOpacity>
+          <View style={styles.dashboardTabGroup}>
+            <TouchableOpacity
+              style={[styles.dashboardTab, dashboardViewTab === 'dashboard' && styles.dashboardTabActive]}
+              onPress={() => setDashboardViewTab('dashboard')}
+              activeOpacity={0.8}
+              accessibilityRole="tab"
+              accessibilityState={{selected: dashboardViewTab === 'dashboard'}}>
+              <Text style={[styles.dashboardTabText, dashboardViewTab === 'dashboard' && styles.dashboardTabTextActive]}>Dashboard</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.dashboardTab, dashboardViewTab === 'orders' && styles.dashboardTabActive]}
+              onPress={() => setDashboardViewTab('orders')}
+              activeOpacity={0.8}
+              accessibilityRole="tab"
+              accessibilityState={{selected: dashboardViewTab === 'orders'}}>
+              <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Upcoming Orders</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.dashboardTabDateLabel} numberOfLines={1}>
+            {dashboardDate}
+          </Text>
         </View>
 
         {dashboardViewTab === 'dashboard' ? (
@@ -3516,9 +3551,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   {selectedTruck ? selectedTruck.number : truckId || '—'}
                   {'  ·  '}
                   {selectedTrailer ? selectedTrailer.number : '—'}
-                  {'  ·  '}
-                  {dashboardDate}
                   {dashboardRouteId ? `  ·  ${dashboardRouteId}` : ''}
+                  {'  ·  '}
+                  {dashboardStartOfDay
+                    ? `Start ${serviceTypeTimeService.formatTime(dashboardStartOfDay)} • Time on duty ${formatDuration(
+                        dashboardDutyElapsedMs,
+                      )}`
+                    : `Time on duty ${formatDuration(dashboardDutyElapsedMs)}`}
                   {serviceCenter && `  ·  ${serviceCenterService.getDisplayFormat(false)}`}
                 </Text>
 
@@ -3659,22 +3698,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         </View>
 
         <View style={styles.dashboardTabBar}>
-          <TouchableOpacity
-            style={[styles.dashboardTab, dashboardViewTab === 'dashboard' && styles.dashboardTabActive]}
-            onPress={() => setDashboardViewTab('dashboard')}
-            activeOpacity={0.8}
-            accessibilityRole="tab"
-            accessibilityState={{selected: dashboardViewTab === 'dashboard'}}>
-            <Text style={[styles.dashboardTabText, dashboardViewTab === 'dashboard' && styles.dashboardTabTextActive]}>Dashboard</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.dashboardTab, dashboardViewTab === 'orders' && styles.dashboardTabActive]}
-            onPress={() => setDashboardViewTab('orders')}
-            activeOpacity={0.8}
-            accessibilityRole="tab"
-            accessibilityState={{selected: dashboardViewTab === 'orders'}}>
-            <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Upcoming Orders</Text>
-          </TouchableOpacity>
+          <View style={styles.dashboardTabGroup}>
+            <TouchableOpacity
+              style={[styles.dashboardTab, dashboardViewTab === 'dashboard' && styles.dashboardTabActive]}
+              onPress={() => setDashboardViewTab('dashboard')}
+              activeOpacity={0.8}
+              accessibilityRole="tab"
+              accessibilityState={{selected: dashboardViewTab === 'dashboard'}}>
+              <Text style={[styles.dashboardTabText, dashboardViewTab === 'dashboard' && styles.dashboardTabTextActive]}>Dashboard</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.dashboardTab, dashboardViewTab === 'orders' && styles.dashboardTabActive]}
+              onPress={() => setDashboardViewTab('orders')}
+              activeOpacity={0.8}
+              accessibilityRole="tab"
+              accessibilityState={{selected: dashboardViewTab === 'orders'}}>
+              <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Upcoming Orders</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.dashboardTabDateLabel} numberOfLines={1}>
+            {dashboardDate}
+          </Text>
         </View>
 
         {dashboardViewTab === 'dashboard' ? (
@@ -11344,9 +11388,14 @@ const styles = StyleSheet.create({
   dashboardTabBar: {
     flexDirection: 'row',
     alignItems: 'stretch',
+    justifyContent: 'space-between',
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.card,
+  },
+  dashboardTabGroup: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
   },
   dashboardTab: {
     paddingVertical: spacing.md,
@@ -11367,6 +11416,13 @@ const styles = StyleSheet.create({
   dashboardTabTextActive: {
     fontWeight: '600',
     color: colors.primary,
+  },
+  dashboardTabDateLabel: {
+    ...typography.lg,
+    fontWeight: '700',
+    color: colors.mutedForeground,
+    alignSelf: 'center',
+    paddingHorizontal: spacing.lg,
   },
   dashboardContentRow: {
     flex: 1,
