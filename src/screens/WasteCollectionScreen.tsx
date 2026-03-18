@@ -1492,19 +1492,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const handleGenerateManifestForOrder = useCallback(
     (order: OrderData) => {
       setSelectedOrderData(order);
-      if (!hasManifestForOrder(order.orderNumber)) {
-        const trackingNumber = generateManifestTrackingNumber();
-        setManifestTrackingNumber(trackingNumber);
-        setManifestOrderNumber(order.orderNumber);
-        setManifestData(prev => ({
-          ...prev,
-          trackingNumber,
-          createdAt: new Date(),
-        }));
-      }
       setCurrentStep('containers-review');
     },
-    [hasManifestForOrder, generateManifestTrackingNumber],
+    [],
   );
 
   // Assign tracking number when labels are printed
@@ -3059,7 +3049,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           {isOrderReadyForManifest(selectedOrder) && (
                             <>
                               <Button
-                                title={hasManifestForOrder(selectedOrder.orderNumber) ? 'Open Manifest' : 'Generate manifest'}
+                                title={hasManifestForOrder(selectedOrder.orderNumber) ? 'Open manifest' : 'Continue to manifest'}
                                 variant="primary"
                                 size="lg"
                                 style={styles.detailActionsRowButton}
@@ -3977,7 +3967,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           {isOrderReadyForManifest(dashboardSelectedOrder) && (
                             <>
                               <Button
-                                title={hasManifestForOrder(dashboardSelectedOrder.orderNumber) ? 'Open Manifest' : 'Generate manifest'}
+                                title={hasManifestForOrder(dashboardSelectedOrder.orderNumber) ? 'Open manifest' : 'Continue to manifest'}
                                 variant="primary"
                                 size="lg"
                                 style={styles.detailActionsRowButton}
@@ -5458,10 +5448,22 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         <View style={styles.footer}>
           <Button title="Back" variant="outline" size="md" onPress={() => setCurrentStep('dashboard')} />
           <Button
-            title="Continue to Manifest"
+            title={manifestGenerated ? 'Continue to manifest' : 'Generate Manifest'}
             variant="primary"
             size="md"
-            onPress={() => setCurrentStep('manifest-management')}
+            onPress={() => {
+              if (selectedOrderData && !hasManifestForOrder(selectedOrderData.orderNumber)) {
+                const trackingNumber = generateManifestTrackingNumber();
+                setManifestTrackingNumber(trackingNumber);
+                setManifestOrderNumber(selectedOrderData.orderNumber);
+                setManifestData(prev => ({
+                  ...prev,
+                  trackingNumber,
+                  createdAt: new Date(),
+                }));
+              }
+              setCurrentStep('manifest-management');
+            }}
           />
         </View>
 
@@ -5641,7 +5643,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             title="Back"
             variant="outline"
             size="md"
-            onPress={() => setCurrentStep('container-summary')}
+            onPress={() => setCurrentStep('containers-review')}
           />
           <Button
             title="Continue"
@@ -14325,8 +14327,7 @@ const styles = StyleSheet.create({
   manifestActionsInCard: {
     marginTop: spacing.xl,
     paddingTop: spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+
   },
   manifestActionsLabel: {
     ...typography.sm,
