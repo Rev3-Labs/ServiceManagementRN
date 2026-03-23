@@ -429,6 +429,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [useMasterDetail, setUseMasterDetail] = useState(true); // Toggle for master-detail view (default: true)
   const [dashboardViewTab, setDashboardViewTab] = useState<'orders' | 'dashboard'>('dashboard'); // Toggle between landing tiles and upcoming orders; default to dashboard tab after login
   const [dashboardServiceListExpandedOrderNumber, setDashboardServiceListExpandedOrderNumber] = useState<string | null>(null);
+  const [inventoryCustomersExpanded, setInventoryCustomersExpanded] = useState(false);
   const [dashboardInventorySummary, setDashboardInventorySummary] = useState<Record<string, number>>(DEFAULT_INVENTORY_SUMMARY);
   const [inventorySaveGeneration, setInventorySaveGeneration] = useState(0);
   const inventoryDraftRef = useRef<Record<string, number>>({});
@@ -2179,6 +2180,135 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         scrollEventThrottle={16}
         keyboardShouldPersistTaps="handled">
         <Card style={styles.dashboardSectionCard}>
+          <CardHeader>
+            <View style={styles.dashboardCardHeaderRow}>
+              <CardTitle style={styles.dashboardCardTitle}>
+                <CardTitleText>Inventory check</CardTitleText>
+              </CardTitle>
+              <View style={[styles.dashboardInventoryActions, styles.dashboardInventoryActionsInHeader]}>
+                <Button
+                  title={inventorySaveStatus === 'saving' ? 'Saving...' : inventorySaveStatus === 'saved' ? 'Saved' : 'Save Truck Inventory'}
+                  onPress={saveInventorySummary}
+                  variant="primary"
+                  size="sm"
+                  disabled={inventorySaveStatus === 'saving'}
+                  loading={inventorySaveStatus === 'saving'}
+                />
+                {inventorySaveStatus === 'saved' && (
+                  <Text style={styles.dashboardInventorySavedText}>Saved.</Text>
+                )}
+              </View>
+            </View>
+            <Text style={styles.dashboardSectionNote}>Based on prior service data for each customer</Text>
+          </CardHeader>
+          <CardContent>
+            <ScrollView horizontal showsHorizontalScrollIndicator={true} contentContainerStyle={styles.dashboardTableScrollContent}>
+              <View style={[styles.dashboardTable, styles.dashboardTableInHorizontalScroll]}>
+                <View style={styles.dashboardTableHeaderRow}>
+                  <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCustomer]}>&nbsp;</Text>
+                  {DASHBOARD_INVENTORY_COLUMNS.map(col => (
+                    <Text
+                      key={col}
+                      style={[
+                        styles.dashboardTableHeaderCell,
+                        styles.dashboardTableInventoryCell,
+                        col === 'Other' && styles.dashboardTableOtherInventoryCell,
+                        styles.dashboardTableInventoryHeaderText,
+                      ]}>
+                      {col}
+                    </Text>
+                  ))}
+                </View>
+                <View style={[styles.dashboardTableRow, styles.dashboardInventoryEditableRow]}>
+                  <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>
+                    Supplies Loaded
+                  </Text>
+                  {DASHBOARD_INVENTORY_COLUMNS.map(col => (
+                    <InventoryOnTruckCell
+                      key={col}
+                      columnKey={col}
+                      committedValue={dashboardInventorySummary[col] ?? 0}
+                      saveGeneration={inventorySaveGeneration}
+                      onDraftChange={(key, value) => {
+                        inventoryDraftRef.current[key] = value;
+                      }}
+                      cellStyle={[
+                        styles.dashboardTableCell,
+                        styles.dashboardTableInventoryCell,
+                        styles.dashboardInventoryCurrentCell,
+                      ]}
+                      inputStyle={styles.dashboardInventoryInput}
+                      otherCellStyle={styles.dashboardTableOtherInventoryCell}
+                      placeholderTextColor={colors.mutedForeground}
+                    />
+                  ))}
+                </View>
+              <View style={[styles.dashboardTableRow, styles.dashboardTableTotalRow]}>
+                <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>Supplies Needed</Text>
+                {DASHBOARD_INVENTORY_COLUMNS.map(col => (
+                  <Text
+                    key={col}
+                    style={[
+                      styles.dashboardTableCell,
+                      styles.dashboardTableInventoryCell,
+                      col === 'Other' && styles.dashboardTableOtherInventoryCell,
+                    ]}>
+                    {String(projectedTotals[col] ?? 0)}
+                  </Text>
+                ))}
+              </View>
+              <View style={[styles.dashboardTableRow, styles.dashboardTableRemainingRow]}>
+                <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>Supplies Delta</Text>
+                {DASHBOARD_INVENTORY_COLUMNS.map(col => {
+                  const onTruck = dashboardInventorySummary[col] ?? 0; // committed (saved) counts only; draft updates after Save
+                  const needed = projectedTotals[col] ?? 0;
+                  const afterRoute = onTruck - needed;
+                  return (
+                    <Text
+                      key={col}
+                      style={[
+                        styles.dashboardTableCell,
+                        styles.dashboardTableInventoryCell,
+                        col === 'Other' && styles.dashboardTableOtherInventoryCell,
+                        afterRoute < 0 && styles.dashboardTableRemainingNegative,
+                        afterRoute > 0 && styles.dashboardTableRemainingPositive,
+                      ]}>
+                      {afterRoute < 0 ? `Short ${Math.abs(afterRoute)}` : afterRoute}
+                    </Text>
+                  );
+                })}
+              </View>
+              {(inventoryCustomersExpanded ? activeOrders : activeOrders.slice(0, 3)).map(order => (
+                <View key={order.orderNumber} style={styles.dashboardTableRow}>
+                  <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer]} numberOfLines={1}>{order.customer}</Text>
+                  {DASHBOARD_INVENTORY_COLUMNS.map(col => (
+                    <Text
+                      key={col}
+                      style={[
+                        styles.dashboardTableCell,
+                        styles.dashboardTableInventoryCell,
+                        col === 'Other' && styles.dashboardTableOtherInventoryCell,
+                      ]}>
+                      {String(projectedByOrder[order.orderNumber]?.[col] ?? 0)}
+                    </Text>
+                  ))}
+                </View>
+              ))}
+              {activeOrders.length > 3 && (
+                <TouchableOpacity
+                  onPress={() => setInventoryCustomersExpanded(prev => !prev)}
+                  activeOpacity={0.7}
+                  style={styles.inventoryExpandRow}>
+                  <Text style={styles.inventoryExpandText}>
+                    {inventoryCustomersExpanded ? 'Show less' : `Show all ${activeOrders.length} customers`}
+                  </Text>
+                </TouchableOpacity>
+              )}
+                </View>
+            </ScrollView>
+          </CardContent>
+        </Card>
+        <Card style={styles.dashboardSectionCard}>
           <CardHeader style={styles.dashboardCardHeaderRow}>
             <CardTitle style={styles.dashboardCardTitle}>
               <CardTitleText>Service List</CardTitleText>
@@ -2289,125 +2419,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 );
               })}
             </View>
-          </CardContent>
-        </Card>
-        <Card style={styles.dashboardSectionCard}>
-          <CardHeader>
-            <View style={styles.dashboardCardHeaderRow}>
-              <CardTitle style={styles.dashboardCardTitle}>
-                <CardTitleText>Inventory check</CardTitleText>
-              </CardTitle>
-              <View style={[styles.dashboardInventoryActions, styles.dashboardInventoryActionsInHeader]}>
-                <Button
-                  title={inventorySaveStatus === 'saving' ? 'Saving...' : inventorySaveStatus === 'saved' ? 'Saved' : 'Save Truck Inventory'}
-                  onPress={saveInventorySummary}
-                  variant="primary"
-                  size="sm"
-                  disabled={inventorySaveStatus === 'saving'}
-                  loading={inventorySaveStatus === 'saving'}
-                />
-                {inventorySaveStatus === 'saved' && (
-                  <Text style={styles.dashboardInventorySavedText}>Saved.</Text>
-                )}
-              </View>
-            </View>
-            <Text style={styles.dashboardSectionNote}>Based on prior service data for each customer</Text>
-          </CardHeader>
-          <CardContent>
-            <ScrollView horizontal showsHorizontalScrollIndicator={true} contentContainerStyle={styles.dashboardTableScrollContent}>
-              <View style={[styles.dashboardTable, styles.dashboardTableInHorizontalScroll]}>
-                <View style={styles.dashboardTableHeaderRow}>
-                  <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCustomer]}>&nbsp;</Text>
-                  {DASHBOARD_INVENTORY_COLUMNS.map(col => (
-                    <Text
-                      key={col}
-                      style={[
-                        styles.dashboardTableHeaderCell,
-                        styles.dashboardTableInventoryCell,
-                        col === 'Other' && styles.dashboardTableOtherInventoryCell,
-                        styles.dashboardTableInventoryHeaderText,
-                      ]}>
-                      {col}
-                    </Text>
-                  ))}
-                </View>
-                <View style={[styles.dashboardTableRow, styles.dashboardInventoryEditableRow]}>
-                  <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>
-                    Supplies Loaded
-                  </Text>
-                  {DASHBOARD_INVENTORY_COLUMNS.map(col => (
-                    <InventoryOnTruckCell
-                      key={col}
-                      columnKey={col}
-                      committedValue={dashboardInventorySummary[col] ?? 0}
-                      saveGeneration={inventorySaveGeneration}
-                      onDraftChange={(key, value) => {
-                        inventoryDraftRef.current[key] = value;
-                      }}
-                      cellStyle={[
-                        styles.dashboardTableCell,
-                        styles.dashboardTableInventoryCell,
-                        styles.dashboardInventoryCurrentCell,
-                      ]}
-                      inputStyle={styles.dashboardInventoryInput}
-                      otherCellStyle={styles.dashboardTableOtherInventoryCell}
-                      placeholderTextColor={colors.mutedForeground}
-                    />
-                  ))}
-                </View>
-              <View style={[styles.dashboardTableRow, styles.dashboardTableTotalRow]}>
-                <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>Supplies Needed</Text>
-                {DASHBOARD_INVENTORY_COLUMNS.map(col => (
-                  <Text
-                    key={col}
-                    style={[
-                      styles.dashboardTableCell,
-                      styles.dashboardTableInventoryCell,
-                      col === 'Other' && styles.dashboardTableOtherInventoryCell,
-                    ]}>
-                    {String(projectedTotals[col] ?? 0)}
-                  </Text>
-                ))}
-              </View>
-              <View style={[styles.dashboardTableRow, styles.dashboardTableRemainingRow]}>
-                <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer, styles.dashboardTableTotalLabel]}>Supplies Delta</Text>
-                {DASHBOARD_INVENTORY_COLUMNS.map(col => {
-                  const onTruck = dashboardInventorySummary[col] ?? 0; // committed (saved) counts only; draft updates after Save
-                  const needed = projectedTotals[col] ?? 0;
-                  const afterRoute = onTruck - needed;
-                  return (
-                    <Text
-                      key={col}
-                      style={[
-                        styles.dashboardTableCell,
-                        styles.dashboardTableInventoryCell,
-                        col === 'Other' && styles.dashboardTableOtherInventoryCell,
-                        afterRoute < 0 && styles.dashboardTableRemainingNegative,
-                        afterRoute > 0 && styles.dashboardTableRemainingPositive,
-                      ]}>
-                      {afterRoute < 0 ? `Short ${Math.abs(afterRoute)}` : afterRoute}
-                    </Text>
-                  );
-                })}
-              </View>
-              {activeOrders.map(order => (
-                <View key={order.orderNumber} style={styles.dashboardTableRow}>
-                  <Text style={[styles.dashboardTableCell, styles.dashboardTableColCustomer]} numberOfLines={1}>{order.customer}</Text>
-                  {DASHBOARD_INVENTORY_COLUMNS.map(col => (
-                    <Text
-                      key={col}
-                      style={[
-                        styles.dashboardTableCell,
-                        styles.dashboardTableInventoryCell,
-                        col === 'Other' && styles.dashboardTableOtherInventoryCell,
-                      ]}>
-                      {String(projectedByOrder[order.orderNumber]?.[col] ?? 0)}
-                    </Text>
-                  ))}
-                </View>
-              ))}
-                </View>
-            </ScrollView>
           </CardContent>
         </Card>
       </ScrollView>
@@ -11817,6 +11828,16 @@ const styles = StyleSheet.create({
   },
   dashboardTableRemainingPositive: {
     color: colors.warning,
+    fontWeight: '600',
+  },
+  inventoryExpandRow: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+  },
+  inventoryExpandText: {
+    color: colors.primary,
+    fontSize: 13,
     fontWeight: '600',
   },
   pageTitleRow: {
