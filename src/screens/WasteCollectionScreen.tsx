@@ -84,99 +84,13 @@ import {
   WasteStream,
   ContainerType,
   AddedContainer,
+  ScannedDocument,
   Screen,
   WasteCollectionScreenProps,
   ValidationIssue,
 } from '../types/wasteCollection';
 import {MOCK_ORDERS} from '../data/mockOrders';
 import {safeAsyncStorage} from '../utils/storage';
-
-const DASHBOARD_INVENTORY_COLUMNS = ['55DF', '55DM', '30DF', '30DM', 'Tote', '18DF', '8DF', 'Other'];
-/** Simulated containers needed per customer for the route (for demo when no addedContainers). One entry per order index. */
-const SIMULATED_CONTAINERS_BY_ORDER_INDEX: Record<string, number>[] = [
-  { '55DF': 2, '55DM': 0, '30DF': 1, '30DM': 0, 'Tote': 0, '18DF': 1, '8DF': 0, 'Other': 0 },
-  { '55DF': 0, '55DM': 1, '30DF': 2, '30DM': 0, 'Tote': 1, '18DF': 0, '8DF': 0, 'Other': 1 },
-  { '55DF': 1, '55DM': 1, '30DF': 0, '30DM': 1, 'Tote': 2, '18DF': 0, '8DF': 1, 'Other': 0 },
-  { '55DF': 3, '55DM': 0, '30DF': 1, '30DM': 0, 'Tote': 0, '18DF': 2, '8DF': 0, 'Other': 1 },
-  { '55DF': 0, '55DM': 2, '30DF': 0, '30DM': 1, 'Tote': 3, '18DF': 0, '8DF': 0, 'Other': 0 },
-  { '55DF': 2, '55DM': 0, '30DF': 2, '30DM': 1, 'Tote': 1, '18DF': 0, '8DF': 1, 'Other': 0 },
-  { '55DF': 1, '55DM': 1, '30DF': 1, '30DM': 0, 'Tote': 2, '18DF': 1, '8DF': 0, 'Other': 1 },
-  { '55DF': 0, '55DM': 0, '30DF': 3, '30DM': 2, 'Tote': 0, '18DF': 1, '8DF': 2, 'Other': 0 },
-  { '55DF': 2, '55DM': 1, '30DF': 0, '30DM': 0, 'Tote': 1, '18DF': 0, '8DF': 0, 'Other': 0 },
-  { '55DF': 1, '55DM': 0, '30DF': 1, '30DM': 1, 'Tote': 2, '18DF': 2, '8DF': 1, 'Other': 1 },
-];
-/** Map container type codes (from add-container flow) to projected inventory column keys. */
-const CONTAINER_CODE_TO_PROJECTED_COLUMN: Record<string, string> = {
-  '55G': '55DF',
-  '30G': '30DF',
-  '85G': '55DM',
-  '95T': 'Tote',
-  '1YD': 'Tote',
-  '2YD': 'Tote',
-  '4YD': 'Tote',
-  '5G': '30DM',
-  'CYL': 'Other',
-};
-/** Business type colors for dashboard Service List (light bg + contrasting text, like Order Information service type badges). */
-const BUSINESS_TYPE_CONFIG: Record<string, { label: string; bg: string; border: string; text: string }> = {
-  'waste services': { label: 'Waste Services', bg: '#ea580c22', border: '#ea580c', text: '#ea580c' },
-  retail: { label: 'Retail', bg: '#2563eb22', border: '#2563eb', text: '#2563eb' },
-  healthcare: { label: 'Healthcare', bg: '#0d948822', border: '#0d9488', text: '#0d9488' },
-  pharmacy: { label: 'Pharmacy', bg: '#7c3aed22', border: '#7c3aed', text: '#7c3aed' },
-  dea: { label: 'DEA', bg: '#dc262622', border: '#dc2626', text: '#dc2626' },
-};
-function getBusinessTypeStyle(orderType: string | undefined): { label: string; bg: string; border: string; text: string } {
-  const key = (orderType || 'waste services').toLowerCase().trim();
-  return BUSINESS_TYPE_CONFIG[key] ?? BUSINESS_TYPE_CONFIG['waste services'];
-}
-
-/** On-truck inventory cell: local state so parent doesn't re-render on keystroke (avoids focus loss). Reports draft via onDraftChange; parent uses committed value for After route until Save. */
-const InventoryOnTruckCell = memo(function InventoryOnTruckCell(props: {
-  columnKey: string;
-  committedValue: number;
-  saveGeneration: number;
-  onDraftChange: (key: string, value: number) => void;
-  cellStyle: ViewStyle[];
-  inputStyle: ViewStyle;
-  otherCellStyle?: ViewStyle;
-  placeholderTextColor: string;
-}) {
-  const { columnKey, committedValue, saveGeneration, onDraftChange, cellStyle, inputStyle, otherCellStyle, placeholderTextColor } = props;
-  const [value, setValue] = useState(() => String(committedValue ?? 0));
-  useEffect(() => {
-    setValue(String(committedValue ?? 0));
-  }, [committedValue, saveGeneration]);
-  return (
-    <View style={[cellStyle, columnKey === 'Other' && otherCellStyle]}>
-      <TextInput
-        style={inputStyle}
-        value={value}
-        onChangeText={(text) => {
-          setValue(text);
-          const n = text === '' ? 0 : parseInt(text, 10);
-          if (!Number.isNaN(n) && n >= 0) onDraftChange(columnKey, n);
-        }}
-        onBlur={() => {
-          const n = value === '' ? 0 : parseInt(value, 10);
-          if (value === '' || !Number.isNaN(n)) onDraftChange(columnKey, value === '' ? 0 : n);
-        }}
-        keyboardType="number-pad"
-        placeholder="0"
-        placeholderTextColor={placeholderTextColor}
-        accessibilityLabel={`${columnKey} on truck now`}
-      />
-    </View>
-  );
-});
-
-const INVENTORY_SUMMARY_STORAGE_KEY = '@inventory_summary';
-const DEFAULT_INVENTORY_SUMMARY: Record<string, number> = {
-  '55DF': 6, '55DM': 7, '30DF': 8, '30DM': 4, 'Tote': 0, '18DF': 16, '8DF': 10, 'Other': 0,
-};
-
-/** Example route IDs (state code + number). Used for default current route and route selection. */
-const ROUTE_IDS = ['WA01', 'WA02', 'OR01', 'CA01', 'CA02', 'CA03', 'AZ01', 'CO01', 'TX01', 'IL01'];
-const DEFAULT_ROUTE_ID = 'CO01'; // Colorado – matches Denver/CO mock data
 import {MATERIALS_CATALOG} from '../data/materialsCatalog';
 import {PersistentOrderHeader} from '../components/PersistentOrderHeader';
 import {PhotoCaptureButton} from '../components/PhotoCaptureButton';
@@ -193,30 +107,20 @@ import {
   type NoShipReasonCode,
   type NoShipRecord,
 } from '../constants/noShipReasons';
-
-/** Approved facilities for Transfer Location override (FR-3a.EXT.3.1). Technician's Service Center is prepended at runtime. */
-const APPROVED_TRANSFER_LOCATIONS = [
-  'Main Transfer Station - Downtown',
-  'Northside Waste Facility',
-  'Southside Recycling Center',
-  'East End Transfer Point',
-  'West Industrial Waste Hub',
-  'Central Processing Facility',
-  'Riverside Drop-Off Site',
-  'Highway 101 Transfer Station',
-  'Airport Road Waste Center',
-  'Port Authority Facility',
-  'Mountain View Disposal Site',
-  'Valley Waste Management',
-  'Coastal Transfer Station',
-  'Inland Processing Center',
-  'Metro Waste Facility',
-  'Suburban Drop Point',
-  'Urban Collection Center',
-  'Regional Transfer Hub',
-  'City Main Facility',
-  'Industrial Park Station',
-];
+import {DASHBOARD_INVENTORY_COLUMNS, SIMULATED_CONTAINERS_BY_ORDER_INDEX, CONTAINER_CODE_TO_PROJECTED_COLUMN, BUSINESS_TYPE_CONFIG, getBusinessTypeStyle, INVENTORY_SUMMARY_STORAGE_KEY, DEFAULT_INVENTORY_SUMMARY, ROUTE_IDS, DEFAULT_ROUTE_ID, APPROVED_TRANSFER_LOCATIONS, FOOTER_NAV_ICON_COLOR} from './waste-collection/constants';
+import {DashboardScreen as ExtDashboardScreen, DashboardScreenMasterDetail as ExtDashboardScreenMasterDetail} from './waste-collection/DashboardScreen';
+import {StreamSelectionScreen as ExtStreamSelectionScreen} from './waste-collection/StreamSelectionScreen';
+import {ContainerSelectionScreen as ExtContainerSelectionScreen} from './waste-collection/ContainerSelectionScreen';
+import {ContainerEntryScreen as ExtContainerEntryScreen} from './waste-collection/ContainerEntryScreen';
+import {ContainerSummaryScreen as ExtContainerSummaryScreen} from './waste-collection/ContainerSummaryScreen';
+import {OrderContainersReviewScreen as ExtOrderContainersReviewScreen} from './waste-collection/OrderContainersReviewScreen';
+import {ManifestManagementScreen as ExtManifestManagementScreen} from './waste-collection/ManifestManagementScreen';
+import {MaterialsSuppliesScreen as ExtMaterialsSuppliesScreen} from './waste-collection/MaterialsSuppliesScreen';
+import {EquipmentPPEScreen as ExtEquipmentPPEScreen} from './waste-collection/EquipmentPPEScreen';
+import {OrderServiceScreen as ExtOrderServiceScreen} from './waste-collection/OrderServiceScreen';
+import {InventoryOnTruckCell} from './waste-collection/InventoryOnTruckCell';
+import {DocumentTypeSelectionModal} from '../components/modals/DocumentTypeSelectionModal';
+import {CaptureMethodSelectionModal} from '../components/modals/CaptureMethodSelectionModal';
 
 const {width, height} = Dimensions.get('window');
 const gridColumns = getGridColumns();
@@ -301,6 +205,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [selectedContainerType, setSelectedContainerType] =
     useState<ContainerType | null>(null);
   const [streamSearchQuery, setStreamSearchQuery] = useState('');
+  const searchInputRef = useRef<TextInput>(null);
+  const handleSearchFocus = () => {};
+  const handleSearchBlur = () => {};
+  const handleSearchChange = (text: string) => {
+    setStreamSearchQuery(text);
+  };
   const [tareWeight, setTareWeight] = useState('45');
   const [scaleWeight, setScaleWeight] = useState('');
   const [grossWeight, setGrossWeight] = useState('285');
@@ -2319,7 +2229,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             <View style={styles.serviceListCardList}>
               {activeOrders.map((order, idx) => {
                 const typeStyle = getBusinessTypeStyle(order.orderType);
-                const typeLabel = order.orderType || typeStyle.label;
+                const typeLabel = typeStyle.label;
                 const isExpanded = dashboardServiceListExpandedOrderNumber === order.orderNumber;
                 const hasNotes = Boolean(
                   order.generatorStatus ||
@@ -2426,5212 +2336,119 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   );
   };
 
+  const normalizedServiceTypeBadgesForHeader = useMemo<
+    Array<{
+      serviceTypeId: string;
+      srNumber?: string;
+      label: string;
+      status: 'pending' | 'in-progress' | 'completed' | 'noship';
+    }>
+  >(
+    () =>
+      (serviceTypeBadgesForHeader ?? []).map(badge => ({
+        serviceTypeId: badge.serviceTypeId,
+        srNumber: badge.srNumber,
+        label:
+          (badge as {label?: string}).label ??
+          badge.srNumber ??
+          serviceTypeService.formatForBadge(badge.serviceTypeId),
+        status:
+          badge.status === 'in_progress'
+            ? 'in-progress'
+            : (badge.status as 'pending' | 'completed' | 'noship'),
+      })),
+    [serviceTypeBadgesForHeader],
+  );
+
+  const getDashboardScreenProps = () => ({
+    orders,
+    isOrderCompleted,
+    dashboardSelectedOrder,
+    setDashboardSelectedOrder,
+    offlineStatus,
+    username,
+    dashboardStartOfDay,
+    dashboardDutyElapsedMs,
+    selectedTruck,
+    truckId,
+    selectedTrailer,
+    dashboardRouteId,
+    dashboardDutyStatus,
+    serviceCenter,
+    setShowServiceCenterModal,
+    syncStatus,
+    pendingSyncCount,
+    handleManualSync,
+    setShowDropWasteModal,
+    useMasterDetail,
+    setUseMasterDetail,
+    onLogout,
+    onNavigate: onNavigate
+      ? (screen: Screen) => onNavigate(screen)
+      : undefined,
+    onGoBack,
+    activeContainerCount,
+    currentTotalWeight,
+    dashboardViewTab,
+    setDashboardViewTab,
+    dashboardServiceListExpandedOrderNumber,
+    setDashboardServiceListExpandedOrderNumber,
+    completedOrdersSectionCollapsed,
+    setCompletedOrdersSectionCollapsed,
+    showHeaderMenuModal,
+    setShowHeaderMenuModal,
+    setShowAllNotesModal,
+    upcomingOrdersWithNotes,
+    showAllNotesModal,
+    getOrderStatus,
+    hasOrderNotes,
+    isOrderReadyForManifest,
+    hasManifestForOrder,
+    handleGenerateManifestForOrder,
+    voidManifest,
+    isServiceTypeNoShip,
+    setNoShipForServiceType,
+    clearNoShipForServiceType,
+    handleDashboardServiceTypeBadgePress,
+    activeServiceTypeTimer,
+    setCompletedOrders,
+    setSelectedServiceTypeToStart,
+    handlePhoneCall,
+    handleEmail,
+    selectedOrderData,
+    orderStatuses,
+    noShipReasonOrderNumber,
+    noShipReasonServiceTypeId,
+    noShipReasonCode,
+    noShipReasonNotes,
+    setNoShipReasonOrderNumber,
+    setNoShipReasonServiceTypeId,
+    setNoShipReasonCode: (code: string) =>
+      setNoShipReasonCode(code as NoShipReasonCode | ''),
+    setNoShipReasonNotes,
+    dashboardInventorySummary,
+    inventorySaveGeneration,
+    inventoryCustomersExpanded,
+    setInventoryCustomersExpanded,
+    inventorySaveStatus,
+    saveInventorySummary,
+    inventoryDraftRef,
+    dashboardScrollRef,
+    dashboardScrollYRef,
+  });
+
   // Master-Detail Dashboard Screen (for tablets)
-  const DashboardScreenMasterDetail = () => {
-    const allOrders = MOCK_ORDERS || orders || [];
-    const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
-    const completedOrdersList = allOrders.filter(order => isOrderCompleted(order.orderNumber));
-    const selectedOrder = dashboardSelectedOrder || activeOrders[0] || completedOrdersList[0] || null;
-    const isSelectedOrderCompleted = selectedOrder
-      ? isOrderCompleted(selectedOrder.orderNumber)
-      : false;
-    const hasDetailNotes = Boolean(
-      selectedOrder && (
-        selectedOrder.customerSpecialInstructions ||
-        selectedOrder.siteAccessNotes ||
-        (selectedOrder.safetyWarnings && selectedOrder.safetyWarnings.length > 0) ||
-        (selectedOrder.previousServiceNotes && selectedOrder.previousServiceNotes.length > 0)
-      ),
-    );
-    const detailLastThreeNotes = selectedOrder?.previousServiceNotes
-      ? selectedOrder.previousServiceNotes.slice(0, 3)
-      : [];
+  const renderDashboardScreen = () => {
+    const dashboardScreenProps = getDashboardScreenProps();
 
-    // Get offline limit warning message for header
-    const getOfflineLimitMessage = () => {
-      if (offlineStatus.isOnline) return null;
+    if (isTablet() && useMasterDetail && isLandscape()) {
+      return <ExtDashboardScreenMasterDetail {...dashboardScreenProps} />;
+    }
 
-      const {warningLevel, offlineDurationMs} = offlineStatus;
-      if (warningLevel === 'blocked') return null; // Modal handles this
-
-      let messageText = '';
-      let messageStyle = styles.offlineLimitMessage;
-      let iconColor = colors.warning;
-
-      if (warningLevel === 'critical') {
-        const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
-        const remainingMinutes = Math.floor(remainingMs / (60 * 1000));
-        if (remainingMinutes < 60) {
-          messageText = `Critical: ${remainingMinutes} min remaining`;
-        } else {
-          const remainingHours = Math.floor(remainingMinutes / 60);
-          const remainingMins = remainingMinutes % 60;
-          messageText = `Critical: ${remainingHours} hr ${remainingMins} min remaining`;
-        }
-        messageStyle = styles.offlineLimitMessageCritical;
-        iconColor = colors.destructive;
-      } else if (warningLevel === 'orange') {
-        const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
-        const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
-        const remainingMins = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
-        messageText = `Warning: ${remainingHours} hr ${remainingMins} min remaining`;
-        messageStyle = styles.offlineLimitMessageOrange;
-        iconColor = '#FF6B35';
-      } else if (warningLevel === 'warning') {
-        const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
-        const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
-        messageText = `Warning: ${remainingHours} hr${remainingHours !== 1 ? 's' : ''} remaining`;
-        messageStyle = styles.offlineLimitMessageWarning;
-        iconColor = colors.warning;
-      }
-
-      if (!messageText) return null;
-
-      return (
-        <View style={messageStyle}>
-          <Icon name="warning" size={14} color={iconColor} />
-          <Text style={styles.offlineLimitMessageText}>{messageText}</Text>
-        </View>
-      );
-    };
-
-    const dashboardDate = useMemo(() => {
-      const d = new Date();
-      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-    }, []);
-
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <TouchableOpacity
-              style={styles.headerContent}
-              onPress={() => onNavigate?.('Settings')}
-              activeOpacity={0.7}>
-              <Text style={styles.dashboardWelcomeTitle}>
-                {username ? `Welcome, ${username}` : 'Welcome'}
-              </Text>
-              <View style={styles.dashboardHeaderBar}>
-                <View style={styles.dashboardHeaderItem}>
-                  <Text style={styles.dashboardHeaderItemLabel}>Truck</Text>
-                  <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
-                    {selectedTruck ? selectedTruck.number : truckId || '—'}
-                  </Text>
-                </View>
-                <View style={styles.dashboardHeaderDivider} />
-                <View style={styles.dashboardHeaderItem}>
-                  <Text style={styles.dashboardHeaderItemLabel}>Trailer</Text>
-                  <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
-                    {selectedTrailer ? selectedTrailer.number : '—'}
-                  </Text>
-                </View>
-                <View style={styles.dashboardHeaderDivider} />
-                <View style={styles.dashboardHeaderDivider} />
-                <View style={styles.dashboardHeaderItem}>
-                  <Text style={styles.dashboardHeaderItemLabel}>Route</Text>
-                  <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
-                    {dashboardRouteId || '—'}
-                  </Text>
-                </View>
-                <View style={styles.dashboardHeaderDivider} />
-                <View style={styles.dashboardHeaderItem}>
-                  <Text style={styles.dashboardHeaderItemLabel}>Start of day</Text>
-                  <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
-                    {dashboardStartOfDay ? serviceTypeTimeService.formatTime(dashboardStartOfDay) : '—'}
-                  </Text>
-                </View>
-                <View style={styles.dashboardHeaderDivider} />
-                <View style={styles.dashboardHeaderItem}>
-                  <Text style={styles.dashboardHeaderItemLabel}>Time on duty</Text>
-                  <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
-                    {formatDuration(dashboardDutyElapsedMs)}
-                  </Text>
-                </View>
-                <View style={styles.dashboardHeaderDivider} />
-                <View style={[styles.dashboardHeaderItem, styles.dashboardHeaderItemStatus]}>
-                  <Text style={styles.dashboardHeaderItemLabel}>Status</Text>
-                  <View style={[styles.dashboardHeaderStatusBadge, dashboardDutyStatus === 'On duty' && styles.dashboardHeaderStatusBadgeActive]}>
-                    <Text style={[styles.dashboardHeaderStatusText, dashboardDutyStatus === 'On duty' && styles.dashboardHeaderStatusTextActive]} numberOfLines={1}>
-                      {dashboardDutyStatus}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.dashboardHeaderDivider} />
-                <View>
-                  {serviceCenter && (
-                    <View style={styles.dashboardHeaderServiceCenterWrap}>
-                      <TouchableOpacity
-                        style={styles.serviceCenterBadge}
-                        onPress={() => setShowServiceCenterModal(true)}
-                        activeOpacity={0.7}>
-                        <Icon name="business" size={16} color={colors.primary} />
-                        <Text style={styles.serviceCenterText} numberOfLines={1}>
-                          {serviceCenterService.getDisplayFormat(false)}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              </View>
-            </TouchableOpacity>
-            
-            {getOfflineLimitMessage()}
-          </View>
-          <View style={styles.headerActions}>
-            <View style={styles.headerSyncRow}>
-              <View
-                style={[
-                  styles.syncStatus,
-                  (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncStatusSynced,
-                  syncStatus === 'syncing' && styles.syncStatusSyncing,
-                  (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncStatusError,
-                ]}>
-                {syncStatus === 'syncing' ? (
-                  <ActivityIndicator size="small" color={colors.primary} />
-                ) : (
-                  <View
-                    style={[
-                      styles.syncDot,
-                      (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncDotSynced,
-                      (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncDotError,
-                    ]}
-                  />
-                )}
-                <Text
-                  style={[
-                    styles.syncText,
-                    (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncTextSynced,
-                    (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncTextError,
-                  ]}>
-                  {syncStatus === 'syncing'
-                    ? 'Syncing...'
-                    : !offlineStatus.isOnline
-                      ? 'Offline'
-                      : syncStatus === 'error'
-                        ? 'Connection failed'
-                        : syncStatus === 'pending' && pendingSyncCount > 0
-                          ? `Pending (${pendingSyncCount})`
-                          : 'Synced'}
-                </Text>
-              </View>
-              <Button
-                title="Sync"
-                variant="outline"
-                size="sm"
-                onPress={handleManualSync}
-                disabled={syncStatus === 'syncing' || !offlineStatus.isOnline}
-              />
-            </View>
-            <Button
-              title="Drop"
-              variant="primary"
-              size="md"
-              onPress={() => setShowDropWasteModal(true)}
-            />
-            <Button
-              title="Full Screen"
-              variant="ghost"
-              size="sm"
-              onPress={() => setUseMasterDetail(false)}
-            />
-            {onLogout && (
-              <Button
-                title="Logout"
-                variant="ghost"
-                size="sm"
-                onPress={onLogout}
-              />
-            )}
-          </View>
-        </View>
-
-        <View style={styles.runningTotalRow}>
-          <Text style={styles.runningTotalLabel}>Running total:</Text>
-          <Text style={styles.runningTotalValue}>
-            {activeContainerCount} container{activeContainerCount !== 1 ? 's' : ''} • {currentTotalWeight.toLocaleString()} lbs
-          </Text>
-        </View>
-
-        <View style={styles.dashboardTabBar}>
-          <View style={styles.dashboardTabGroup}>
-            <TouchableOpacity
-              style={[styles.dashboardTab, dashboardViewTab === 'dashboard' && styles.dashboardTabActive]}
-              onPress={() => setDashboardViewTab('dashboard')}
-              activeOpacity={0.8}
-              accessibilityRole="tab"
-              accessibilityState={{selected: dashboardViewTab === 'dashboard'}}>
-              <Text style={[styles.dashboardTabText, dashboardViewTab === 'dashboard' && styles.dashboardTabTextActive]}>Dashboard</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.dashboardTab, dashboardViewTab === 'orders' && styles.dashboardTabActive]}
-              onPress={() => setDashboardViewTab('orders')}
-              activeOpacity={0.8}
-              accessibilityRole="tab"
-              accessibilityState={{selected: dashboardViewTab === 'orders'}}>
-              <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Upcoming Orders</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.dashboardTabDateLabel} numberOfLines={1}>
-            {dashboardDate}
-          </Text>
-        </View>
-
-        {dashboardViewTab === 'dashboard' ? (
-          renderDashboardTabContent(activeOrders)
-        ) : (
-        <View style={styles.masterDetailContainer}>
-          {/* Master Pane - Orders List */}
-          <View style={[styles.masterPane, {width: getSidebarWidth()}]}>
-            <View style={styles.masterPaneHeader}>
-              <View style={styles.masterPaneHeaderRow}>
-                <Text style={styles.masterPaneTitle}>Upcoming Orders</Text>
-                <Button
-                  title={
-                    upcomingOrdersWithNotes.length > 0
-                      ? `View Notes (${upcomingOrdersWithNotes.length})`
-                      : 'View Notes'
-                  }
-                  variant="outline"
-                  size="sm"
-                  onPress={() => setShowAllNotesModal(true)}
-                />
-              </View>
-              <Text style={styles.masterPaneSubtitle}>
-                {activeOrders.length} order{activeOrders.length !== 1 ? 's' : ''} remaining
-              </Text>
-            </View>
-            <ScrollView
-              style={styles.masterPaneScroll}
-              contentContainerStyle={styles.masterPaneContent}>
-              {activeOrders.length > 0 ? (
-                activeOrders.map((order, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={[
-                      styles.masterOrderItem,
-                      dashboardSelectedOrder?.orderNumber ===
-                        order.orderNumber && styles.masterOrderItemSelected,
-                    ]}
-                    onPress={() => setDashboardSelectedOrder(order)}
-                    activeOpacity={0.7}>
-                    <View style={styles.masterOrderItemHeader}>
-                      <Text
-                        style={[
-                          styles.masterOrderNumber,
-                          dashboardSelectedOrder?.orderNumber ===
-                            order.orderNumber &&
-                            styles.masterOrderNumberSelected,
-                        ]}>
-                        {order.orderNumber}
-                      </Text>
-                      <Badge
-                        variant={
-                          getOrderStatus(order) === 'Scheduled'
-                            ? 'secondary'
-                            : getOrderStatus(order) === 'Partial'
-                              ? 'default'
-                              : getOrderStatus(order) === 'In Progress'
-                                ? 'default'
-                                : getOrderStatus(order) === 'Completed'
-                                  ? 'default'
-                                  : 'destructive'
-                        }
-                        style={styles.masterOrderBadge}>
-                        {getOrderStatus(order)}
-                      </Badge>
-                    </View>
-                    <Text style={styles.masterOrderCustomer}>
-                      {formatCustomerWithStore(order.customer, order.site)}
-                    </Text>
-                    <Text style={styles.masterOrderSite}>
-                      {order.site} • {order.city}, {order.state}
-                    </Text>
-                    <Text style={styles.masterOrderTime}>
-                      {order.serviceDate}
-                    </Text>
-                    {order.genNumber && (
-                      <View style={styles.masterOrderBadges}>
-                        {order.orderType && (
-                          <Badge
-                            variant="outline"
-                            style={styles.masterOrderMetaBadge}>
-                            {order.orderType}
-                          </Badge>
-                        )}
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                ))
-              ) : (
-                completedOrdersList.length === 0 ? (
-                  <View style={styles.emptyState}>
-                    <Text style={styles.emptyStateTitle}>
-                      No Orders Scheduled
-                    </Text>
-                    <Text style={styles.emptyStateText}>
-                      You have no orders scheduled for today.
-                    </Text>
-                  </View>
-                ) : null
-              )}
-              {/* Completed Orders Section - collapsed at bottom (master-detail) */}
-              {completedOrdersList.length > 0 && (
-                <View style={styles.completedOrdersSection}>
-                  <TouchableOpacity
-                    style={styles.completedOrdersHeaderRow}
-                    onPress={() => setCompletedOrdersSectionCollapsed(prev => !prev)}
-                    activeOpacity={0.7}>
-                    <View style={styles.completedOrdersTitleRow}>
-                      <Icon name="check-circle" size={18} color={colors.success} style={styles.completedOrdersIcon} />
-                      <Text style={styles.completedOrdersTitle}>
-                        Completed ({completedOrdersList.length})
-                      </Text>
-                      <Icon
-                        name={completedOrdersSectionCollapsed ? 'keyboard-arrow-down' : 'keyboard-arrow-up'}
-                        size={24}
-                        color={colors.mutedForeground}
-                      />
-                    </View>
-                  </TouchableOpacity>
-                  {!completedOrdersSectionCollapsed &&
-                    completedOrdersList.map((order, index) => (
-                      <TouchableOpacity
-                        key={index}
-                        style={styles.completedOrderCard}
-                        onPress={() => setDashboardSelectedOrder(order)}
-                        activeOpacity={0.7}>
-                        <View style={styles.completedOrderContent}>
-                          <View style={styles.completedOrderLeft}>
-                            <Text style={styles.completedOrderNumber}>
-                              {order.orderNumber}
-                            </Text>
-                            <Text style={styles.completedOrderCustomer}>
-                              {formatCustomerWithStore(order.customer, order.site)}
-                            </Text>
-                          </View>
-                          <View style={styles.completedOrderRight}>
-                            <Icon name="check-circle" size={20} color={colors.success} />
-                          </View>
-                        </View>
-                      </TouchableOpacity>
-                    ))}
-                </View>
-              )}
-            </ScrollView>
-          </View>
-
-          {/* Detail Pane - Order Details */}
-          <View style={styles.detailPane}>
-            {selectedOrder ? (
-              <ScrollView
-                style={styles.detailPaneScroll}
-                contentContainerStyle={styles.detailPaneContent}
-                keyboardShouldPersistTaps="handled">
-                <View style={styles.detailPaneHeader}>
-                  <Text style={styles.detailPaneTitle} numberOfLines={1}>
-                    {selectedOrder.orderNumber}
-                  </Text>
-                  <Badge
-                    variant={
-                      getOrderStatus(selectedOrder) === 'Scheduled'
-                        ? 'secondary'
-                        : getOrderStatus(selectedOrder) === 'Partial'
-                          ? 'default'
-                          : getOrderStatus(selectedOrder) === 'In Progress'
-                            ? 'default'
-                            : getOrderStatus(selectedOrder) === 'Completed'
-                              ? 'default'
-                              : 'destructive'
-                    }>
-                    {getOrderStatus(selectedOrder)}
-                  </Badge>
-                </View>
-
-                {/* Primary Contact Section - Prominently placed above the fold */}
-                <Card style={styles.contactCard}>
-                  <CardHeader>
-                    <CardTitle>
-                      <CardTitleText>Primary Contact</CardTitleText>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {selectedOrder.primaryContactName ||
-                    selectedOrder.primaryContactPhone ||
-                    selectedOrder.primaryContactEmail ? (
-                      <>
-                        {selectedOrder.primaryContactName && (
-                          <View style={styles.contactRow}>
-                            <Text style={styles.contactLabel}>Name:</Text>
-                            <Text style={styles.contactValue}>
-                              {selectedOrder.primaryContactName}
-                            </Text>
-                          </View>
-                        )}
-                        {selectedOrder.primaryContactPhone ? (
-                          <View style={styles.contactRow}>
-                            <Text style={styles.contactLabel}>Phone:</Text>
-                            <TouchableOpacity
-                              onPress={() =>
-                                handlePhoneCall(selectedOrder.primaryContactPhone!)
-                              }
-                              activeOpacity={0.7}>
-                              <Text style={styles.contactLink}>
-                                {formatPhoneNumber(selectedOrder.primaryContactPhone)}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-                        ) : (
-                          <View style={styles.contactRow}>
-                            <Text style={styles.contactLabel}>Phone:</Text>
-                            <Text style={styles.contactValue}>—</Text>
-                          </View>
-                        )}
-                        {selectedOrder.primaryContactEmail ? (
-                          <View style={styles.contactRow}>
-                            <Text style={styles.contactLabel}>Email:</Text>
-                            <TouchableOpacity
-                              onPress={() =>
-                                handleEmail(selectedOrder.primaryContactEmail!)
-                              }
-                              activeOpacity={0.7}>
-                              <Text style={styles.contactLink}>
-                                {selectedOrder.primaryContactEmail}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-                        ) : (
-                          <View style={styles.contactRow}>
-                            <Text style={styles.contactLabel}>Email:</Text>
-                            <Text style={styles.contactValue}>—</Text>
-                          </View>
-                        )}
-                        {selectedOrder.hasSecondaryContacts && (
-                          <TouchableOpacity
-                            style={styles.viewAllContactsButton}
-                            onPress={() => {
-                              Alert.alert(
-                                'All Contacts',
-                                'Secondary contacts feature coming soon.',
-                              );
-                            }}
-                            activeOpacity={0.7}>
-  
-                          </TouchableOpacity>
-                        )}
-                      </>
-                    ) : (
-                      <View style={styles.noContactContainer}>
-                        <Text style={styles.noContactText}>
-                          No contact on file
-                        </Text>
-                      </View>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card style={styles.detailCard}>
-                  <CardHeader>
-                    <CardTitle>
-                      <CardTitleText>Order Information</CardTitleText>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Customer:</Text>
-                      <View style={styles.detailValueContainer}>
-                        <Text style={styles.detailValue}>
-                          {selectedOrder.customer}
-                        </Text>
-                        {extractStoreNumber(selectedOrder.site) && (
-                          <Text style={styles.storeNumber}>
-                            Store #{extractStoreNumber(selectedOrder.site)}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Site:</Text>
-                      <Text style={styles.detailValue}>
-                        {selectedOrder.site}
-                      </Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Location:</Text>
-                      <Text style={styles.detailValue}>
-                        {selectedOrder.site}
-                        {selectedOrder.city && `, ${selectedOrder.city}`}
-                        {selectedOrder.state && `, ${selectedOrder.state}`}
-                        {selectedOrder.zip && ` ${selectedOrder.zip}`}
-                      </Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Expected Date:</Text>
-                      <Text style={styles.detailValue}>
-                        {selectedOrder.serviceDate}
-                      </Text>
-                    </View>
-
-                    {selectedOrder.orderType && (
-                      <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Order Type:</Text>
-                        <Text style={styles.detailValue}>
-                          {selectedOrder.orderType}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={[styles.detailRow, styles.programsDetailRow]}>
-                      <Text style={styles.detailLabel}>Service Types:</Text>
-                      <View style={styles.programsContainerInline}>
-                        {selectedOrder.programs.map((program, i) => {
-                          const serviceOrderNumber = selectedOrder.serviceOrderNumbers?.[program];
-                          const noship = isServiceTypeNoShip(selectedOrder.orderNumber, program);
-                          const entry = serviceTypeTimeService.getTimeEntry(selectedOrder.orderNumber, program);
-                          const hasStart = entry?.startTime != null;
-                          const hasEnd = entry?.endTime != null;
-                          const inProgress = activeServiceTypeTimer === program;
-                          const completed = !noship && hasStart && hasEnd;
-                          const pending = !noship && !completed && !inProgress;
-                          const badgeStyle = [
-                            styles.programBadge,
-                            noship && styles.programBadgeNoship,
-                            completed && styles.programBadgeCompleted,
-                            inProgress && styles.programBadgeInProgress,
-                            pending && styles.programBadgePending,
-                          ].filter(Boolean) as ViewStyle[];
-                          const textStyle = noship
-                            ? styles.programBadgeTextNoship
-                            : completed
-                              ? styles.programBadgeTextCompleted
-                              : inProgress
-                                ? styles.programBadgeTextInProgress
-                                : styles.programBadgeTextPending;
-                          const chevronColor = noship
-                            ? colors.mutedForeground
-                            : completed
-                              ? colors.success
-                              : inProgress
-                                ? colors.info
-                                : colors.warning;
-                          const canEditOrder = !isSelectedOrderCompleted;
-                          return (
-                            <Pressable
-                              key={i}
-                              onPress={() => {
-                                if (canEditOrder && selectedOrder) {
-                                  handleDashboardServiceTypeBadgePress(
-                                    selectedOrder,
-                                    program,
-                                    pending,
-                                    noship,
-                                  );
-                                }
-                              }}
-                              disabled={!canEditOrder}
-                              style={({ pressed }) => [
-                                canEditOrder && pressed && { opacity: 0.7 },
-                                !canEditOrder && { opacity: 1 },
-                              ]}
-                              hitSlop={8}>
-                              <Badge
-                                variant="outline"
-                                style={StyleSheet.flatten(badgeStyle)}
-                                textStyle={textStyle}
-                                title={serviceTypeService.getServiceTypeName(program)}
-                                trailingIcon={
-                                  <Icon name="chevron-right" size={20} color={chevronColor} />
-                                }>
-                                {serviceOrderNumber
-                                  ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
-                                  : serviceTypeService.formatForBadge(program)}
-                              </Badge>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                    </View>
-
-                    <View style={[styles.detailActionsRow]}>
-                      {isSelectedOrderCompleted ? (
-                        <Text style={styles.detailActionsOrderCompletedText}>
-                          Order completed
-                        </Text>
-                      ) : (
-                        <>
-                          {isOrderReadyForManifest(selectedOrder) && (
-                            <>
-                              <Button
-                                title={hasManifestForOrder(selectedOrder.orderNumber) ? 'Open manifest' : 'Continue to manifest'}
-                                variant="primary"
-                                size="lg"
-                                style={styles.detailActionsRowButton}
-                                onPress={() => {
-                                  if (selectedOrder) {
-                                    handleGenerateManifestForOrder(selectedOrder);
-                                  }
-                                }}
-                              />
-                              {hasManifestForOrder(selectedOrder.orderNumber) && (
-                                <Button
-                                  title="Void manifest"
-                                  variant="destructive"
-                                  size="lg"
-                                  style={styles.detailActionsRowButton}
-                                  onPress={voidManifest}
-                                />
-                              )}
-                            </>
-                          )}
-                          {selectedOrder.programs.every((p) =>
-                            isServiceTypeNoShip(selectedOrder.orderNumber, p),
-                          ) ? (
-                            <Button
-                              title="Complete Order as No-Ship"
-                              variant="primary"
-                              size="lg"
-                              style={styles.detailActionsRowButton}
-                              onPress={() => {
-                                if (!selectedOrder) return;
-                                setCompletedOrders((prev) =>
-                                  prev.includes(selectedOrder.orderNumber)
-                                    ? prev
-                                    : [...prev, selectedOrder.orderNumber],
-                                );
-                                setSelectedServiceTypeToStart(null);
-                              }}
-                            />
-                          ) : (
-                            null
-                          )}
-                        </>
-                      )}
-                    </View>
-                  </CardContent>
-                </Card>
-
-                <View style={styles.detailNotesSection}>
-                  <View style={styles.detailNotesHeader}>
-                    <Text style={styles.detailNotesTitle}>Service Notes</Text>
-                    {hasDetailNotes && (
-                      <Badge variant="secondary">
-                        Review
-                      </Badge>
-                    )}
-                  </View>
-                  {hasDetailNotes ? (
-                    <>
-                      {selectedOrder.customerSpecialInstructions && (
-                        <Card style={styles.jobNotesCard}>
-                          <CardHeader>
-                            <CardTitle>
-                              <CardTitleText>Customer Special Instructions</CardTitleText>
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <Text style={styles.jobNotesText}>
-                              {selectedOrder.customerSpecialInstructions}
-                            </Text>
-                          </CardContent>
-                        </Card>
-                      )}
-
-                      {selectedOrder.siteAccessNotes && (
-                        <Card style={styles.jobNotesCard}>
-                          <CardHeader>
-                            <CardTitle>
-                              <CardTitleText>Site Access Notes</CardTitleText>
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <Text style={styles.jobNotesText}>
-                              {selectedOrder.siteAccessNotes}
-                            </Text>
-                          </CardContent>
-                        </Card>
-                      )}
-
-                      {selectedOrder.safetyWarnings &&
-                        selectedOrder.safetyWarnings.length > 0 && (
-                          <Card style={styles.jobNotesSafetyCard}>
-                            <CardHeader>
-                              <CardTitle>
-                                <View style={styles.jobNotesSafetyTitleContainer}>
-                                  <Icon
-                                    name="warning"
-                                    size={20}
-                                    color={colors.destructive}
-                                    style={styles.jobNotesSafetyIcon}
-                                  />
-                                  <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
-                                    Safety Warnings
-                                  </Text>
-                                </View>
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              {selectedOrder.safetyWarnings.map((warning, index) => (
-                                <View key={index} style={styles.safetyWarningItem}>
-                                  <Text style={styles.safetyWarningText}>{warning}</Text>
-                                </View>
-                              ))}
-                            </CardContent>
-                          </Card>
-                        )}
-
-                      {detailLastThreeNotes.length > 0 && (
-                        <Card style={styles.jobNotesCard}>
-                          <CardHeader>
-                            <CardTitle>
-                              <CardTitleText>Previous Service Notes</CardTitleText>
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            {detailLastThreeNotes.map((note, index) => (
-                              <View key={index} style={styles.previousNoteItem}>
-                                <View style={styles.previousNoteHeader}>
-                                  <Text style={styles.previousNoteDate}>{note.date}</Text>
-                                  {note.technician && (
-                                    <Text style={styles.previousNoteTechnician}>
-                                      {note.technician}
-                                    </Text>
-                                  )}
-                                </View>
-                                <Text style={styles.previousNoteText}>{note.note}</Text>
-                              </View>
-                            ))}
-                          </CardContent>
-                        </Card>
-                      )}
-                    </>
-                  ) : (
-                    <Text style={styles.detailNotesEmptyText}>
-                      No service notes on file.
-                    </Text>
-                  )}
-                </View>
-
-                <View style={styles.detailActions}>
-                  {isSelectedOrderCompleted ? (
-                    <Button
-                      title="Order Completed"
-                      variant="primary"
-                      size="lg"
-                      disabled
-                      onPress={() => {}}
-                    />
-                  ) : (
-                    <>
-                      {/* <Text style={styles.detailLabel}>Service types</Text>
-                      <View style={styles.serviceTypeSelectionInlineList}>
-                        {selectedOrder.programs.map((serviceTypeId) => {
-                          const order = selectedOrder;
-                          const timeEntry = serviceTypeTimeEntries.get(serviceTypeId);
-                          const hasStartTime = timeEntry != null && timeEntry.startTime != null;
-                          const hasEndTime = timeEntry != null && timeEntry.endTime != null;
-                          const isNoShip = isServiceTypeNoShip(order.orderNumber, serviceTypeId);
-                          const isSelected = selectedServiceTypeToStart === serviceTypeId;
-                          const isSelectable = !isNoShip && !(hasStartTime && hasEndTime);
-                          const isInProgress = activeServiceTypeTimer === serviceTypeId;
-                          const isCompleted = !isNoShip && hasStartTime && hasEndTime;
-                          const isPending = !isNoShip && !isCompleted && !isInProgress;
-                          const isChoosingReason = noShipReasonServiceTypeId === serviceTypeId;
-                          const switchValue = isNoShip || isChoosingReason;
-                          return (
-                            <View
-                              key={serviceTypeId}
-                              style={[
-                                styles.serviceTypeSelectionItem,
-                                isPending && styles.serviceTypeSelectionItemPending,
-                                isInProgress && styles.serviceTypeSelectionItemInProgress,
-                                isCompleted && styles.serviceTypeSelectionItemCompleted,
-                                isNoShip && styles.serviceTypeSelectionItemNoShip,
-                                isSelected && styles.serviceTypeSelectionItemSelected,
-                              ]}>
-                              <View style={styles.serviceTypeSelectionItemContent}>
-                                <TouchableOpacity
-                                  style={styles.serviceTypeSelectionItemLeft}
-                                  onPress={() => {
-                                    if (!isSelectable) return;
-                                    setSelectedServiceTypeToStart(serviceTypeId);
-                                  }}
-                                  activeOpacity={0.7}
-                                  disabled={!isSelectable}>
-                                  <Text
-                                    style={[
-                                      styles.serviceTypeSelectionItemName,
-                                      isPending && styles.serviceTypeSelectionItemNamePending,
-                                      isInProgress && styles.serviceTypeSelectionItemNameInProgress,
-                                      isCompleted && styles.serviceTypeSelectionItemNameCompleted,
-                                      isNoShip && styles.serviceTypeSelectionItemNameNoShip,
-                                    ]}>
-                                    {serviceTypeService.formatForOrderDetails(serviceTypeId)}
-                                  </Text>
-                                  {!isNoShip && timeEntry?.durationMinutes != null && (
-                                    <Badge variant="outline" style={styles.serviceTypeSelectionDurationBadge}>
-                                      {serviceTypeTimeService.formatDuration(timeEntry.durationMinutes)}
-                                    </Badge>
-                                  )}
-                                  {!isNoShip && activeServiceTypeTimer === serviceTypeId && (
-                                    <Badge variant="secondary" style={styles.serviceTypeSelectionActiveBadge}>
-                                      Active
-                                    </Badge>
-                                  )}
-                                  {!isNoShip && hasStartTime && hasEndTime && (
-                                    <Badge variant="default" style={styles.serviceTypeSelectionCompletedBadge}>
-                                      Completed
-                                    </Badge>
-                                  )}
-                                  {isNoShip && (
-                                    <Badge variant="outline" style={styles.serviceTypeSelectionNoShipBadge}>
-                                      No-Ship
-                                    </Badge>
-                                  )}
-                                </TouchableOpacity>
-                                <View style={styles.serviceTypeSelectionNoShipToggleWrap}>
-                                  <Text style={styles.serviceTypeSelectionNoShipLabel} numberOfLines={1}>
-                                    No-Ship
-                                  </Text>
-                                  <Switch
-                                    value={switchValue}
-                                    onValueChange={(value) => {
-                                      if (value) {
-                                        if (hasStartTime && !hasEndTime) {
-                                          Alert.alert(
-                                            'No-Ship After Service Started',
-                                            'This service type has already been started. Do you want to mark it as No-Ship? You will need to provide a reason code.',
-                                            [
-                                              {text: 'Cancel', style: 'cancel'},
-                                              {
-                                                text: 'Mark as No-Ship',
-                                                onPress: () => {
-                                                  setNoShipReasonOrderNumber(order.orderNumber);
-                                                  setNoShipReasonServiceTypeId(serviceTypeId);
-                                                  setNoShipReasonCode('');
-                                                  setNoShipReasonNotes('');
-                                                },
-                                              },
-                                            ],
-                                          );
-                                          return;
-                                        }
-                                        setNoShipReasonOrderNumber(order.orderNumber);
-                                        setNoShipReasonServiceTypeId(serviceTypeId);
-                                        setNoShipReasonCode('');
-                                        setNoShipReasonNotes('');
-                                      } else {
-                                        if (isChoosingReason) {
-                                          setNoShipReasonOrderNumber(null);
-                                          setNoShipReasonServiceTypeId(null);
-                                          setNoShipReasonCode('');
-                                          setNoShipReasonNotes('');
-                                        } else {
-                                          clearNoShipForServiceType(order.orderNumber, serviceTypeId);
-                                          if (selectedServiceTypeToStart === serviceTypeId) {
-                                            setSelectedServiceTypeToStart(null);
-                                          }
-                                        }
-                                      }
-                                    }}
-                                  />
-                                </View>
-                              </View>
-                            </View>
-                          );
-                        })}
-                      </View>
-                      {noShipReasonServiceTypeId != null &&
-                        noShipReasonOrderNumber === selectedOrder.orderNumber && (
-                        <View style={styles.noShipReasonInlinePanel}>
-                          <Text style={styles.noShipReasonInlineTitle}>Select No-Ship Reason</Text>
-                          <Text style={styles.serviceTypeSelectionModalDescription}>
-                            Required for audit and billing. Choose a reason code (Rule 52).
-                          </Text>
-                          <ScrollView
-                            style={styles.noShipReasonInlineList}
-                            keyboardShouldPersistTaps="handled"
-                            nestedScrollEnabled>
-                            {(Object.keys(NO_SHIP_REASON_CODES) as NoShipReasonCode[]).map((code) => (
-                              <TouchableOpacity
-                                key={code}
-                                style={[
-                                  styles.noShipReasonRow,
-                                  noShipReasonCode === code && styles.noShipReasonRowSelected,
-                                ]}
-                                onPress={() => setNoShipReasonCode(code)}>
-                                <Text style={styles.noShipReasonCode}>{code}</Text>
-                                <Text style={styles.noShipReasonLabel}>{getNoShipReasonLabel(code)}</Text>
-                              </TouchableOpacity>
-                            ))}
-                          </ScrollView>
-                          {isOtherReason(noShipReasonCode) && (
-                            <View style={styles.noShipReasonNotesSection}>
-                              <Text style={styles.noShipReasonNotesLabel}>
-                                Notes (required, min {MIN_OTHER_NOTES_LENGTH} characters)
-                              </Text>
-                              <TextInput
-                                style={styles.noShipReasonNotesInput}
-                                value={noShipReasonNotes}
-                                onChangeText={setNoShipReasonNotes}
-                                placeholder="Enter reason details..."
-                                multiline
-                                numberOfLines={3}
-                              />
-                            </View>
-                          )}
-                          <View style={styles.noShipReasonInlineActions}>
-                            <Button
-                              title="Cancel"
-                              variant="outline"
-                              onPress={() => {
-                                setNoShipReasonOrderNumber(null);
-                                setNoShipReasonServiceTypeId(null);
-                                setNoShipReasonCode('');
-                                setNoShipReasonNotes('');
-                              }}
-                            />
-                            <Button
-                              title="Confirm"
-                              variant="primary"
-                              disabled={
-                                !noShipReasonCode ||
-                                (isOtherReason(noShipReasonCode) &&
-                                  noShipReasonNotes.trim().length < MIN_OTHER_NOTES_LENGTH)
-                              }
-                              onPress={() => {
-                                if (!noShipReasonOrderNumber || !noShipReasonServiceTypeId) return;
-                                if (!noShipReasonCode) return;
-                                if (
-                                  isOtherReason(noShipReasonCode) &&
-                                  noShipReasonNotes.trim().length < MIN_OTHER_NOTES_LENGTH
-                                )
-                                  return;
-                                setNoShipForServiceType(noShipReasonOrderNumber, noShipReasonServiceTypeId, {
-                                  reasonCode: noShipReasonCode as NoShipReasonCode,
-                                  ...(isOtherReason(noShipReasonCode)
-                                    ? {notes: noShipReasonNotes.trim()}
-                                    : {}),
-                                });
-                                setNoShipReasonOrderNumber(null);
-                                setNoShipReasonServiceTypeId(null);
-                                setNoShipReasonCode('');
-                                setNoShipReasonNotes('');
-                              }}
-                            />
-                          </View>
-                        </View>
-                      )}
-                      {selectedOrder.programs.every((p) =>
-                        isServiceTypeNoShip(selectedOrder.orderNumber, p),
-                      ) && (
-                        <View style={styles.serviceTypeSelectionModalAllNoShipBanner}>
-                          <Text style={styles.serviceTypeSelectionModalAllNoShipText}>
-                            All service types are No-Ship. Complete order as No-Ship (Rule 51).
-                          </Text>
-                        </View>
-                      )} */}
-                    </>
-                  )}
-                </View>
-              </ScrollView>
-            ) : (
-              <View style={styles.detailPaneEmpty}>
-                <Text style={styles.detailPaneEmptyTitle}>Select an Order</Text>
-                <Text style={styles.detailPaneEmptyText}>
-                  Choose an order from the list to view details and start
-                  service.
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-        )}
-      </View>
-    );
+    return <ExtDashboardScreen {...dashboardScreenProps} />;
   };
 
   // Standard Full-Screen Dashboard Screen (original)
-  const DashboardScreen = () => {
-    // Use MOCK_ORDERS directly to ensure it's accessible
-    const allOrders = MOCK_ORDERS || orders || [];
-    // Split orders into active and completed
-    const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
-    const completedOrdersList = allOrders.filter(order => isOrderCompleted(order.orderNumber));
-    const dashboardDate = useMemo(() => {
-      const d = new Date();
-      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-    }, []);
-    const hasDashboardNotes = dashboardSelectedOrder
-      ? hasOrderNotes(dashboardSelectedOrder)
-      : false;
-    const dashboardLastThreeNotes = dashboardSelectedOrder?.previousServiceNotes
-      ? dashboardSelectedOrder.previousServiceNotes.slice(0, 3)
-      : [];
-
-    // Get offline limit warning message for header
-    const getOfflineLimitMessage = () => {
-      if (offlineStatus.isOnline) return null;
-
-      const {warningLevel, offlineDurationMs} = offlineStatus;
-      if (warningLevel === 'blocked') return null; // Modal handles this
-
-      let messageText = '';
-      let messageStyle = styles.offlineLimitMessage;
-      let iconColor = colors.warning;
-
-      if (warningLevel === 'critical') {
-        const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
-        const remainingMinutes = Math.floor(remainingMs / (60 * 1000));
-        if (remainingMinutes < 60) {
-          messageText = `Critical: ${remainingMinutes} min remaining`;
-        } else {
-          const remainingHours = Math.floor(remainingMinutes / 60);
-          const remainingMins = remainingMinutes % 60;
-          messageText = `Critical: ${remainingHours} hr ${remainingMins} min remaining`;
-        }
-        messageStyle = styles.offlineLimitMessageCritical;
-        iconColor = colors.destructive;
-      } else if (warningLevel === 'orange') {
-        const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
-        const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
-        const remainingMins = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
-        messageText = `Warning: ${remainingHours} hr ${remainingMins} min remaining`;
-        messageStyle = styles.offlineLimitMessageOrange;
-        iconColor = '#FF6B35';
-      } else if (warningLevel === 'warning') {
-        const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
-        const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
-        messageText = `Warning: ${remainingHours} hr${remainingHours !== 1 ? 's' : ''} remaining`;
-        messageStyle = styles.offlineLimitMessageWarning;
-        iconColor = colors.warning;
-      }
-
-      if (!messageText) return null;
-
-      return (
-        <View style={messageStyle}>
-          <Icon name="warning" size={14} color={iconColor} />
-          <Text style={styles.offlineLimitMessageText}>{messageText}</Text>
-        </View>
-      );
-    };
-
-    return (
-      <View style={styles.container}>
-        <View style={styles.headerCompact}>
-          <View style={styles.headerCompactLeft}>
-            {/* <TouchableOpacity
-              style={styles.headerCompactDashboard}
-              onPress={() => setDashboardViewTab('dashboard')}
-              activeOpacity={0.7}
-              hitSlop={8}
-              accessibilityLabel="Dashboard tab"
-              accessibilityRole="button">
-              <Icon name="home" size={22} color={colors.primary} />
-              <Text style={styles.headerCompactDashboardText}>Dashboard</Text>
-            </TouchableOpacity>
-            <Text style={styles.headerCompactTitle} numberOfLines={1}>
-              Upcoming Orders
-            </Text> */}
-
-            <TouchableOpacity
-              style={styles.headerCompactUser}
-              onPress={() => onNavigate?.('Settings')}
-              activeOpacity={0.7}
-              hitSlop={8}>
-              <View style={styles.dashboardHeaderCompactMeta}>
-                <View style={styles.dashboardHeaderCompactRow}>
-                  <Text style={styles.dashboardHeaderCompactName} numberOfLines={1}>
-                    {username || 'User'}
-                  </Text>
-                  <View style={[styles.dashboardHeaderCompactStatusBadge, dashboardDutyStatus === 'On duty' && styles.dashboardHeaderStatusBadgeActive]}>
-                    <Text style={[styles.dashboardHeaderCompactStatusText, dashboardDutyStatus === 'On duty' && styles.dashboardHeaderStatusTextActive]} numberOfLines={1}>
-                      {dashboardDutyStatus}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={styles.dashboardHeaderCompactDetail} numberOfLines={2}>
-                  {selectedTruck ? selectedTruck.number : truckId || '—'}
-                  {'  ·  '}
-                  {selectedTrailer ? selectedTrailer.number : '—'}
-                  {dashboardRouteId ? `  ·  ${dashboardRouteId}` : ''}
-                  {'  ·  '}
-                  {dashboardStartOfDay
-                    ? `Start ${serviceTypeTimeService.formatTime(dashboardStartOfDay)} • Time on duty ${formatDuration(
-                        dashboardDutyElapsedMs,
-                      )}`
-                    : `Time on duty ${formatDuration(dashboardDutyElapsedMs)}`}
-                  {serviceCenter && `  ·  ${serviceCenterService.getDisplayFormat(false)}`}
-                </Text>
-
-              </View>
-            </TouchableOpacity>
-            {getOfflineLimitMessage()}
-          </View>
-          <View style={styles.headerCompactActions}>
-            {activeContainerCount > 0 ? (
-              <Button
-                title="Drop"
-                variant="primary"
-                size="sm"
-                onPress={() => setShowDropWasteModal(true)}
-              />
-            ) : (
-              <Button
-                title={
-                  upcomingOrdersWithNotes.length > 0
-                    ? `View Notes (${upcomingOrdersWithNotes.length})`
-                    : 'View Notes'
-                }
-                variant="outline"
-                size="sm"
-                onPress={() => setShowAllNotesModal(true)}
-              />
-            )}
-            <TouchableOpacity
-              style={styles.headerMoreButton}
-              onPress={() => setShowHeaderMenuModal(true)}
-              hitSlop={8}
-              activeOpacity={0.7}>
-              <Icon name="more-vert" size={24} color={colors.foreground} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Header "More" menu — progressive disclosure for Sync, View Notes, Master-Detail, Back */}
-        <Modal
-          visible={showHeaderMenuModal}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowHeaderMenuModal(false)}>
-          <View style={styles.headerMenuOverlay}>
-            <Pressable
-              style={StyleSheet.absoluteFill}
-              onPress={() => setShowHeaderMenuModal(false)}
-            />
-            <View style={styles.headerMenuCard} pointerEvents="box-none">
-              {activeContainerCount > 0 && (
-                <TouchableOpacity
-                  style={styles.headerMenuItem}
-                  onPress={() => {
-                    setShowHeaderMenuModal(false);
-                    setShowAllNotesModal(true);
-                  }}
-                  activeOpacity={0.7}>
-                  <Text style={styles.headerMenuItemText}>
-                    {upcomingOrdersWithNotes.length > 0
-                      ? `View Notes (${upcomingOrdersWithNotes.length})`
-                      : 'View Notes'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity
-                style={styles.headerMenuItem}
-                onPress={() => {
-                  setShowHeaderMenuModal(false);
-                  if (!(syncStatus === 'syncing' || !offlineStatus.isOnline)) {
-                    handleManualSync();
-                  }
-                }}
-                disabled={syncStatus === 'syncing' || !offlineStatus.isOnline}
-                activeOpacity={0.7}>
-                <Text style={styles.headerMenuItemText}>
-                  {syncStatus === 'syncing' ? 'Syncing...' : 'Sync'}
-                </Text>
-                {syncStatus !== 'syncing' && (
-                  <View
-                    style={[
-                      styles.syncDot,
-                      (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncDotSynced,
-                      (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncDotError,
-                    ]}
-                  />
-                )}
-              </TouchableOpacity>
-              {serviceCenter && (
-                <TouchableOpacity
-                  style={styles.headerMenuItem}
-                  onPress={() => {
-                    setShowHeaderMenuModal(false);
-                    setShowServiceCenterModal(true);
-                  }}
-                  activeOpacity={0.7}>
-                  <Text style={styles.headerMenuItemText} numberOfLines={1}>
-                    {serviceCenterService.getDisplayFormat(false)}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              {isTablet() && isLandscape() && (
-                <TouchableOpacity
-                  style={styles.headerMenuItem}
-                  onPress={() => {
-                    setShowHeaderMenuModal(false);
-                    const allOrders = MOCK_ORDERS || orders || [];
-                    const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
-                    if (activeOrders.length > 0 && !dashboardSelectedOrder) {
-                      setDashboardSelectedOrder(activeOrders[0]);
-                    }
-                    setUseMasterDetail(true);
-                  }}
-                  activeOpacity={0.7}>
-                  <Text style={styles.headerMenuItemText}>Master-Detail</Text>
-                </TouchableOpacity>
-              )}
-              {(onGoBack || onNavigate) && (
-                <TouchableOpacity
-                  style={styles.headerMenuItem}
-                  onPress={() => {
-                    setShowHeaderMenuModal(false);
-                    setDashboardViewTab('dashboard');
-                  }}
-                  activeOpacity={0.7}>
-                  <Text style={styles.headerMenuItemText}>Back to Dashboard</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        </Modal>
-
-        {/* FR-3a.EXT.3.3: Running total — current total weight and container count (active only); resets to 0 when all dropped */}
-        <View style={styles.runningTotalRow}>
-          <Text style={styles.runningTotalLabel}>Running total:</Text>
-          <Text style={styles.runningTotalValue}>
-            {activeContainerCount} container{activeContainerCount !== 1 ? 's' : ''} • {currentTotalWeight.toLocaleString()} lbs
-          </Text>
-        </View>
-
-        <View style={styles.dashboardTabBar}>
-          <View style={styles.dashboardTabGroup}>
-            <TouchableOpacity
-              style={[styles.dashboardTab, dashboardViewTab === 'dashboard' && styles.dashboardTabActive]}
-              onPress={() => setDashboardViewTab('dashboard')}
-              activeOpacity={0.8}
-              accessibilityRole="tab"
-              accessibilityState={{selected: dashboardViewTab === 'dashboard'}}>
-              <Text style={[styles.dashboardTabText, dashboardViewTab === 'dashboard' && styles.dashboardTabTextActive]}>Dashboard</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.dashboardTab, dashboardViewTab === 'orders' && styles.dashboardTabActive]}
-              onPress={() => setDashboardViewTab('orders')}
-              activeOpacity={0.8}
-              accessibilityRole="tab"
-              accessibilityState={{selected: dashboardViewTab === 'orders'}}>
-              <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Upcoming Orders</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.dashboardTabDateLabel} numberOfLines={1}>
-            {dashboardDate}
-          </Text>
-        </View>
-
-        {dashboardViewTab === 'dashboard' ? (
-          renderDashboardTabContent(activeOrders)
-        ) : (
-        <View style={styles.scrollViewContainer}>
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={[
-              styles.scrollContent,
-              isTablet() && styles.scrollContentTablet,
-            ]}
-            showsVerticalScrollIndicator={true}
-            nestedScrollEnabled={true}
-            bounces={false}
-            keyboardShouldPersistTaps="handled">
-            
-            {/* Show order details if an order is selected */}
-            {dashboardSelectedOrder ? (
-              <>
-                <View style={styles.detailPaneHeader}>
-                  <TouchableOpacity
-                    onPress={() => setDashboardSelectedOrder(null)}
-                    activeOpacity={0.7}>
-                    <Icon name="arrow-back" size={20} color={colors.foreground} />
-                    <Text style={styles.backButtonText}>Back to Orders</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.detailPaneTitle} numberOfLines={1}>
-                    {dashboardSelectedOrder.orderNumber}
-                  </Text>
-                  <Badge
-                    variant={
-                      getOrderStatus(dashboardSelectedOrder) === 'Scheduled'
-                        ? 'secondary'
-                        : getOrderStatus(dashboardSelectedOrder) === 'Partial'
-                          ? 'default'
-                          : getOrderStatus(dashboardSelectedOrder) === 'In Progress'
-                            ? 'default'
-                            : 'destructive'
-                    }>
-                    {getOrderStatus(dashboardSelectedOrder)}
-                  </Badge>
-                </View>
-
-                <Card style={styles.contactCard}>
-                  <CardHeader>
-                    <CardTitle>
-                      <CardTitleText>Primary Contact</CardTitleText>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {dashboardSelectedOrder.primaryContactName ||
-                    dashboardSelectedOrder.primaryContactPhone ||
-                    dashboardSelectedOrder.primaryContactEmail ? (
-                      <>
-                        {dashboardSelectedOrder.primaryContactName && (
-                          <View style={styles.contactRow}>
-                            <Text style={styles.contactLabel}>Name:</Text>
-                            <Text style={styles.contactValue}>
-                              {dashboardSelectedOrder.primaryContactName}
-                            </Text>
-                          </View>
-                        )}
-                        {dashboardSelectedOrder.primaryContactPhone ? (
-                          <View style={styles.contactRow}>
-                            <Text style={styles.contactLabel}>Phone:</Text>
-                            <TouchableOpacity
-                              onPress={() =>
-                                handlePhoneCall(dashboardSelectedOrder.primaryContactPhone!)
-                              }
-                              activeOpacity={0.7}>
-                              <Text style={styles.contactLink}>
-                                {formatPhoneNumber(dashboardSelectedOrder.primaryContactPhone)}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-                        ) : (
-                          <View style={styles.contactRow}>
-                            <Text style={styles.contactLabel}>Phone:</Text>
-                            <Text style={styles.contactValue}>—</Text>
-                          </View>
-                        )}
-                        {dashboardSelectedOrder.primaryContactEmail ? (
-                          <View style={styles.contactRow}>
-                            <Text style={styles.contactLabel}>Email:</Text>
-                            <TouchableOpacity
-                              onPress={() =>
-                                handleEmail(dashboardSelectedOrder.primaryContactEmail!)
-                              }
-                              activeOpacity={0.7}>
-                              <Text style={styles.contactLink}>
-                                {dashboardSelectedOrder.primaryContactEmail}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-                        ) : (
-                          <View style={styles.contactRow}>
-                            <Text style={styles.contactLabel}>Email:</Text>
-                            <Text style={styles.contactValue}>—</Text>
-                          </View>
-                        )}
-                        {dashboardSelectedOrder.hasSecondaryContacts && (
-                          <TouchableOpacity
-                            style={styles.viewAllContactsButton}
-                            onPress={() => {
-                              Alert.alert(
-                                'All Contacts',
-                                'Secondary contacts feature coming soon.',
-                              );
-                            }}
-                            activeOpacity={0.7}>
-                            <Text style={styles.viewAllContactsText}>
-                              View All Contacts
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-                      </>
-                    ) : (
-                      <View style={styles.noContactContainer}>
-                        <Text style={styles.noContactText}>
-                          No contact on file
-                        </Text>
-                      </View>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card style={styles.detailCard}>
-                  <CardHeader>
-                    <CardTitle>
-                      <CardTitleText>Order Information</CardTitleText>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Customer:</Text>
-                      <View style={styles.detailValueContainer}>
-                        <Text style={styles.detailValue}>
-                          {dashboardSelectedOrder.customer}
-                        </Text>
-                        {extractStoreNumber(dashboardSelectedOrder.site) && (
-                          <Text style={styles.storeNumber}>
-                            Store #{extractStoreNumber(dashboardSelectedOrder.site)}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Site:</Text>
-                      <Text style={styles.detailValue}>
-                        {dashboardSelectedOrder.site}
-                      </Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Location:</Text>
-                      <Text style={styles.detailValue}>
-                        {dashboardSelectedOrder.site}
-                        {dashboardSelectedOrder.city && `, ${dashboardSelectedOrder.city}`}
-                        {dashboardSelectedOrder.state && `, ${dashboardSelectedOrder.state}`}
-                        {dashboardSelectedOrder.zip && ` ${dashboardSelectedOrder.zip}`}
-                      </Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Expected Date:</Text>
-                      <Text style={styles.detailValue}>
-                        {dashboardSelectedOrder.serviceDate}
-                      </Text>
-                    </View>
-
-                    {dashboardSelectedOrder.orderType && (
-                      <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Order Type:</Text>
-                        <Text style={styles.detailValue}>
-                          {dashboardSelectedOrder.orderType}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={[styles.detailRow, styles.programsDetailRow]}>
-                      <Text style={styles.detailLabel}>Service Types:</Text>
-                      <View style={styles.programsContainerInline}>
-                        {dashboardSelectedOrder.programs.map((program, i) => {
-                          const serviceOrderNumber = dashboardSelectedOrder.serviceOrderNumbers?.[program];
-                          const noship = isServiceTypeNoShip(dashboardSelectedOrder.orderNumber, program);
-                          const entry = serviceTypeTimeService.getTimeEntry(dashboardSelectedOrder.orderNumber, program);
-                          const hasStart = entry?.startTime != null;
-                          const hasEnd = entry?.endTime != null;
-                          const inProgress = activeServiceTypeTimer === program;
-                          const completed = !noship && hasStart && hasEnd;
-                          const pending = !noship && !completed && !inProgress;
-                          const badgeStyle = [
-                            styles.programBadge,
-                            noship && styles.programBadgeNoship,
-                            completed && styles.programBadgeCompleted,
-                            inProgress && styles.programBadgeInProgress,
-                            pending && styles.programBadgePending,
-                          ].filter(Boolean) as ViewStyle[];
-                          const textStyle = noship
-                            ? styles.programBadgeTextNoship
-                            : completed
-                              ? styles.programBadgeTextCompleted
-                              : inProgress
-                                ? styles.programBadgeTextInProgress
-                                : styles.programBadgeTextPending;
-                          const chevronColor = noship
-                            ? colors.mutedForeground
-                            : completed
-                              ? colors.success
-                              : inProgress
-                                ? colors.info
-                                : colors.warning;
-                          const canEditOrder = !isOrderCompleted(dashboardSelectedOrder.orderNumber);
-                          return (
-                            <Pressable
-                              key={i}
-                              onPress={() => {
-                                if (canEditOrder && dashboardSelectedOrder) {
-                                  handleDashboardServiceTypeBadgePress(
-                                    dashboardSelectedOrder,
-                                    program,
-                                    pending,
-                                    noship,
-                                  );
-                                }
-                              }}
-                              disabled={!canEditOrder}
-                              style={({ pressed }) => [
-                                canEditOrder && pressed && { opacity: 0.7 },
-                                !canEditOrder && { opacity: 1 },
-                              ]}
-                              hitSlop={8}>
-                              <Badge
-                                variant="outline"
-                                style={StyleSheet.flatten(badgeStyle)}
-                                textStyle={textStyle}
-                                title={serviceTypeService.getServiceTypeName(program)}
-                                trailingIcon={
-                                  <Icon name="chevron-right" size={20} color={chevronColor} />
-                                }>
-                                {serviceOrderNumber
-                                  ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
-                                  : serviceTypeService.formatForBadge(program)}
-                              </Badge>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                    </View>
-
-                    <View style={[styles.detailActionsRow]}>
-                      {isOrderCompleted(dashboardSelectedOrder.orderNumber) ? (
-                        <Text style={styles.detailActionsOrderCompletedText}>
-                          Order completed
-                        </Text>
-                      ) : (
-                        <>
-                          {isOrderReadyForManifest(dashboardSelectedOrder) && (
-                            <>
-                              <Button
-                                title={hasManifestForOrder(dashboardSelectedOrder.orderNumber) ? 'Open manifest' : 'Continue to manifest'}
-                                variant="primary"
-                                size="lg"
-                                style={styles.detailActionsRowButton}
-                                onPress={() => {
-                                  handleGenerateManifestForOrder(dashboardSelectedOrder);
-                                }}
-                              />
-                              {hasManifestForOrder(dashboardSelectedOrder.orderNumber) && (
-                                <Button
-                                  title="Void manifest"
-                                  variant="destructive"
-                                  size="lg"
-                                  style={styles.detailActionsRowButton}
-                                  onPress={voidManifest}
-                                />
-                              )}
-                            </>
-                          )}
-                          {dashboardSelectedOrder.programs.every((p) =>
-                            isServiceTypeNoShip(dashboardSelectedOrder.orderNumber, p),
-                          ) ? (
-                            <Button
-                              title="Complete Order as No-Ship"
-                              variant="primary"
-                              size="lg"
-                              style={styles.detailActionsRowButton}
-                              onPress={() => {
-                                if (!dashboardSelectedOrder) return;
-                                setCompletedOrders((prev) =>
-                                  prev.includes(dashboardSelectedOrder.orderNumber)
-                                    ? prev
-                                    : [...prev, dashboardSelectedOrder.orderNumber],
-                                );
-                                setSelectedServiceTypeToStart(null);
-                              }}
-                            />
-                          ) : (
-                            null
-                          )}
-                        </>
-                      )}
-                    </View>
-                  </CardContent>
-                </Card>
-
-                <View style={styles.detailNotesSection}>
-                  <View style={styles.detailNotesHeader}>
-                    <Text style={styles.detailNotesTitle}>Service Notes</Text>
-                    {hasDashboardNotes && (
-                      <Badge variant="secondary" style={styles.detailNotesBadge}>
-                        Review
-                      </Badge>
-                    )}
-                  </View>
-                  {hasDashboardNotes ? (
-                    <>
-                      {dashboardSelectedOrder.customerSpecialInstructions && (
-                        <Card style={styles.jobNotesCard}>
-                          <CardHeader>
-                            <CardTitle>
-                              <CardTitleText>Customer Special Instructions</CardTitleText>
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <Text style={styles.jobNotesText}>
-                              {dashboardSelectedOrder.customerSpecialInstructions}
-                            </Text>
-                          </CardContent>
-                        </Card>
-                      )}
-
-                      {dashboardSelectedOrder.siteAccessNotes && (
-                        <Card style={styles.jobNotesCard}>
-                          <CardHeader>
-                            <CardTitle>
-                              <CardTitleText>Site Access Notes</CardTitleText>
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <Text style={styles.jobNotesText}>
-                              {dashboardSelectedOrder.siteAccessNotes}
-                            </Text>
-                          </CardContent>
-                        </Card>
-                      )}
-
-                      {dashboardSelectedOrder.safetyWarnings &&
-                        dashboardSelectedOrder.safetyWarnings.length > 0 && (
-                          <Card style={styles.jobNotesSafetyCard}>
-                            <CardHeader>
-                              <CardTitle>
-                                <View style={styles.jobNotesSafetyTitleContainer}>
-                                  <Icon
-                                    name="warning"
-                                    size={20}
-                                    color={colors.destructive}
-                                    style={styles.jobNotesSafetyIcon}
-                                  />
-                                  <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
-                                    Safety Warnings
-                                  </Text>
-                                </View>
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              {dashboardSelectedOrder.safetyWarnings.map((warning, index) => (
-                                <View key={index} style={styles.safetyWarningItem}>
-                                  <Text style={styles.safetyWarningText}>{warning}</Text>
-                                </View>
-                              ))}
-                            </CardContent>
-                          </Card>
-                        )}
-
-                      {dashboardLastThreeNotes.length > 0 && (
-                        <Card style={styles.jobNotesCard}>
-                          <CardHeader>
-                            <CardTitle>
-                              <CardTitleText>Previous Service Notes</CardTitleText>
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            {dashboardLastThreeNotes.map((note, index) => (
-                              <View key={index} style={styles.previousNoteItem}>
-                                <View style={styles.previousNoteHeader}>
-                                  <Text style={styles.previousNoteDate}>{note.date}</Text>
-                                  {note.technician && (
-                                    <Text style={styles.previousNoteTechnician}>
-                                      {note.technician}
-                                    </Text>
-                                  )}
-                                </View>
-                                <Text style={styles.previousNoteText}>{note.note}</Text>
-                              </View>
-                            ))}
-                          </CardContent>
-                        </Card>
-                      )}
-                    </>
-                  ) : (
-                    <Text style={styles.detailNotesEmptyText}>
-                      No service notes on file.
-                    </Text>
-                  )}
-                </View>
-              </>
-            ) : (
-              <>
-                {/* Active Orders Section */}
-                <Text style={styles.ordersCount}>
-                  {activeOrders.length} order
-                  {activeOrders.length !== 1 ? 's' : ''} remaining
-                </Text>
-
-                {activeOrders.length > 0 ? (
-                  activeOrders.map((order, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={[
-                        styles.orderCard,
-                        isTablet() && styles.orderCardTablet,
-                      ]}
-                      onPress={() => {
-                        setDashboardSelectedOrder(order);
-                      }}
-                      activeOpacity={0.7}>
-                  <View style={styles.orderCardHeader}>
-                    <View style={styles.orderCardHeaderLeft}>
-                      <Text style={styles.orderNumber}>
-                        {order.orderNumber}
-                      </Text>
-                     
-                      {order.orderType && (
-                        <Badge variant="outline">{order.orderType}</Badge>
-                      )}
-                    </View>
-                    <Badge
-                      variant={
-                        getOrderStatus(order) === 'Scheduled'
-                          ? 'secondary'
-                          : getOrderStatus(order) === 'Partial'
-                            ? 'default'
-                            : getOrderStatus(order) === 'In Progress'
-                              ? 'default'
-                              : 'destructive'
-                      }>
-                      {getOrderStatus(order)}
-                    </Badge>
-                  </View>
-                  <View style={styles.orderCardBody}>
-                    <Text style={styles.customerName}>
-                      {formatCustomerWithStore(order.customer, order.site)}
-                    </Text>
-                    <Text style={styles.siteInfo}>
-                      {order.site}
-                      {order.city && `, ${order.city}`}
-                      {order.state && `, ${order.state}`}
-                      {order.zip && ` ${order.zip}`}
-                    </Text>
-                    <Text style={styles.serviceDate}>{order.serviceDate}</Text>
-                    <View style={styles.programsContainer}>
-                      {order.programs.map((program, i) => {
-                        const serviceType = serviceTypeService.getServiceType(program);
-                        const serviceOrderNumber = order.serviceOrderNumbers?.[program];
-                        const noship = isServiceTypeNoShip(order.orderNumber, program);
-                        const entry = serviceTypeTimeService.getTimeEntry(order.orderNumber, program);
-                        const hasStart = entry?.startTime != null;
-                        const hasEnd = entry?.endTime != null;
-                        const inProgress =
-                          selectedOrderData?.orderNumber === order.orderNumber &&
-                          activeServiceTypeTimer === program;
-                        const completed = !noship && hasStart && hasEnd;
-                        const pending = !noship && !completed && !inProgress;
-                        const badgeStyle = [
-                          styles.programBadge,
-                          noship && styles.programBadgeNoship,
-                          completed && styles.programBadgeCompleted,
-                          inProgress && styles.programBadgeInProgress,
-                          pending && styles.programBadgePending,
-                        ].filter(Boolean) as ViewStyle[];
-                        const textStyle = noship
-                          ? styles.programBadgeTextNoship
-                          : completed
-                            ? styles.programBadgeTextCompleted
-                            : inProgress
-                              ? styles.programBadgeTextInProgress
-                              : styles.programBadgeTextPending;
-                        const chevronColor = noship
-                          ? colors.mutedForeground
-                          : completed
-                            ? colors.success
-                            : inProgress
-                              ? colors.info
-                              : colors.warning;
-                        const canEditOrder = !isOrderCompleted(order.orderNumber);
-                        return (
-                          <Pressable
-                            key={i}
-                            onPress={(e) => {
-                              if (canEditOrder) {
-                                handleDashboardServiceTypeBadgePress(
-                                  order,
-                                  program,
-                                  pending,
-                                  noship,
-                                );
-                              }
-                            }}
-                            style={({ pressed }) => [
-                              canEditOrder && pressed && { opacity: 0.7 },
-                            ]}
-                            hitSlop={8}>
-                            <Badge
-                              variant="outline"
-                              style={StyleSheet.flatten(badgeStyle)}
-                              textStyle={textStyle}
-                              title={serviceType?.name || program}
-                              trailingIcon={
-                                <Icon name="chevron-right" size={20} color={chevronColor} />
-                              }>
-                              {serviceOrderNumber
-                                ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
-                                : serviceTypeService.formatForBadge(program)}
-                            </Badge>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              ))
-                ) : completedOrdersList.length === 0 ? (
-                  <View style={styles.emptyState}>
-                    <Text style={styles.emptyStateTitle}>No Orders Scheduled</Text>
-                    <Text style={styles.emptyStateText}>
-                      You have no orders scheduled for today.
-                    </Text>
-                  </View>
-                ) : null}
-              </>
-            )}
-
-            {/* Completed Orders Section - collapsed at bottom */}
-            {completedOrdersList.length > 0 && (
-              <View style={styles.completedOrdersSection}>
-                <TouchableOpacity
-                  style={styles.completedOrdersHeaderRow}
-                  onPress={() => setCompletedOrdersSectionCollapsed(prev => !prev)}
-                  activeOpacity={0.7}>
-                  <View style={styles.completedOrdersTitleRow}>
-                    <Icon name="check-circle" size={18} color={colors.success} style={styles.completedOrdersIcon} />
-                    <Text style={styles.completedOrdersTitle}>
-                      Completed ({completedOrdersList.length})
-                    </Text>
-                    <Icon
-                      name={completedOrdersSectionCollapsed ? 'keyboard-arrow-down' : 'keyboard-arrow-up'}
-                      size={24}
-                      color={colors.mutedForeground}
-                    />
-                  </View>
-                </TouchableOpacity>
-                {!completedOrdersSectionCollapsed &&
-                  completedOrdersList.map((order, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={styles.completedOrderCard}
-                      onPress={() => setDashboardSelectedOrder(order)}
-                      activeOpacity={0.7}>
-                      <View style={styles.completedOrderContent}>
-                        <View style={styles.completedOrderLeft}>
-                          <Text style={styles.completedOrderNumber}>
-                            {order.orderNumber}
-                          </Text>
-                          <Text style={styles.completedOrderCustomer}>
-                            {formatCustomerWithStore(order.customer, order.site)}
-                          </Text>
-                        </View>
-                        <View style={styles.completedOrderRight}>
-                          <Icon name="check-circle" size={20} color={colors.success} />
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-              </View>
-            )}
-          </ScrollView>
-        </View>
-        )}
-      </View>
-    );
-  };
-
-  // Ref to maintain focus on search input
-  const searchInputRef = useRef<TextInput>(null);
-  const isInputFocusedRef = useRef(false);
-
-  // Track focus state
-  const handleSearchFocus = useCallback(() => {
-    isInputFocusedRef.current = true;
-  }, []);
-
-  const handleSearchBlur = useCallback(() => {
-    isInputFocusedRef.current = false;
-  }, []);
-
-  // Stable onChange handler that maintains focus
-  const handleSearchChange = useCallback((text: string) => {
-    const wasFocused = isInputFocusedRef.current;
-    setStreamSearchQuery(text);
-    // Restore focus after state update if it was focused
-    if (wasFocused && searchInputRef.current) {
-      // Use setTimeout to ensure focus happens after render cycle
-      setTimeout(() => {
-        searchInputRef.current?.focus();
-      }, 0);
-    }
-  }, []);
-
-  // Persistent Order Header Component
-
-  // StreamSelectionScreen component - defined as a stable component
-  const StreamSelectionScreen = () => {
-    const isCurrentOrderCompleted = selectedOrderData
-      ? isOrderCompleted(selectedOrderData.orderNumber)
-      : false;
-
-    if (!selectedOrderData) return null;
-    
-      // Get warning banner based on offline status
-      const getWarningBanner = () => {
-        if (offlineStatus.isOnline) return null;
-
-        const {warningLevel, offlineDurationMs} = offlineStatus;
-        if (warningLevel === 'blocked') return null; // Modal handles this
-
-        let bannerStyle = styles.offlineWarningBanner;
-        let bannerText = '';
-        let remainingTime = '';
-        let iconColor = colors.foreground;
-
-        if (warningLevel === 'critical') {
-          // Red critical banner at 9.5 hours
-          bannerStyle = styles.offlineCriticalBanner;
-          iconColor = colors.primaryForeground;
-          const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
-          const remainingMinutes = Math.floor(remainingMs / (60 * 1000));
-          if (remainingMinutes < 60) {
-            remainingTime = `${remainingMinutes} min remaining`;
-          } else {
-            const remainingHours = Math.floor(remainingMinutes / 60);
-            const remainingMins = remainingMinutes % 60;
-            remainingTime = `${remainingHours} hr ${remainingMins} min remaining`;
-          }
-          bannerText = `Critical: ${remainingTime} before offline limit`;
-        } else if (warningLevel === 'orange') {
-          // Orange warning banner at 9 hours
-          bannerStyle = styles.offlineOrangeBanner;
-          iconColor = '#FF6B35';
-          const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
-          const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
-          const remainingMins = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
-          remainingTime = `${remainingHours} hr ${remainingMins} min remaining`;
-          bannerText = `Warning: ${remainingTime} before offline limit`;
-        } else if (warningLevel === 'warning') {
-          // Yellow warning banner at 8 hours
-          bannerStyle = styles.offlineWarningBanner;
-          iconColor = colors.foreground;
-          const remainingMs = 10 * 60 * 60 * 1000 - offlineDurationMs;
-          const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
-          remainingTime = `${remainingHours} hr${remainingHours !== 1 ? 's' : ''} remaining`;
-          bannerText = `Warning: ${remainingTime} before offline limit`;
-        }
-
-        if (!bannerText) return null;
-
-        return (
-          <View style={bannerStyle}>
-            <View style={styles.offlineWarningBannerRow}>
-              <Icon 
-                name="warning" 
-                size={18} 
-                color={iconColor} 
-              />
-              <Text style={styles.offlineWarningBannerText}>{bannerText}</Text>
-            </View>
-          </View>
-        );
-      };
-
-      return (
-        <View style={styles.container}>
-          {getWarningBanner()}
-          <PersistentOrderHeader
-            orderData={selectedOrderData}
-            isCollapsed={isOrderHeaderCollapsed}
-            onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
-            onBackPress={() => setCurrentStep('dashboard')}
-          subtitle={`${selectedOrderData.customer || 'Customer Name'} - ${selectedOrderData.site || 'Site Location'}`}
-          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
-          onPause={handleRequestPause}
-          onResume={handleResumeTracking}
-          onViewNotes={() => {
-            setShowJobNotesModal(true);
-          }}
-          validationState={validationState}
-          onViewValidation={() => setShowValidationModal(true)}
-          onViewServiceCenter={() => setShowServiceCenterModal(true)}
-          truckNumber={selectedTruck?.number || truckId || undefined}
-          trailerNumber={selectedTrailer?.number || null}
-          syncStatus={syncStatus}
-          pendingSyncCount={pendingSyncCount}
-          onSync={handleManualSync}
-          serviceTypeBadges={serviceTypeBadgesForHeader}
-        />
-
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          removeClippedSubviews={false}>
-          <Input
-            ref={searchInputRef}
-            placeholder="Search waste streams..."
-            value={streamSearchQuery}
-            onChangeText={handleSearchChange}
-            onFocus={handleSearchFocus}
-            onBlur={handleSearchBlur}
-            containerStyle={styles.searchInput}
-          />
-
-          {filteredStreams.length > 0 ? (
-            <View style={styles.streamsGrid} key="streams-grid">
-              {filteredStreams.map(stream => {
-                const handleStreamPress = () => {
-                  if (!isCurrentOrderCompleted && stream) {
-                    // Check if blocked due to offline limit
-                    if (offlineStatus.isBlocked) {
-                      setShowOfflineBlockedModal(true);
-                      return;
-                    }
-
-                    // No P-Listed check here - moved to "Continue to Manifest"
-                    // Track recently used profile
-                    setRecentlyUsedProfiles(prev => {
-                      // Remove if already exists, then add to front
-                      const filtered = prev.filter(id => id !== stream.id);
-                      return [stream.id, ...filtered].slice(0, 5); // Keep only last 5
-                    });
-                    
-                    setSelectedStream(stream.profileName);
-                    setSelectedStreamCode(stream.profileNumber);
-                    setSelectedStreamId(stream.id);
-                    setCylinderCount(''); // Reset cylinder count when stream changes
-                    setCurrentStep('container-selection');
-                  }
-                };
-
-                // Get category badge variant and style
-                // Only 4 valid categories: Hazardous (red), Non-Haz (green), Universal (yellow), DEA (blue)
-                const getCategoryBadgeConfig = (category: string) => {
-                  const categoryLower = category.toLowerCase().trim();
-                  // Check Non-Haz first to avoid any potential matching issues
-                  if (categoryLower === 'non-haz') {
-                    return {
-                      variant: 'outline' as const,
-                      style: styles.categoryBadgeGreen,
-                      textStyle: styles.categoryBadgeTextWhite,
-                    };
-                  } else if (categoryLower === 'hazardous') {
-                    return {
-                      variant: 'outline' as const,
-                      style: styles.categoryBadgeRed,
-                      textStyle: styles.categoryBadgeTextWhite,
-                    };
-                  } else if (categoryLower === 'universal') {
-                    return {
-                      variant: 'outline' as const,
-                      style: styles.categoryBadgeYellow,
-                      textStyle: styles.categoryBadgeTextWhite,
-                    };
-                  } else if (categoryLower === 'dea') {
-                    return {
-                      variant: 'outline' as const,
-                      style: styles.categoryBadgeBlue,
-                      textStyle: styles.categoryBadgeTextWhite,
-                    };
-                  }
-                  // Default fallback (should not happen with valid categories)
-                  return {
-                    variant: 'secondary' as const,
-                    style: undefined,
-                    textStyle: undefined,
-                  };
-                };
-
-                const categoryBadgeConfig = getCategoryBadgeConfig(stream.category);
-
-                return (
-                  <TouchableOpacity
-                    key={stream.id}
-                    style={styles.streamCard}
-                    onPress={handleStreamPress}
-                    disabled={isCurrentOrderCompleted}
-                    activeOpacity={isCurrentOrderCompleted ? 1 : 0.7}>
-                  <View style={styles.streamCardHeader}>
-                    {recentlyUsedProfiles.includes(stream.id) && (
-                      <Badge 
-                        variant="outline" 
-                        style={styles.recentlyUsedBadge}
-                        textStyle={styles.recentlyUsedBadgeText}>
-                        Recently Used
-                      </Badge>
-                    )}
-                  </View>
-                  <Text style={styles.streamCardTitle}>
-                    {stream.profileName}
-                  </Text>
-                  <Badge
-                    variant={categoryBadgeConfig.variant}
-                    style={categoryBadgeConfig.style}
-                    textStyle={categoryBadgeConfig.textStyle}>
-                    {stream.category}
-                  </Badge>
-                </TouchableOpacity>
-                );
-              })}
-            </View>
-          ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateTitle}>No Waste Streams Found</Text>
-              <Text style={styles.emptyStateText}>
-                Try adjusting your search terms
-              </Text>
-            </View>
-          )}
-        </ScrollView>
-      </View>
-    );
-  };
-
-  const ContainerSelectionScreen = () => {
-    const currentStream = wasteStreams.find(s => s.id === selectedStreamId);
-    const allowedContainerIds = currentStream?.allowedContainers || [];
-    const filteredContainers = allContainerTypes.filter(c =>
-      allowedContainerIds.includes(c.id),
-    );
-    const isCurrentOrderCompleted = selectedOrderData
-      ? isOrderCompleted(selectedOrderData.orderNumber)
-      : false;
-
-    if (!selectedOrderData) return null;
-    
-    return (
-      <View style={styles.container}>
-        <PersistentOrderHeader
-          orderData={selectedOrderData}
-          isCollapsed={isOrderHeaderCollapsed}
-          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
-          onBackPress={() => setCurrentStep('stream-selection')}
-          subtitle={selectedStream}
-          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
-          onPause={handleRequestPause}
-          onResume={handleResumeTracking}
-          onViewNotes={() => {
-            setShowJobNotesModal(true);
-          }}
-          validationState={validationState}
-          onViewValidation={() => setShowValidationModal(true)}
-          onViewServiceCenter={() => setShowServiceCenterModal(true)}
-          truckNumber={selectedTruck?.number || truckId || undefined}
-          trailerNumber={selectedTrailer?.number || null}
-          syncStatus={syncStatus}
-          pendingSyncCount={pendingSyncCount}
-          onSync={handleManualSync}
-          serviceTypeBadges={serviceTypeBadgesForHeader}
-        />
-
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          removeClippedSubviews={false}>
-          {filteredContainers.length > 0 ? (
-            <View style={styles.containersGrid}>
-              {filteredContainers.map((container, i) => (
-                <TouchableOpacity
-                  key={i}
-                  style={styles.containerCard}
-                  onPress={() => {
-                    if (!isCurrentOrderCompleted) {
-                      setSelectedContainerType(container);
-                      setCurrentStep('container-entry');
-                    }
-                  }}
-                  disabled={isCurrentOrderCompleted}
-                  activeOpacity={isCurrentOrderCompleted ? 1 : 0.7}>
-                  {container.popular && (
-                    <Badge variant="default" style={styles.popularBadge}>
-                      Popular
-                    </Badge>
-                  )}
-                  <Text style={styles.containerCardCode}>{container.code}</Text>
-                  <Text style={styles.containerCardTitle}>
-                    {container.size}
-                  </Text>
-                  <Text style={styles.containerCardInfo}>
-                    {container.capacity}
-                  </Text>
-                  <Text style={styles.containerCardInfo}>
-                    {container.weight}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateTitle}>
-                No Containers Available
-              </Text>
-              <Text style={styles.emptyStateText}>
-                No container types are configured for this waste stream profile.
-              </Text>
-            </View>
-          )}
-        </ScrollView>
-      </View>
-    );
-  };
-
-  const ContainerEntryScreen = () => {
-    const netWeight =
-      parseInt(grossWeight || '0') - parseInt(tareWeight || '0');
-    
-    // Check if current stream requires cylinder count
-    const currentStream = wasteStreams.find(s => s.id === selectedStreamId);
-    const requiresCylinderCount = currentStream?.requiresCylinderCount || false;
-
-    // Get weight limits from selected container type
-    const getWeightLimits = () => {
-      if (!selectedContainerType) {
-        return {
-          max: 400,
-          softThreshold: 240,
-          hardThreshold: 400,
-        };
-      }
-
-      // Parse weight string like "400 lbs max" to get the number
-      const weightMatch = selectedContainerType.weight.match(/(\d+)/);
-      const maxWeight = weightMatch ? parseInt(weightMatch[1]) : 400;
-
-      // Soft warning at 60% of max, hard warning at 100% of max
-      return {
-        max: maxWeight,
-        softThreshold: Math.floor(maxWeight * 0.6),
-        hardThreshold: maxWeight,
-      };
-    };
-
-    const weightLimits = getWeightLimits();
-    const showSoftWarning =
-      netWeight >= weightLimits.softThreshold &&
-      netWeight < weightLimits.hardThreshold;
-    const showHardWarning = netWeight >= weightLimits.hardThreshold;
-
-    const isCurrentOrderCompleted = selectedOrderData
-      ? isOrderCompleted(selectedOrderData.orderNumber)
-      : false;
-
-    // Capture scale reading once when scale connects
-    useEffect(() => {
-      if (isScaleConnected) {
-        // Simulate capturing a single scale reading when connected
-        const capturedWeight = 285; // Simulated captured weight from scale
-        setScaleReading(capturedWeight);
-        setScaleWeight(capturedWeight.toString());
-      } else {
-        setScaleReading(null);
-        setScaleWeight('');
-      }
-    }, [isScaleConnected]);
-
-    // When scale weight changes, update gross weight
-    useEffect(() => {
-      if (scaleWeight && !isNaN(parseFloat(scaleWeight))) {
-        setGrossWeight(scaleWeight);
-        setIsManualWeightEntry(false);
-      }
-    }, [scaleWeight]);
-
-    // Handle manual weight entry
-    const handleManualWeightChange = (
-      field: 'tare' | 'gross',
-      value: string,
-    ) => {
-      if (field === 'tare') {
-        setTareWeight(value);
-      } else {
-        setGrossWeight(value);
-      }
-      setIsManualWeightEntry(true);
-    };
-
-    if (!selectedOrderData) return null;
-    
-    return (
-      <View style={styles.container}>
-        <PersistentOrderHeader
-          orderData={selectedOrderData}
-          isCollapsed={isOrderHeaderCollapsed}
-          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
-          onBackPress={() => setCurrentStep('container-selection')}
-          subtitle={`${selectedStream} • ${selectedContainerType?.size || 'Container'}`}
-          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
-          onPause={handleRequestPause}
-          onResume={handleResumeTracking}
-          onViewNotes={() => {
-            setShowJobNotesModal(true);
-          }}
-          validationState={validationState}
-          onViewValidation={() => setShowValidationModal(true)}
-          onViewServiceCenter={() => setShowServiceCenterModal(true)}
-          truckNumber={selectedTruck?.number || truckId || undefined}
-          trailerNumber={selectedTrailer?.number || null}
-          syncStatus={syncStatus}
-          pendingSyncCount={pendingSyncCount}
-          onSync={handleManualSync}
-          serviceTypeBadges={serviceTypeBadgesForHeader}
-        />
-
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          showsVerticalScrollIndicator={true}
-          removeClippedSubviews={false}
-          scrollEventThrottle={16}>
-          
-          {/* Cylinder Count Input - Only shown for profiles that require it */}
-          {requiresCylinderCount && (
-            <Card style={styles.cylinderCountCard}>
-              <CardHeader>
-                <CardTitle>
-                  <CardTitleText>Cylinder Count</CardTitleText>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Input
-                  label="Number of Cylinders *"
-                  value={cylinderCount}
-                  onChangeText={setCylinderCount}
-                  keyboardType="numeric"
-                  placeholder="Enter cylinder count"
-                  editable={!isCurrentOrderCompleted}
-                />
-              </CardContent>
-            </Card>
-          )}
-
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <CardTitleText>Weight Information</CardTitleText>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {/* Net Weight Display - Most Prominent */}
-              <View
-                style={[
-                  styles.netWeightDisplayCard,
-                  showHardWarning && styles.netWeightDisplayCardHardWarning,
-                  showSoftWarning && styles.netWeightDisplayCardSoftWarning,
-                ]}>
-                <Text style={styles.netWeightDisplayLabel}>
-                  Net Weight (Waste Only)
-                </Text>
-                <View style={styles.netWeightDisplayValue}>
-                  <Text
-                    style={[
-                      styles.netWeightDisplayLargeValue,
-                      showHardWarning &&
-                        styles.netWeightDisplayLargeValueWarning,
-                    ]}>
-                    {netWeight}
-                  </Text>
-                  <Text style={styles.netWeightDisplayUnit}>lbs</Text>
-                </View>
-                {showSoftWarning && (
-                  <View style={styles.inlineWarningSoft}>
-                    <View style={styles.inlineWarningRow}>
-                      <Icon name="warning" size={18} color={colors.warning} style={styles.inlineWarningIcon} />
-                      <Text style={styles.inlineWarningText}>
-                        Approaching capacity (
-                        {Math.round((netWeight / weightLimits.max) * 100)}% of{' '}
-                        {weightLimits.max} lbs)
-                      </Text>
-                    </View>
-                  </View>
-                )}
-                {showHardWarning && (
-                  <View style={styles.inlineWarningHard}>
-                    <View style={styles.inlineWarningRow}>
-                      <Icon name="warning" size={18} color={colors.destructive} style={styles.inlineWarningIcon} />
-                      <Text style={styles.inlineWarningText}>
-                        EXCEEDS MAXIMUM ({netWeight} lbs / {weightLimits.max}{' '}
-                        lbs max) - Must consolidate or use new container
-                      </Text>
-                    </View>
-                  </View>
-                )}
-              </View>
-
-              {/* Compact Weight Info Row */}
-              <View style={styles.compactWeightRow}>
-                <View style={styles.compactWeightItem}>
-                  <Text style={styles.compactWeightLabel}>Tare Weight</Text>
-                  <Text style={styles.compactWeightValue}>{tareWeight}</Text>
-                  <Text style={styles.compactWeightUnit}>lbs</Text>
-                </View>
-                <View style={styles.compactWeightDivider} />
-                <View style={styles.compactWeightItem}>
-                  <View style={styles.compactScaleHeader}>
-                    <Text style={styles.compactWeightLabel}>Scale Weight</Text>
-                    <View style={styles.compactScaleStatus}>
-                      <View
-                        style={[
-                          styles.compactScaleLight,
-                          isScaleConnected
-                            ? styles.compactScaleLightOnline
-                            : styles.compactScaleLightOffline,
-                        ]}
-                      />
-                    </View>
-                  </View>
-                  {isScaleConnected && scaleReading !== null ? (
-                    <Text style={styles.compactWeightValue}>
-                      {scaleReading}
-                    </Text>
-                  ) : (
-                    <Text style={styles.compactWeightValueOffline}>---</Text>
-                  )}
-                  <Input
-                    value={scaleWeight}
-                    onChangeText={setScaleWeight}
-                    keyboardType="numeric"
-                    editable={!isCurrentOrderCompleted}
-                    style={styles.compactScaleInput}
-                    containerStyle={styles.compactScaleInputContainer}
-                  />
-                  <Text style={styles.compactWeightUnit}>lbs (Gross)</Text>
-                </View>
-                <View style={styles.compactWeightDivider} />
-                <View style={styles.compactWeightItem}>
-                  <Text style={styles.compactWeightLabel}>Net Weight</Text>
-                  <Text
-                    style={[
-                      styles.compactWeightValue,
-                      styles.compactWeightValueNet,
-                    ]}>
-                    {netWeight}
-                  </Text>
-                  <Text style={styles.compactWeightUnit}>lbs (Waste)</Text>
-                </View>
-              </View>
-
-              {/* Manual Entry Indicator */}
-              {isManualWeightEntry && (
-                <View style={styles.manualEntryIndicator}>
-                  <View style={styles.manualWeightRow}>
-                    <Icon name="warning" size={16} color={colors.warning} style={styles.manualWeightIcon} />
-                    <Text style={styles.manualEntryText}>Weight entered manually</Text>
-                  </View>
-                </View>
-              )}
-            </CardContent>
-          </Card>
-
-        </ScrollView>
-
-        <View style={styles.footer}>
-          <Button
-            title="Cancel"
-            variant="outline"
-            size="md"
-            onPress={() => {
-              setIsManualWeightEntry(false);
-              setCurrentStep('container-selection');
-            }}
-          />
-          <Button
-            title="Add Container"
-            variant="primary"
-            size="md"
-            disabled={isCurrentOrderCompleted || offlineStatus.isBlocked}
-            onPress={async () => {
-              if (
-                selectedContainerType &&
-                selectedStream &&
-                !isCurrentOrderCompleted
-              ) {
-                // Check if blocked due to offline limit
-                if (offlineStatus.isBlocked) {
-                  setShowOfflineBlockedModal(true);
-                  return;
-                }
-
-                // Validate cylinder count if required
-                if (requiresCylinderCount && (!cylinderCount || cylinderCount.trim() === '')) {
-                  Alert.alert(
-                    'Required Field',
-                    'Please enter the cylinder count before adding the container.'
-                  );
-                  return;
-                }
-
-                // Check if blocked due to offline limit
-                if (offlineStatus.isBlocked) {
-                  setShowOfflineBlockedModal(true);
-                  return;
-                }
-
-                const netWeight =
-                  parseInt(grossWeight || '0') - parseInt(tareWeight || '0');
-
-                // Get current container count for this order to generate sequential barcode
-                const currentContainerCount = addedContainers.length;
-                const orderNumber =
-                  selectedOrderData?.orderNumber || 'WO-2024-0000';
-                const shippingLabelBarcode = generateShippingLabelBarcode(
-                  orderNumber,
-                  currentContainerCount,
-                );
-
-                const newContainer = {
-                  id: `container-${Date.now()}`,
-                  streamName: selectedStream,
-                  streamCode: selectedStreamCode,
-                  containerType: selectedContainerType.code,
-                  containerSize: selectedContainerType.size,
-                  barcode: barcode || `AUTO-${Date.now()}`,
-                  tareWeight,
-                  grossWeight,
-                  netWeight,
-                  isManualEntry: isManualWeightEntry, // Track if manually entered
-                  shippingLabelBarcode, // Unique shipping label barcode
-                  status: 'loaded' as const, // FR-3a.EXT.3.2: active on truck until dropped
-                  serviceTypeId: activeServiceTypeTimer ?? undefined, // For filtering by current service type on add-containers screen
-                  orderNumber, // For projected inventory by customer/order
-                  ...(requiresCylinderCount && cylinderCount ? { cylinderCount: parseInt(cylinderCount) || 0 } : {}),
-                };
-
-                setAddedContainers(prev => [...prev, newContainer]);
-
-                // Queue for sync
-                await syncService.addPendingOperation(
-                  'container',
-                  newContainer,
-                );
-
-                // Show label printing notification
-                setPrintingLabelBarcode(shippingLabelBarcode);
-                setShowLabelPrinting(true);
-
-                // Auto-print shipping label
-                await printShippingLabel(newContainer);
-
-                // Hide notification after 3 seconds
-                setTimeout(() => {
-                  setShowLabelPrinting(false);
-                  setPrintingLabelBarcode('');
-                }, 3000);
-
-                // Reset form
-                setBarcode('');
-                setTareWeight('45');
-                setGrossWeight('285');
-                setCylinderCount('');
-                setIsManualWeightEntry(false);
-                setCurrentStep('container-summary');
-              }
-            }}
-          />
-        </View>
-      </View>
-    );
-  };
-
-  const ContainerSummaryScreen = () => {
-    const isCurrentOrderCompleted = selectedOrderData
-      ? isOrderCompleted(selectedOrderData.orderNumber)
-      : false;
-    const manifestGenerated = selectedOrderData
-      ? hasManifestForOrder(selectedOrderData.orderNumber)
-      : false;
-    const canEditContainers = !manifestGenerated && !isCurrentOrderCompleted;
-    // Only show containers for the current service type on this screen (not all orders/service types)
-    const containersForCurrentServiceType = useMemo(
-      () =>
-        activeContainers.filter(
-          c => c.serviceTypeId === activeServiceTypeTimer,
-        ),
-      [activeContainers, activeServiceTypeTimer],
-    );
-    const [deleteConfirmation, setDeleteConfirmation] = useState<{
-      visible: boolean;
-      containerId: string | null;
-      containerIndex: number | null;
-    }>({
-      visible: false,
-      containerId: null,
-      containerIndex: null,
-    });
-
-    const handleDeleteContainer = (
-      containerId: string,
-      containerIndex: number,
-    ) => {
-      // Show custom confirmation modal
-      setDeleteConfirmation({
-        visible: true,
-        containerId,
-        containerIndex,
-      });
-    };
-
-    const handleConfirmDelete = () => {
-      if (deleteConfirmation.containerId) {
-        // Remove container from state
-        setAddedContainers(prev =>
-          prev.filter(
-            container => container.id !== deleteConfirmation.containerId,
-          ),
-        );
-      }
-      // Close modal
-      setDeleteConfirmation({
-        visible: false,
-        containerId: null,
-        containerIndex: null,
-      });
-    };
-
-    const handleCancelDelete = () => {
-      // Close modal
-      setDeleteConfirmation({
-        visible: false,
-        containerId: null,
-        containerIndex: null,
-      });
-    };
-
-    const renderRightActions = (
-      containerId: string,
-      containerIndex: number,
-    ) => {
-      return (
-        <View style={styles.swipeDeleteContainer}>
-          <TouchableOpacity
-            style={styles.swipeDeleteButton}
-            onPress={() => handleDeleteContainer(containerId, containerIndex)}
-            activeOpacity={0.8}>
-            <Text style={styles.swipeDeleteText}>Delete</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    };
-
-    if (!selectedOrderData) return null;
-    
-    return (
-      <View style={styles.container}>
-        <PersistentOrderHeader
-          orderData={selectedOrderData}
-          isCollapsed={isOrderHeaderCollapsed}
-          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
-          onBackPress={() => setCurrentStep('container-entry')}
-          subtitle="Container Summary"
-          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
-          onPause={handleRequestPause}
-          onResume={handleResumeTracking}
-          onViewNotes={() => {
-            setShowJobNotesModal(true);
-          }}
-          validationState={validationState}
-          onViewValidation={() => setShowValidationModal(true)}
-          onViewServiceCenter={() => setShowServiceCenterModal(true)}
-          truckNumber={selectedTruck?.number || truckId || undefined}
-          trailerNumber={selectedTrailer?.number || null}
-          syncStatus={syncStatus}
-          pendingSyncCount={pendingSyncCount}
-          onSync={handleManualSync}
-          serviceTypeBadges={serviceTypeBadgesForHeader}
-        />
-
-        <View style={styles.scrollViewContainer}>
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}>
-            <Text style={styles.summaryText}>
-              Showing {containersForCurrentServiceType.length} container
-              {containersForCurrentServiceType.length !== 1 ? 's' : ''} for this service type
-            </Text>
-
-            {containersForCurrentServiceType.length > 0 ? (
-              containersForCurrentServiceType.map((container, index) => (
-                <View key={container.id}>
-                  <Card style={styles.containerSummaryCard}>
-                    <View style={styles.containerSummaryHeader}>
-                      <View style={styles.containerSummaryHeaderLeft}>
-                        <Text style={styles.containerSummaryNumber}>
-                          #{index + 1}
-                        </Text>
-                        <View style={styles.containerSummaryTitleGroup}>
-                          <Text style={styles.containerSummaryTitle}>
-                            {container.streamName}
-                          </Text>
-                          <Text style={styles.containerSummarySubtitle}>
-                            {container.containerSize} •{' '}
-                            {container.containerType}
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={styles.containerSummaryNetWeight}>
-                        <Text style={styles.containerSummaryNetWeightLabel}>
-                          Net
-                        </Text>
-                        <Text
-                          style={[
-                            styles.containerSummaryNetWeightValue,
-                            styles.netWeightHighlight,
-                          ]}>
-                          {container.netWeight} lbs
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.containerSummaryBody}>
-                      {/* Reference Information Grid */}
-                      <View style={styles.containerSummaryInfoGrid}>
-                        <View style={styles.containerSummaryInfoCard}>
-                          <Text style={styles.containerSummaryInfoLabel}>
-                            Waste Code(s)
-                          </Text>
-                          <Text style={styles.containerSummaryInfoValue}>
-                            {container.streamCode}
-                          </Text>
-                        </View>
-                        {container.shippingLabelBarcode ? (
-                          <View style={styles.containerSummaryInfoCard}>
-                            <View style={styles.containerSummaryInfoHeader}>
-                              <Text style={styles.containerSummaryInfoLabel}>
-                                Shipping Label
-                              </Text>
-                              <Button
-                                title="Reprint"
-                                variant="outline"
-                                size="sm"
-                                disabled={isCurrentOrderCompleted}
-                                onPress={() => printShippingLabel(container)}
-                                style={styles.reprintButtonInline}
-                              />
-                            </View>
-                            <Text style={styles.containerSummaryInfoValue}>
-                              {container.shippingLabelBarcode}
-                            </Text>
-                          </View>
-                        ) : (
-                          <View style={styles.containerSummaryInfoCard} />
-                        )}
-                      </View>
-                      {canEditContainers && (
-                        <TouchableOpacity
-                          style={styles.deleteButton}
-                          onPress={() => handleDeleteContainer(container.id, index)}
-                          activeOpacity={0.7}>
-                          <Text style={styles.deleteButtonText}>Delete</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </Card>
-                </View>
-              ))
-            ) : (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyStateTitle}>No Containers Added</Text>
-                <Text style={styles.emptyStateText}>
-                  Add containers to track waste collection for this order.
-                </Text>
-              </View>
-            )}
-          </ScrollView>
-        </View>
-
-        <View style={styles.footer}>
-          <Button
-            title="+ Add Container"
-            variant="outline"
-            size="md"
-            disabled={isCurrentOrderCompleted || manifestGenerated}
-            onPress={() => {
-              if (canEditContainers) {
-                setCurrentStep('stream-selection');
-              }
-            }}
-          />
-          {returnToContainersReviewAfterAdd ? (
-            <Button
-              title="Back to containers review"
-              variant="primary"
-              size="md"
-              onPress={() => {
-                setReturnToContainersReviewAfterAdd(false);
-                setCurrentStep('containers-review');
-              }}
-            />
-          ) : selectedOrderData && isOrderReadyForManifest(selectedOrderData) ? (
-            <Button
-              title="Back to Manifest"
-              variant="primary"
-              size="md"
-              disabled={isCurrentOrderCompleted}
-              onPress={() => setCurrentStep('containers-review')}
-            />
-          ) : (
-            <Button
-              title="Mark service type complete"
-              variant="primary"
-              size="md"
-              disabled={isCurrentOrderCompleted || !activeServiceTypeTimer}
-              onPress={handleMarkServiceTypeComplete}
-            />
-          )}
-        </View>
-
-        {/* Bottom Sheet Delete Confirmation (Tablet-Optimized) */}
-        <Modal
-          visible={deleteConfirmation.visible}
-          transparent
-          animationType="slide"
-          onRequestClose={handleCancelDelete}>
-          <TouchableOpacity
-            style={styles.bottomSheetOverlay}
-            activeOpacity={1}
-            onPress={handleCancelDelete}>
-            <TouchableOpacity
-              style={styles.bottomSheetContent}
-              activeOpacity={1}
-              onPress={e => e.stopPropagation()}>
-              {/* Bottom Sheet Handle */}
-              <View style={styles.bottomSheetHandle} />
-
-              <View style={styles.bottomSheetHeader}>
-                <Text style={styles.bottomSheetTitle}>Delete Container</Text>
-              </View>
-
-              <View style={styles.bottomSheetBody}>
-                <Text style={styles.bottomSheetMessage}>
-                  Are you sure you want to delete Container{' '}
-                  {deleteConfirmation.containerIndex !== null
-                    ? deleteConfirmation.containerIndex + 1
-                    : ''}
-                  ? This action cannot be undone.
-                </Text>
-              </View>
-
-              <View style={styles.bottomSheetFooter}>
-                <Button
-                  title="Cancel"
-                  variant="outline"
-                  size="lg"
-                  onPress={handleCancelDelete}
-                  style={styles.bottomSheetCancelButton}
-                />
-                <Button
-                  title="Delete"
-                  variant="destructive"
-                  size="lg"
-                  onPress={handleConfirmDelete}
-                  style={styles.bottomSheetDeleteButton}
-                />
-              </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </Modal>
-      </View>
-    );
-  };
-
-  // Order-level containers review: all service types and their containers; add/delete before manifest
-  const OrderContainersReviewScreen = () => {
-    const [deleteConfirm, setDeleteConfirm] = useState<{ id: string } | null>(null);
-    const manifestGenerated = selectedOrderData
-      ? hasManifestForOrder(selectedOrderData.orderNumber)
-      : false;
-
-    const containersByServiceType = useMemo(() => {
-      const map = new Map<string, typeof activeContainers>();
-      if (!selectedOrderData) return map;
-      selectedOrderData.programs.forEach(stId => {
-        map.set(stId, activeContainers.filter(c => c.serviceTypeId === stId));
-      });
-      const unassigned = activeContainers.filter(c => !c.serviceTypeId);
-      if (unassigned.length > 0) map.set('_unassigned', unassigned);
-      return map;
-    }, [selectedOrderData, activeContainers]);
-
-    const handleDeleteFromReview = (containerId: string) => {
-      setAddedContainers(prev => prev.filter(c => c.id !== containerId));
-      setDeleteConfirm(null);
-    };
-
-    if (!selectedOrderData) return null;
-
-    return (
-      <View style={styles.container}>
-        <PersistentOrderHeader
-          orderData={selectedOrderData}
-          isCollapsed={isOrderHeaderCollapsed}
-          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
-          onBackPress={() => setCurrentStep('dashboard')}
-          subtitle="Containers by service type"
-          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
-          onPause={handleRequestPause}
-          onResume={handleResumeTracking}
-          onViewNotes={() => setShowJobNotesModal(true)}
-          validationState={validationState}
-          onViewValidation={() => setShowValidationModal(true)}
-          onViewServiceCenter={() => setShowServiceCenterModal(true)}
-          truckNumber={selectedTruck?.number || truckId || undefined}
-          trailerNumber={selectedTrailer?.number || null}
-          syncStatus={syncStatus}
-          pendingSyncCount={pendingSyncCount}
-          onSync={handleManualSync}
-          serviceTypeBadges={serviceTypeBadgesForHeader}
-        />
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-          <Text style={styles.summaryText}>
-            {manifestGenerated
-              ? 'A manifest has been generated for this order. Containers cannot be added or deleted.'
-              : 'Review and edit containers by service type before creating the manifest. You can add or delete containers for any service type.'}
-          </Text>
-          {selectedOrderData.programs.map(stId => {
-            const list = containersByServiceType.get(stId) ?? [];
-            const stName = serviceTypeService.getServiceTypeName(stId);
-            const srNumber = selectedOrderData.serviceOrderNumbers?.[stId];
-            return (
-              <View key={stId} style={styles.containersReviewSection}>
-                <View style={styles.containersReviewSectionHeader}>
-                  <Text style={styles.containersReviewSectionTitle}>
-                    {serviceTypeService.formatForBadge(stId)} — {stName}
-                    {srNumber ? ` • ${srNumber}` : ''}
-                  </Text>
-                  <Text style={styles.containersReviewSectionCount}>
-                    {list.length} container{list.length !== 1 ? 's' : ''}
-                  </Text>
-                </View>
-                {list.length === 0 ? (
-                  <View>
-                    <Text style={styles.containersReviewEmpty}>No containers added for this service type.</Text>
-                    {isServiceTypeNoShip(selectedOrderData.orderNumber, stId) && (
-                      <Text style={styles.containersReviewNoShipNote}>Marked as No-Ship.</Text>
-                    )}
-                  </View>
-                ) : (
-                  list.map((c, idx) => (
-                    <Card key={c.id} style={styles.containerSummaryCard}>
-                      <View style={styles.containerSummaryHeader}>
-                        <View style={styles.containerSummaryHeaderLeft}>
-                          <Text style={styles.containerSummaryNumber}>#{idx + 1}</Text>
-                          <View style={styles.containerSummaryTitleGroup}>
-                            <Text style={styles.containerSummaryTitle}>{c.streamName}</Text>
-                            <Text style={styles.containerSummarySubtitle}>
-                              {c.containerSize} • {c.containerType}
-                            </Text>
-                          </View>
-                        </View>
-                        <View style={styles.containerSummaryNetWeight}>
-                          <Text style={styles.containerSummaryNetWeightLabel}>Net</Text>
-                          <Text style={[styles.containerSummaryNetWeightValue, styles.netWeightHighlight]}>
-                            {c.netWeight} lbs
-                          </Text>
-                        </View>
-                      </View>
-                      {!manifestGenerated && (
-                      <TouchableOpacity
-                        style={styles.deleteButton}
-                        onPress={() => setDeleteConfirm({ id: c.id })}
-                        activeOpacity={0.7}>
-                        <Text style={styles.deleteButtonText}>Delete</Text>
-                      </TouchableOpacity>
-                    )}
-                    </Card>
-                  ))
-                )}
-                {!manifestGenerated && !isServiceTypeNoShip(selectedOrderData.orderNumber, stId) && (
-                  <Button
-                    title={`Add container to ${serviceTypeService.formatForBadge(stId)}${srNumber ? ` (${srNumber})` : ''}`}
-                    variant="outline"
-                    size="sm"
-                    onPress={() => {
-                      setActiveServiceTypeTimer(stId);
-                      setReturnToContainersReviewAfterAdd(true);
-                      setCurrentStep('stream-selection');
-                    }}
-                    style={styles.containersReviewAddBtn}
-                  />
-                )}
-              </View>
-            );
-          })}
-          {(containersByServiceType.get('_unassigned')?.length ?? 0) > 0 && (
-            <View style={styles.containersReviewSection}>
-              <Text style={styles.containersReviewSectionTitle}>Unassigned</Text>
-              {(containersByServiceType.get('_unassigned') ?? []).map((c, idx) => (
-                <Card key={c.id} style={styles.containerSummaryCard}>
-                  <View style={styles.containerSummaryHeader}>
-                    <View style={styles.containerSummaryHeaderLeft}>
-                      <Text style={styles.containerSummaryNumber}>#{idx + 1}</Text>
-                      <Text style={styles.containerSummaryTitle}>{c.streamName}</Text>
-                      <Text style={styles.containerSummaryNetWeightValue}>{c.netWeight} lbs</Text>
-                    </View>
-                  </View>
-                  {!manifestGenerated && (
-                    <TouchableOpacity style={styles.deleteButton} onPress={() => setDeleteConfirm({ id: c.id })} activeOpacity={0.7}>
-                      <Text style={styles.deleteButtonText}>Delete</Text>
-                    </TouchableOpacity>
-                  )}
-                </Card>
-              ))}
-            </View>
-          )}
-        </ScrollView>
-        <View style={styles.footer}>
-          <Button title="Back" variant="outline" size="md" onPress={() => setCurrentStep('dashboard')} />
-          <Button
-            title={manifestGenerated ? 'Continue to manifest' : 'Generate Manifest'}
-            variant="primary"
-            size="md"
-            onPress={() => {
-              if (selectedOrderData && !hasManifestForOrder(selectedOrderData.orderNumber)) {
-                const trackingNumber = generateManifestTrackingNumber();
-                setManifestTrackingNumber(trackingNumber);
-                setManifestOrderNumber(selectedOrderData.orderNumber);
-                setManifestData(prev => ({
-                  ...prev,
-                  trackingNumber,
-                  createdAt: new Date(),
-                }));
-              }
-              setCurrentStep('manifest-management');
-            }}
-          />
-        </View>
-
-        {/* Delete confirmation */}
-        <Modal visible={!!deleteConfirm} transparent animationType="fade" onRequestClose={() => setDeleteConfirm(null)}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center' }}>
-            <View style={styles.containersReviewDeleteModal}>
-              <Text style={styles.containersReviewDeleteTitle}>Delete container?</Text>
-              <Text style={styles.containersReviewDeleteMessage}>This cannot be undone.</Text>
-              <View style={styles.footer}>
-                <Button title="Cancel" variant="outline" size="md" onPress={() => setDeleteConfirm(null)} />
-                <Button
-                  title="Delete"
-                  variant="destructive"
-                  size="md"
-                  onPress={() => deleteConfirm && handleDeleteFromReview(deleteConfirm.id)}
-                />
-              </View>
-            </View>
-          </View>
-        </Modal>
-      </View>
-    );
-  };
-
-  const ManifestManagementScreen = () => {
-    const isCurrentOrderCompleted = selectedOrderData
-      ? isOrderCompleted(selectedOrderData.orderNumber)
-      : false;
-
-    // Completed orders cannot open or view manifest — redirect to dashboard
-    useEffect(() => {
-      if (selectedOrderData && isOrderCompleted(selectedOrderData.orderNumber)) {
-        setSelectedOrderData(null);
-        setCurrentStep('dashboard');
-      }
-    }, [selectedOrderData, isOrderCompleted]);
-
-    if (!selectedOrderData) return null;
-
-    return (
-      <View style={styles.container}>
-        <PersistentOrderHeader
-          orderData={selectedOrderData}
-          isCollapsed={isOrderHeaderCollapsed}
-          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
-          onBackPress={() => setCurrentStep('containers-review')}
-          subtitle="Manifest Shipment"
-          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
-          onPause={handleRequestPause}
-          onResume={handleResumeTracking}
-          onViewNotes={() => {
-            setShowJobNotesModal(true);
-          }}
-          validationState={validationState}
-          onViewValidation={() => setShowValidationModal(true)}
-          onViewServiceCenter={() => setShowServiceCenterModal(true)}
-          truckNumber={selectedTruck?.number || truckId || undefined}
-          trailerNumber={selectedTrailer?.number || null}
-          syncStatus={syncStatus}
-          pendingSyncCount={pendingSyncCount}
-          onSync={handleManualSync}
-          serviceTypeBadges={serviceTypeBadgesForHeader}
-        />
-
-        <View style={styles.scrollViewContainer}>
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}>
-            <Card style={styles.manifestShipmentCard}>
-              <CardHeader>
-                <CardTitle>
-                  <CardTitleText>Manifest Shipment</CardTitleText>
-                </CardTitle>
-                <Text style={styles.manifestShipmentSubtitle}>
-                  Review and sign your shipment manifest, then continue when ready.
-                </Text>
-              </CardHeader>
-              <CardContent>
-                <View style={styles.manifestSummarySection}>
-                  <View style={styles.manifestSummaryRow}>
-                    <View style={styles.manifestSummaryItem}>
-                      <Text style={styles.manifestSummaryLabel}>
-                        Total Containers
-                      </Text>
-                      <Text style={styles.manifestSummaryValue}>
-                        {addedContainers.length}
-                      </Text>
-                    </View>
-                    {manifestTrackingNumber ? (
-                      <>
-                        <View style={styles.manifestSummaryDivider} />
-                        <View style={styles.manifestSummaryItem}>
-                          <Text style={styles.manifestSummaryLabel}>
-                            Tracking Number
-                          </Text>
-                          <Text
-                            style={[
-                              styles.manifestSummaryValue,
-                              styles.trackingNumber,
-                            ]}>
-                            {manifestTrackingNumber}
-                          </Text>
-                        </View>
-                      </>
-                    ) : null}
-                  </View>
-                </View>
-
-                {(manifestData?.scannedImageUri ||
-                  scannedDocuments.some(
-                    doc =>
-                      doc.orderNumber === selectedOrderData?.orderNumber &&
-                      doc.documentType === 'manifest',
-                  )) ? (
-                  <View style={styles.scannedImageIndicator}>
-                    <View style={styles.manifestSuccessRow}>
-                      <Icon name="check-circle" size={18} color={colors.success} style={styles.manifestSuccessIcon} />
-                      <Text style={styles.scannedImageText}>
-                        Manifest document scanned and uploaded
-                      </Text>
-                    </View>
-                  </View>
-                ) : null}
-
-                <View style={styles.manifestActionsInCard}>
-                  <Text style={styles.manifestActionsLabel}>Manifest actions</Text>
-                  <View style={styles.manifestActionsRow}>
-                    <Button
-                      title="Scan Manifest"
-                      variant="outline"
-                      size="md"
-                      disabled={isCurrentOrderCompleted}
-                      onPress={() => {
-                        setPendingDocumentType('manifest');
-                        setCaptureFromManifestScanView(true);
-                        setShowCaptureMethodSelector(true);
-                      }}
-                      style={styles.manifestActionButton}
-                    />
-                    <Button
-                      title="Sign Manifest"
-                      variant="outline"
-                      size="md"
-                      disabled={isCurrentOrderCompleted}
-                      onPress={() => setShowSignatureModal(true)}
-                      style={styles.manifestActionButton}
-                    />
-                    <Button
-                      title="Print Options"
-                      variant="outline"
-                      size="md"
-                      disabled={isCurrentOrderCompleted}
-                      onPress={() => setShowPrintOptions(true)}
-                      style={styles.manifestActionButton}
-                    />
-                    {manifestTrackingNumber ? (
-                      <Button
-                        title="Void manifest"
-                        variant="destructive"
-                        size="md"
-                        disabled={isCurrentOrderCompleted}
-                        onPress={voidManifest}
-                        style={styles.manifestActionButton}
-                      />
-                    ) : null}
-                  </View>
-                </View>
-              </CardContent>
-            </Card>
-          </ScrollView>
-        </View>
-
-        <View style={styles.footer}>
-          <Button
-            title="Back"
-            variant="outline"
-            size="md"
-            onPress={() => setCurrentStep('containers-review')}
-          />
-          <Button
-            title="Continue"
-            variant="primary"
-            size="md"
-            disabled={isCurrentOrderCompleted}
-            onPress={() => {
-              if (!isCurrentOrderCompleted) {
-                // Skip materials-supplies and equipment - accessible from quick actions
-                // Go directly to order completion/service summary
-                setCurrentStep('order-service');
-              }
-            }}
-          />
-        </View>
-
-        {/* Signature Modal */}
-        <Modal
-          visible={showSignatureModal}
-          transparent={false}
-          animationType="slide"
-          onRequestClose={() => setShowSignatureModal(false)}>
-          <SafeAreaView style={styles.signatureModalContainer}>
-            <View style={styles.signatureModalHeader}>
-              <Text style={styles.signatureModalTitle}>Sign Manifest</Text>
-              <TouchableOpacity
-                onPress={() => setShowSignatureModal(false)}
-                style={styles.signatureModalCloseBtn}>
-                <Icon name="close" size={20} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.signatureCanvasContainer}>
-              <Text style={styles.signatureModalTitle}>Signature Area</Text>
-              <View style={{
-                flex: 1,
-                borderWidth: 2,
-                borderColor: colors.border,
-                borderRadius: borderRadius.md,
-                marginBottom: spacing.md,
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}>
-                <SignatureCanvas
-                  ref={signatureRef}
-                  onOK={(signature: string) => {
-                    setManifestData(prev => ({
-                      ...prev,
-                      signatureImageUri: signature,
-                    }));
-                    setShowSignatureModal(false);
-                  }}
-                  onEmpty={() => {
-                    Alert.alert('Please Sign', 'Please provide a signature before saving.');
-                  }}
-                  penColor="#000000"
-                  strokeWidth={3}
-                />
-              </View>
-              <View style={{ flexDirection: 'row', gap: spacing.md }}>
-                <Button
-                  title="Clear"
-                  onPress={() => signatureRef.current?.clearSignature()}
-                  variant="outline"
-                />
-                <Button
-                  title="Cancel"
-                  onPress={() => setShowSignatureModal(false)}
-                  variant="outline"
-                />
-                <Button
-                  title="Save"
-                  onPress={() => signatureRef.current?.readSignature()}
-                />
-              </View>
-            </View>
-          </SafeAreaView>
-        </Modal>
-
-        {/* Print Preview Modal - EPA Uniform Hazardous Waste Manifest */}
-        <Modal
-          visible={showPrintPreview}
-          transparent={false}
-          animationType="slide"
-          onRequestClose={() => setShowPrintPreview(false)}>
-          <SafeAreaView style={styles.manifestPreviewContainer}>
-            {/* Header Bar */}
-            <View style={styles.manifestPreviewHeader}>
-              <Text style={styles.manifestPreviewHeaderTitle}>
-                Manifest Print Preview
-              </Text>
-              <TouchableOpacity
-                onPress={() => setShowPrintPreview(false)}
-                style={styles.manifestPreviewCloseBtn}>
-                <Icon name="close" size={20} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.manifestPreviewScroll}>
-              {/* EPA Form Container */}
-              <View style={styles.epaFormContainer}>
-                {/* Form Header */}
-                <View style={styles.epaFormHeader}>
-                  <View style={styles.epaFormHeaderLeft}>
-                    <Text style={styles.epaFormSmallText}>Please print or type.</Text>
-                    <View style={styles.epaFormTitleBox}>
-                      <Text style={styles.epaFormTitle}>UNIFORM HAZARDOUS</Text>
-                      <Text style={styles.epaFormTitle}>WASTE MANIFEST</Text>
-                    </View>
-                  </View>
-                  <View style={styles.epaFormHeaderCenter}>
-                    <View style={styles.epaFormBarcodeBox}>
-                      <Text style={styles.epaFormBarcodeText}>201286074XXX</Text>
-                      <Text style={styles.epaFormManifestNum}>43343836</Text>
-                    </View>
-                    <Text style={styles.epaFormProviderText}>ERI Provider: Clean Earth</Text>
-                  </View>
-                  <View style={styles.epaFormHeaderRight}>
-                    <View style={styles.epaFormPageBox}>
-                      <Text style={styles.epaFormPageNum}>1</Text>
-                    </View>
-                    <Text style={styles.epaFormSmallText}>Form Approved, OMB No. 2050-0039</Text>
-                  </View>
-                </View>
-
-                {/* Section 1-4: Generator ID, Page, Emergency Phone, Manifest Tracking */}
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>1. Generator ID Number</Text>
-                    <Text style={styles.epaFormCellValue}>CAL000483809</Text>
-                  </View>
-                  <View style={[styles.epaFormCell, {width: 60}]}>
-                    <Text style={styles.epaFormCellLabel}>2. Page 1 of</Text>
-                    <Text style={styles.epaFormCellValue}>1</Text>
-                  </View>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>3. Emergency Response Phone</Text>
-                    <Text style={styles.epaFormCellValue}>(877) 577-2669</Text>
-                  </View>
-                  <View style={[styles.epaFormCell, {flex: 1.5}]}>
-                    <Text style={styles.epaFormCellLabel}>4. Manifest Tracking Number</Text>
-                    <Text style={styles.epaFormCellValueLarge}>201286074XXX</Text>
-                  </View>
-                </View>
-
-                {/* Section 5: Generator Info */}
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>5. Generator's Name and Mailing Address</Text>
-                    <Text style={styles.epaFormCellValue}>Attn: William Quila</Text>
-                    <Text style={styles.epaFormCellValueBold}>Soleo Health</Text>
-                    <Text style={styles.epaFormCellValue}>1324 W Winton Ave</Text>
-                    <Text style={styles.epaFormCellValue}>Hayward, CA 94545-1408 Ph: (510) 362-7360</Text>
-                    <Text style={styles.epaFormCellLabelSmall}>Generator's Phone:</Text>
-                  </View>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>Generator's Site Address (if different than mailing address)</Text>
-                    <Text style={styles.epaFormCellValueBold}>Soleo Health</Text>
-                    <Text style={styles.epaFormCellValue}>1324 W Winton Ave</Text>
-                    <Text style={styles.epaFormCellValue}>Hayward, CA 94545-1408 Ph: (510) 362-7360</Text>
-                  </View>
-                </View>
-
-                {/* Section 6: Transporter 1 */}
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 2}]}>
-                    <Text style={styles.epaFormCellLabel}>6. Transporter 1 Company Name</Text>
-                    <Text style={styles.epaFormCellValueBold}>Clean Earth Specialty Waste Solutions, Inc.</Text>
-                  </View>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>U.S. EPA ID Number</Text>
-                    <Text style={styles.epaFormCellValue}>MNS000110924</Text>
-                  </View>
-                </View>
-
-                {/* Section 7: Transporter 2 */}
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 2}]}>
-                    <Text style={styles.epaFormCellLabel}>7. Transporter 2 Company Name</Text>
-                    <Text style={styles.epaFormCellValue}></Text>
-                  </View>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>U.S. EPA ID Number</Text>
-                    <Text style={styles.epaFormCellValue}></Text>
-                  </View>
-                </View>
-
-                {/* Section 8: Designated Facility */}
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 2}]}>
-                    <Text style={styles.epaFormCellLabel}>8. Designated Facility Name and Site Address</Text>
-                    <Text style={styles.epaFormCellValueBold}>Clean Earth of Alabama, Inc.</Text>
-                    <Text style={styles.epaFormCellValue}>402 Webster Chapel Road</Text>
-                    <Text style={styles.epaFormCellValue}>Glencoe, AL 35905</Text>
-                    <Text style={styles.epaFormCellLabelSmall}>Facility's Phone: 8007399156</Text>
-                  </View>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>U.S. EPA ID Number</Text>
-                    <Text style={styles.epaFormCellValueBold}>ALD981020894</Text>
-                  </View>
-                </View>
-
-                {/* Section 9: Waste Description Table Header */}
-                <View style={styles.epaFormSectionHeader}>
-                  <Text style={styles.epaFormSectionHeaderText}>GENERATOR</Text>
-                </View>
-                <View style={styles.epaWasteTableHeader}>
-                  <View style={[styles.epaWasteTableCell, {width: 30}]}>
-                    <Text style={styles.epaFormCellLabelSmall}>9a.</Text>
-                    <Text style={styles.epaFormCellLabelSmall}>HM</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {flex: 3}]}>
-                    <Text style={styles.epaFormCellLabelSmall}>9b. U.S. DOT Description (including Proper Shipping Name, Hazard Class, ID Number,</Text>
-                    <Text style={styles.epaFormCellLabelSmall}>and Packing Group (if any))</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 80}]}>
-                    <Text style={styles.epaFormCellLabelSmall}>10. Containers</Text>
-                    <View style={{flexDirection: 'row'}}>
-                      <Text style={[styles.epaFormCellLabelSmall, {flex: 1}]}>No.</Text>
-                      <Text style={[styles.epaFormCellLabelSmall, {flex: 1}]}>Type</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 60}]}>
-                    <Text style={styles.epaFormCellLabelSmall}>11. Total</Text>
-                    <Text style={styles.epaFormCellLabelSmall}>Quantity</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 40}]}>
-                    <Text style={styles.epaFormCellLabelSmall}>12. Unit</Text>
-                    <Text style={styles.epaFormCellLabelSmall}>Wt/Vol</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 100}]}>
-                    <Text style={styles.epaFormCellLabelSmall}>13. Waste Codes</Text>
-                  </View>
-                </View>
-
-                {/* Waste Row 1 */}
-                <View style={styles.epaWasteTableRow}>
-                  <View style={[styles.epaWasteTableCell, {width: 30, justifyContent: 'center'}]}>
-                    <Text style={styles.epaFormCellValueBold}>X</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {flex: 3}]}>
-                    <Text style={styles.epaFormCellLabelSmall}>1</Text>
-                    <Text style={styles.epaFormCellValue}>UN1950, Waste Aerosols, flammable 2.1</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 80}]}>
-                    <View style={{flexDirection: 'row'}}>
-                      <Text style={[styles.epaFormCellValue, {flex: 1, textAlign: 'center'}]}>1</Text>
-                      <Text style={[styles.epaFormCellValue, {flex: 1, textAlign: 'center'}]}>CF</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 60}]}>
-                    <Text style={[styles.epaFormCellValue, {textAlign: 'center'}]}>00001</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 40}]}>
-                    <Text style={[styles.epaFormCellValue, {textAlign: 'center'}]}>P</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 100}]}>
-                    <Text style={styles.epaFormCellValue}>311</Text>
-                    <Text style={styles.epaFormCellValue}>D001</Text>
-                  </View>
-                </View>
-
-                {/* Waste Row 2 */}
-                <View style={styles.epaWasteTableRow}>
-                  <View style={[styles.epaWasteTableCell, {width: 30, justifyContent: 'center'}]}>
-                    <Text style={styles.epaFormCellValueBold}>X</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {flex: 3}]}>
-                    <Text style={styles.epaFormCellLabelSmall}>2</Text>
-                    <Text style={styles.epaFormCellValue}>UN2924, Waste Flammable liquids, corrosive, n.o.s. (ISOPROPYL ALCOHOL, AMMONIA), 3 (8), PG II</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 80}]}>
-                    <View style={{flexDirection: 'row'}}>
-                      <Text style={[styles.epaFormCellValue, {flex: 1, textAlign: 'center'}]}>1</Text>
-                      <Text style={[styles.epaFormCellValue, {flex: 1, textAlign: 'center'}]}>CF</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 60}]}>
-                    <Text style={[styles.epaFormCellValue, {textAlign: 'center'}]}>00002</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 40}]}>
-                    <Text style={[styles.epaFormCellValue, {textAlign: 'center'}]}>P</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 100}]}>
-                    <Text style={styles.epaFormCellValue}>311</Text>
-                    <Text style={styles.epaFormCellValue}>D001</Text>
-                    <Text style={styles.epaFormCellValue}>D002</Text>
-                  </View>
-                </View>
-
-                {/* Empty Waste Rows */}
-                <View style={styles.epaWasteTableRow}>
-                  <View style={[styles.epaWasteTableCell, {width: 30}]} />
-                  <View style={[styles.epaWasteTableCell, {flex: 3}]}>
-                    <Text style={styles.epaFormCellLabelSmall}>3</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 80}]} />
-                  <View style={[styles.epaWasteTableCell, {width: 60}]} />
-                  <View style={[styles.epaWasteTableCell, {width: 40}]} />
-                  <View style={[styles.epaWasteTableCell, {width: 100}]} />
-                </View>
-
-                <View style={styles.epaWasteTableRow}>
-                  <View style={[styles.epaWasteTableCell, {width: 30}]} />
-                  <View style={[styles.epaWasteTableCell, {flex: 3}]}>
-                    <Text style={styles.epaFormCellLabelSmall}>4</Text>
-                  </View>
-                  <View style={[styles.epaWasteTableCell, {width: 80}]} />
-                  <View style={[styles.epaWasteTableCell, {width: 60}]} />
-                  <View style={[styles.epaWasteTableCell, {width: 40}]} />
-                  <View style={[styles.epaWasteTableCell, {width: 100}]} />
-                </View>
-
-                {/* Section 14: Special Handling */}
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>14. Special Handling Instructions and Additional Information</Text>
-                    <Text style={styles.epaFormCellValue}>1.ERG#126: 114898SPW PHARMACEUTICAL AEROSOLS( INHALERS) LTD QTY</Text>
-                    <Text style={styles.epaFormCellValue}>2.ERG#132: 114888SP(FLAMMABLE/CORROSIVE PHARMACEUTICALS (AMMONIA INHAL) LTD QTY</Text>
-                  </View>
-                </View>
-
-                {/* Section 15: Generator Certification */}
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>15. GENERATOR'S/OFFEROR'S CERTIFICATION:</Text>
-                    <Text style={styles.epaFormCellValueSmall}>
-                      I hereby declare that the contents of this consignment are fully and accurately described above by the proper shipping name, and are classified, packaged, marked and labeled/placarded, and are in all respects in proper condition for transport according to applicable international and national governmental regulations. If export shipment and I am the Primary Exporter, I certify that the contents of this consignment conform to the terms of the attached EPA Acknowledgment of Consent.
-                    </Text>
-                    <Text style={styles.epaFormCellValueSmall}>
-                      I certify that the waste minimization statement identified in 40 CFR 262.27(a) (if I am a large quantity generator) or (b) (if I am a small quantity generator) is true.
-                    </Text>
-                    <View style={styles.epaSignatureRow}>
-                      <View style={{flex: 2}}>
-                        <Text style={styles.epaFormCellLabelSmall}>Generator's/Offeror's Printed/Typed Name</Text>
-                        <View style={styles.epaSignatureLine} />
-                      </View>
-                      <View style={{flex: 2}}>
-                        <Text style={styles.epaFormCellLabelSmall}>Signature</Text>
-                        {manifestData?.signatureImageUri ? (
-                          <Image
-                            source={{uri: manifestData.signatureImageUri}}
-                            style={{
-                              height: 40,
-                              width: '100%',
-                              borderWidth: 1,
-                              borderColor: '#000000',
-                              borderRadius: borderRadius.sm,
-                            }}
-                            resizeMode="contain"
-                          />
-                        ) : (
-                          <View style={styles.epaSignatureLine} />
-                        )}
-                      </View>
-                      <View style={styles.epaDateBox}>
-                        <Text style={styles.epaFormCellLabelSmall}>Month Day Year</Text>
-                        <View style={styles.epaDateRow}>
-                          <Text style={styles.epaDateValue}>11</Text>
-                          <Text style={styles.epaDateValue}>14</Text>
-                          <Text style={styles.epaDateValue}>2025</Text>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Transporter Section */}
-                <View style={styles.epaFormSectionHeader}>
-                  <Text style={styles.epaFormSectionHeaderText}>TRANSPORTER</Text>
-                </View>
-
-                {/* Section 16: International Shipments */}
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>16. International Shipments</Text>
-                    <View style={{flexDirection: 'row', gap: 16, alignItems: 'center'}}>
-                      <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
-                      <Text style={styles.epaFormCellValue}>Import to U.S.</Text>
-                      <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
-                      <Text style={styles.epaFormCellValue}>Export from U.S.</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabelSmall}>Port of entry/exit:</Text>
-                    <Text style={styles.epaFormCellLabelSmall}>Date leaving U.S.:</Text>
-                  </View>
-                </View>
-
-                {/* Section 17: Transporter Acknowledgment */}
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>17. Transporter Acknowledgment of Receipt of Materials</Text>
-                    <View style={styles.epaSignatureRow}>
-                      <View style={{flex: 2}}>
-                        <Text style={styles.epaFormCellLabelSmall}>Transporter 1 Printed/Typed Name</Text>
-                        <Text style={styles.epaFormCellValueBold}>Aaron Cayson</Text>
-                      </View>
-                      <View style={{flex: 2}}>
-                        <Text style={styles.epaFormCellLabelSmall}>Signature</Text>
-                        <View style={styles.epaSignatureLine} />
-                      </View>
-                      <View style={styles.epaDateBox}>
-                        <Text style={styles.epaFormCellLabelSmall}>Month Day Year</Text>
-                        <View style={styles.epaDateRow}>
-                          <Text style={styles.epaDateValue}>11</Text>
-                          <Text style={styles.epaDateValue}>14</Text>
-                          <Text style={styles.epaDateValue}>2025</Text>
-                        </View>
-                      </View>
-                    </View>
-                    <View style={[styles.epaSignatureRow, {marginTop: 8}]}>
-                      <View style={{flex: 2}}>
-                        <Text style={styles.epaFormCellLabelSmall}>Transporter 2 Printed/Typed Name</Text>
-                        <View style={styles.epaSignatureLine} />
-                      </View>
-                      <View style={{flex: 2}}>
-                        <Text style={styles.epaFormCellLabelSmall}>Signature</Text>
-                        <View style={styles.epaSignatureLine} />
-                      </View>
-                      <View style={styles.epaDateBox}>
-                        <Text style={styles.epaFormCellLabelSmall}>Month Day Year</Text>
-                        <View style={styles.epaDateRow}>
-                          <Text style={styles.epaDateValue}></Text>
-                          <Text style={styles.epaDateValue}></Text>
-                          <Text style={styles.epaDateValue}></Text>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Designated Facility Section */}
-                <View style={styles.epaFormSectionHeader}>
-                  <Text style={styles.epaFormSectionHeaderText}>DESIGNATED FACILITY</Text>
-                </View>
-
-                {/* Section 18: Discrepancy */}
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>18. Discrepancy</Text>
-                  </View>
-                </View>
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>18a. Discrepancy Indication Space</Text>
-                    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 16, alignItems: 'center'}}>
-                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                        <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
-                        <Text style={styles.epaFormCellValue}>Quantity</Text>
-                      </View>
-                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                        <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
-                        <Text style={styles.epaFormCellValue}>Type</Text>
-                      </View>
-                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                        <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
-                        <Text style={styles.epaFormCellValue}>Residue</Text>
-                      </View>
-                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                        <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
-                        <Text style={styles.epaFormCellValue}>Partial Rejection</Text>
-                      </View>
-                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                        <Icon name="check-box-outline-blank" size={18} color={colors.foreground} />
-                        <Text style={styles.epaFormCellValue}>Full Rejection</Text>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabelSmall}>Manifest Reference Number:</Text>
-                  </View>
-                </View>
-
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>18b. Alternate Facility (or Generator)</Text>
-                  </View>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>U.S. EPA ID Number</Text>
-                  </View>
-                </View>
-
-                {/* Section 19: Hazardous Waste Report */}
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>19. Hazardous Waste Report Management Method Codes (i.e., codes for hazardous waste treatment, disposal, and recycling systems)</Text>
-                    <View style={{flexDirection: 'row'}}>
-                      <View style={{flex: 1}}>
-                        <Text style={styles.epaFormCellLabelSmall}>1.</Text>
-                      </View>
-                      <View style={{flex: 1}}>
-                        <Text style={styles.epaFormCellLabelSmall}>2.</Text>
-                      </View>
-                      <View style={{flex: 1}}>
-                        <Text style={styles.epaFormCellLabelSmall}>3.</Text>
-                      </View>
-                      <View style={{flex: 1}}>
-                        <Text style={styles.epaFormCellLabelSmall}>4.</Text>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Section 20: Designated Facility Certification */}
-                <View style={styles.epaFormRow}>
-                  <View style={[styles.epaFormCell, {flex: 1}]}>
-                    <Text style={styles.epaFormCellLabel}>20. Designated Facility Owner or Operator: Certification of receipt of hazardous materials covered by the manifest except as noted in Item 18a</Text>
-                    <View style={styles.epaSignatureRow}>
-                      <View style={{flex: 2}}>
-                        <Text style={styles.epaFormCellLabelSmall}>Printed/Typed Name</Text>
-                        <View style={styles.epaSignatureLine} />
-                      </View>
-                      <View style={{flex: 2}}>
-                        <Text style={styles.epaFormCellLabelSmall}>Signature</Text>
-                        <View style={styles.epaSignatureLine} />
-                      </View>
-                      <View style={styles.epaDateBox}>
-                        <Text style={styles.epaFormCellLabelSmall}>Month Day Year</Text>
-                        <View style={styles.epaDateRow}>
-                          <Text style={styles.epaDateValue}></Text>
-                          <Text style={styles.epaDateValue}></Text>
-                          <Text style={styles.epaDateValue}></Text>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Footer */}
-                <View style={styles.epaFormFooter}>
-                  <Text style={styles.epaFormFooterText}>EPA Form 8700-22 (Rev. 12-17) Previous editions are obsolete.</Text>
-                  <Text style={styles.epaFormFooterHighlight}>DESIGNATED FACILITY TO EPA's e-MANIFEST SYSTEM</Text>
-                </View>
-              </View>
-            </ScrollView>
-
-            {/* Footer Buttons */}
-            <View style={styles.manifestPreviewFooter}>
-              <Button
-                title="Close"
-                variant="outline"
-                size="lg"
-                onPress={() => setShowPrintPreview(false)}
-                style={{flex: 1}}
-              />
-              <Button
-                title="Print Manifest"
-                variant="primary"
-                size="lg"
-                onPress={async () => {
-                  setShowPrintPreview(false);
-                  await printManifest();
-                }}
-                style={{flex: 1}}
-              />
-            </View>
-          </SafeAreaView>
-        </Modal>
-
-        {/* Print Options Modal */}
-        <Modal
-          visible={showPrintOptions}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowPrintOptions(false)}>
-          <View style={styles.bottomSheetOverlay}>
-            <TouchableOpacity
-              style={{flex: 1}}
-              activeOpacity={1}
-              onPress={() => setShowPrintOptions(false)}
-            />
-            <View style={styles.bottomSheetContent}>
-              {/* Bottom Sheet Handle */}
-              <View style={styles.bottomSheetHandle} />
-
-              <View style={styles.bottomSheetHeader}>
-                <Text style={styles.bottomSheetTitle}>Print Options</Text>
-              </View>
-
-              <ScrollView 
-                contentContainerStyle={styles.bottomSheetBodyContent}
-                showsVerticalScrollIndicator={true}>
-                <TouchableOpacity
-                  style={styles.bottomSheetOptionButton}
-                  onPress={() => {
-                    setShowPrintOptions(false);
-                    setShowPrintPreview(true);
-                  }}
-                  activeOpacity={0.7}>
-                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#E0E7FF'}]}>
-                    <Icon name="visibility" size={24} color={colors.foreground} />
-                  </View>
-                  <View style={styles.bottomSheetOptionInfo}>
-                    <Text style={styles.bottomSheetOptionLabel}>Print Preview</Text>
-                    <Text style={styles.bottomSheetOptionDesc}>
-                      Preview the manifest before printing
-                    </Text>
-                  </View>
-                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.bottomSheetOptionButton}
-                  onPress={async () => {
-                    setShowPrintOptions(false);
-                    await printManifest();
-                  }}
-                  activeOpacity={0.7}>
-                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
-                    <Icon name="print" size={24} color={colors.foreground} />
-                  </View>
-                  <View style={styles.bottomSheetOptionInfo}>
-                    <Text style={styles.bottomSheetOptionLabel}>Print Manifest</Text>
-                    <Text style={styles.bottomSheetOptionDesc}>
-                      Print the hazardous waste manifest document
-                    </Text>
-                  </View>
-                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.bottomSheetOptionButton}
-                  onPress={async () => {
-                    setShowPrintOptions(false);
-                    await printLDR();
-                  }}
-                  activeOpacity={0.7}>
-                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEF3C7'}]}>
-                    <Icon name="description" size={24} color={colors.foreground} />
-                  </View>
-                  <View style={styles.bottomSheetOptionInfo}>
-                    <Text style={styles.bottomSheetOptionLabel}>Print LDR</Text>
-                    <Text style={styles.bottomSheetOptionDesc}>
-                      Print the Land Disposal Restrictions notification
-                    </Text>
-                  </View>
-                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
-                </TouchableOpacity>
-              </ScrollView>
-
-              <View style={styles.bottomSheetFooter}>
-                <TouchableOpacity
-                  style={styles.bottomSheetCancelButton}
-                  onPress={() => setShowPrintOptions(false)}>
-                  <Text style={styles.bottomSheetCancelText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      </View>
-    );
-  };
-
-  const MaterialsSuppliesScreen = () => {
-    const isCurrentOrderCompleted = selectedOrderData
-      ? isOrderCompleted(selectedOrderData.orderNumber)
-      : false;
-    const [editingQuantityId, setEditingQuantityId] = useState<string | null>(
-      null,
-    );
-    const [editQuantityValue, setEditQuantityValue] = useState('');
-
-    const handleDeleteMaterial = (id: string) => {
-      setMaterialsSupplies(prev => prev.filter(m => m.id !== id));
-    };
-
-    const handleStartEditQuantity = (id: string, currentQuantity: number) => {
-      setEditingQuantityId(id);
-      setEditQuantityValue(String(currentQuantity));
-    };
-
-    const handleSaveQuantity = (id: string) => {
-      const newQuantity = parseInt(editQuantityValue) || 1;
-      setMaterialsSupplies(prev =>
-        prev.map(m => (m.id === id ? {...m, quantity: newQuantity} : m)),
-      );
-      setEditingQuantityId(null);
-      setEditQuantityValue('');
-    };
-
-    if (!selectedOrderData) return null;
-    
-    return (
-      <View style={styles.container}>
-        <PersistentOrderHeader
-          orderData={selectedOrderData}
-          isCollapsed={isOrderHeaderCollapsed}
-          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
-          onBackPress={() => setCurrentStep('manifest-management')}
-          subtitle="Supplies"
-          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
-          onPause={handleRequestPause}
-          onResume={handleResumeTracking}
-          onViewNotes={() => {
-            setShowJobNotesModal(true);
-          }}
-          validationState={validationState}
-          onViewValidation={() => setShowValidationModal(true)}
-          onViewServiceCenter={() => setShowServiceCenterModal(true)}
-          truckNumber={selectedTruck?.number || truckId || undefined}
-          trailerNumber={selectedTrailer?.number || null}
-          syncStatus={syncStatus}
-          pendingSyncCount={pendingSyncCount}
-          onSync={handleManualSync}
-          serviceTypeBadges={serviceTypeBadgesForHeader}
-        />
-
-        <View style={styles.scrollViewContainer}>
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            removeClippedSubviews={false}>
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <CardTitleText>Materials & Supplies</CardTitleText>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Text style={styles.cardDescription}>
-                  Track materials and supplies used or left behind for this
-                  order
-                </Text>
-
-                {materialsSupplies.length > 0 ? (
-                  <View style={styles.materialsTable}>
-                    <View style={styles.materialsTableHeader}>
-                      <Text style={styles.materialsTableHeaderText}>
-                        Item #
-                      </Text>
-                      <Text style={styles.materialsTableHeaderText}>
-                        Description
-                      </Text>
-                      <Text style={styles.materialsTableHeaderText}>Qty</Text>
-                      <Text style={styles.materialsTableHeaderText}>Type</Text>
-                      <Text style={styles.materialsTableHeaderText}>
-                        Action
-                      </Text>
-                    </View>
-                    {materialsSupplies.map((material, index) => (
-                      <View key={material.id} style={styles.materialsTableRow}>
-                        <Text style={styles.materialsTableCell}>
-                          {material.itemNumber}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.materialsTableCell,
-                            styles.materialsTableCellDescription,
-                          ]}>
-                          {material.description}
-                        </Text>
-                        <View style={styles.materialsTableCell}>
-                          {editingQuantityId === material.id ? (
-                            <View style={styles.quantityEditContainer}>
-                              <TextInput
-                                style={styles.quantityEditInput}
-                                value={editQuantityValue}
-                                onChangeText={setEditQuantityValue}
-                                keyboardType="numeric"
-                                autoFocus
-                              />
-                              <TouchableOpacity
-                                onPress={() => handleSaveQuantity(material.id)}
-                                style={styles.quantityEditButton}>
-                                <Icon name="check" size={20} color={colors.primaryForeground} />
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                onPress={() => {
-                                  setEditingQuantityId(null);
-                                  setEditQuantityValue('');
-                                }}
-                                style={styles.quantityEditButton}>
-                                <Icon name="close" size={20} color={colors.foreground} />
-                              </TouchableOpacity>
-                            </View>
-                          ) : (
-                            <TouchableOpacity
-                              onPress={() =>
-                                handleStartEditQuantity(
-                                  material.id,
-                                  material.quantity,
-                                )
-                              }
-                              disabled={isCurrentOrderCompleted}>
-                              <Text style={styles.materialsTableQuantity}>
-                                {material.quantity}
-                              </Text>
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                        <View style={styles.materialsTableCell}>
-                          <Badge
-                            variant={
-                              material.type === 'used' ? 'default' : 'secondary'
-                            }>
-                            {material.type === 'used' ? 'Used' : 'Left Behind'}
-                          </Badge>
-                        </View>
-                        <View style={styles.materialsTableCell}>
-                          <TouchableOpacity
-                            onPress={() => handleDeleteMaterial(material.id)}
-                            disabled={isCurrentOrderCompleted}
-                            style={styles.deleteMaterialButton}>
-                            <Text style={styles.deleteMaterialButtonText}>
-                              Delete
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                ) : (
-                  <View style={styles.emptyMaterialsState}>
-                    <Text style={styles.emptyMaterialsText}>
-                      No materials or supplies added yet
-                    </Text>
-                    <Text style={styles.emptyMaterialsSubtext}>
-                      Tap "Add Material" to get started
-                    </Text>
-                  </View>
-                )}
-
-                <Button
-                  title="Add Material & Supply"
-                  variant="primary"
-                  size="md"
-                  disabled={isCurrentOrderCompleted}
-                  onPress={() => setShowAddMaterialModal(true)}
-                  style={styles.addMaterialButton}
-                />
-              </CardContent>
-            </Card>
-          </ScrollView>
-        </View>
-
-        <View style={styles.footer}>
-          <Button
-            title="Back"
-            variant="outline"
-            size="md"
-            onPress={() => setCurrentStep('manifest-management')}
-          />
-          <Button
-            title="Mark service type complete"
-            variant="primary"
-            size="md"
-            disabled={!activeServiceTypeTimer}
-            onPress={handleMarkServiceTypeComplete}
-          />
-        </View>
-      </View>
-    );
-  };
-
-  const EquipmentPPEScreen = () => {
-    const [editingEquipmentId, setEditingEquipmentId] = useState<string | null>(
-      null,
-    );
-    const [editEquipmentCount, setEditEquipmentCount] = useState('');
-    const [showAddEquipmentModal, setShowAddEquipmentModal] = useState(false);
-    const [selectedEquipmentItem, setSelectedEquipmentItem] = useState<
-      string | null
-    >(null);
-    const [equipmentQuantity, setEquipmentQuantity] = useState('1');
-    const [showAddEquipmentSuccess, setShowAddEquipmentSuccess] =
-      useState(false);
-
-    // Pre-determined equipment/PPE list
-    const EQUIPMENT_PPE_CATALOG = [
-      'Safety Glasses',
-      'Nitrile Gloves',
-      'Protective Suit',
-      'Respirator',
-      'Hard Hat',
-      'Safety Boots',
-      'Hearing Protection',
-      'Face Shield',
-      'Apron',
-      'Coveralls',
-    ];
-
-    const handleAddEquipment = () => {
-      if (!selectedEquipmentItem) return;
-      const newEquipment = {
-        id: `eq-${Date.now()}`,
-        name: selectedEquipmentItem,
-        count: parseInt(equipmentQuantity) || 1,
-      };
-      setEquipmentPPE(prev => [...prev, newEquipment]);
-      // Show success indicator
-      setShowAddEquipmentSuccess(true);
-      setTimeout(() => setShowAddEquipmentSuccess(false), 2000);
-      // Reset form but keep modal open
-      setSelectedEquipmentItem(null);
-      setEquipmentQuantity('1');
-    };
-
-    const handleDeleteEquipment = (id: string) => {
-      setEquipmentPPE(prev => prev.filter(e => e.id !== id));
-    };
-
-    const handleStartEditCount = (id: string, currentCount: number) => {
-      setEditingEquipmentId(id);
-      setEditEquipmentCount(String(currentCount));
-    };
-
-    const handleSaveCount = (id: string) => {
-      const newCount = parseInt(editEquipmentCount) || 1;
-      setEquipmentPPE(prev =>
-        prev.map(e => (e.id === id ? {...e, count: newCount} : e)),
-      );
-      setEditingEquipmentId(null);
-      setEditEquipmentCount('');
-    };
-
-    if (!selectedOrderData) return null;
-    
-    return (
-      <View style={styles.container}>
-        <PersistentOrderHeader
-          orderData={selectedOrderData}
-          isCollapsed={isOrderHeaderCollapsed}
-          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
-          onBackPress={() => setCurrentStep('manifest-management')}
-          subtitle="Equipment"
-          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
-          onPause={handleRequestPause}
-          onResume={handleResumeTracking}
-          onViewNotes={() => {
-            setShowJobNotesModal(true);
-          }}
-          validationState={validationState}
-          onViewValidation={() => setShowValidationModal(true)}
-          onViewServiceCenter={() => setShowServiceCenterModal(true)}
-          truckNumber={selectedTruck?.number || truckId || undefined}
-          trailerNumber={selectedTrailer?.number || null}
-          syncStatus={syncStatus}
-          pendingSyncCount={pendingSyncCount}
-          onSync={handleManualSync}
-          serviceTypeBadges={serviceTypeBadgesForHeader}
-        />
-
-        <View style={styles.scrollViewContainer}>
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}>
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <CardTitleText>Equipment & PPE</CardTitleText>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Text style={styles.cardDescription}>
-                  Track equipment and PPE items used during service completion
-                </Text>
-
-                {equipmentPPE.length > 0 ? (
-                  <View style={styles.materialsTable}>
-                    <View style={styles.materialsTableHeader}>
-                      <Text style={styles.materialsTableHeaderText}>
-                        Equipment
-                      </Text>
-                      <Text style={styles.materialsTableHeaderText}>Qty</Text>
-                      <Text style={styles.materialsTableHeaderText}>
-                        Action
-                      </Text>
-                    </View>
-                    {equipmentPPE.map(equipment => (
-                      <View key={equipment.id} style={styles.materialsTableRow}>
-                        <Text
-                          style={[
-                            styles.materialsTableCell,
-                            styles.materialsTableCellDescription,
-                          ]}>
-                          {equipment.name}
-                        </Text>
-                        <View style={styles.materialsTableCell}>
-                          {editingEquipmentId === equipment.id ? (
-                            <View style={styles.quantityEditContainer}>
-                              <TextInput
-                                style={styles.quantityEditInput}
-                                value={editEquipmentCount}
-                                onChangeText={setEditEquipmentCount}
-                                keyboardType="numeric"
-                                autoFocus
-                              />
-                              <TouchableOpacity
-                                onPress={() => handleSaveCount(equipment.id)}
-                                style={styles.quantityEditButton}>
-                                <Icon name="check" size={20} color={colors.primaryForeground} />
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                onPress={() => {
-                                  setEditingEquipmentId(null);
-                                  setEditEquipmentCount('');
-                                }}
-                                style={styles.quantityEditButton}>
-                                <Icon name="close" size={20} color={colors.foreground} />
-                              </TouchableOpacity>
-                            </View>
-                          ) : (
-                            <TouchableOpacity
-                              onPress={() =>
-                                handleStartEditCount(
-                                  equipment.id,
-                                  equipment.count,
-                                )
-                              }>
-                              <Text style={styles.materialsTableQuantity}>
-                                {equipment.count}
-                              </Text>
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                        <View style={styles.materialsTableCell}>
-                          <TouchableOpacity
-                            onPress={() => handleDeleteEquipment(equipment.id)}
-                            style={styles.deleteMaterialButton}>
-                            <Text style={styles.deleteMaterialButtonText}>
-                              Delete
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                ) : (
-                  <View style={styles.emptyMaterialsState}>
-                    <Text style={styles.emptyMaterialsText}>
-                      No equipment or PPE added yet
-                    </Text>
-                    <Text style={styles.emptyMaterialsSubtext}>
-                      Tap "Add Equipment" to get started
-                    </Text>
-                  </View>
-                )}
-
-                <Button
-                  title="Add Equipment & PPE"
-                  variant="primary"
-                  size="md"
-                  onPress={() => setShowAddEquipmentModal(true)}
-                  style={styles.addMaterialButton}
-                />
-              </CardContent>
-            </Card>
-          </ScrollView>
-        </View>
-
-        <View style={styles.footer}>
-          <Button
-            title="Back"
-            variant="outline"
-            size="md"
-            onPress={() => setCurrentStep('manifest-management')}
-          />
-          <Button
-            title="Mark service type complete"
-            variant="primary"
-            size="md"
-            disabled={!activeServiceTypeTimer}
-            onPress={handleMarkServiceTypeComplete}
-          />
-        </View>
-
-        {/* Add Equipment Modal - Full Screen */}
-        <Modal
-          visible={showAddEquipmentModal}
-          animationType="slide"
-          onRequestClose={() => setShowAddEquipmentModal(false)}>
-          <View style={styles.fullScreenModalContainer}>
-            <View style={styles.fullScreenModalHeader}>
-              <Text style={styles.fullScreenModalTitle}>
-                Add Equipment & PPE
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowAddEquipmentModal(false);
-                  setSelectedEquipmentItem(null);
-                  setEquipmentQuantity('1');
-                }}
-                hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
-                style={styles.fullScreenModalCloseButton}>
-                <Icon name="close" size={20} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.fullScreenModalBody}>
-              <View
-                style={[
-                  styles.modalSplitContainer,
-                  isTablet()
-                    ? styles.modalSplitContainerRow
-                    : styles.modalSplitContainerColumn,
-                ]}>
-                {/* Left: Catalog Selection */}
-                <View
-                  style={[
-                    styles.modalCatalogPane,
-                    isTablet() && styles.modalCatalogPaneTablet,
-                  ]}>
-                  <Text style={styles.sectionTitle}>Select Equipment</Text>
-                  <Text style={styles.sectionDescription}>
-                    Choose equipment or PPE from the catalog
-                  </Text>
-                  <ScrollView
-                    style={styles.modalCatalogScroll}
-                    contentContainerStyle={styles.modalCatalogContent}>
-                    {EQUIPMENT_PPE_CATALOG.map(item => (
-                      <TouchableOpacity
-                        key={item}
-                        style={[
-                          styles.materialCatalogItemVertical,
-                          selectedEquipmentItem === item &&
-                            styles.materialCatalogItemSelected,
-                        ]}
-                        onPress={() => setSelectedEquipmentItem(item)}>
-                        <Text
-                          style={[
-                            styles.materialCatalogItemDescription,
-                            selectedEquipmentItem === item &&
-                              styles.materialCatalogItemDescriptionSelected,
-                          ]}>
-                          {item}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-
-                {/* Right: Details Section (Always Visible) */}
-                <View
-                  style={[
-                    styles.modalDetailsPane,
-                    isTablet() && styles.modalDetailsPaneTablet,
-                  ]}>
-                  <Text style={styles.sectionTitle}>Item Details</Text>
-                  {showAddEquipmentSuccess && (
-                    <View style={styles.addSuccessIndicator}>
-                      <View style={styles.successMessageRow}>
-                        <Icon name="check-circle" size={18} color={colors.success} style={styles.successMessageIcon} />
-                        <Text style={styles.addSuccessText}>Equipment added successfully!</Text>
-                      </View>
-                    </View>
-                  )}
-                  {selectedEquipmentItem ? (
-                    <>
-                      <View style={styles.selectedItemInfo}>
-                        <Text style={styles.selectedItemDescription}>
-                          {selectedEquipmentItem}
-                        </Text>
-                      </View>
-
-                      <View style={styles.materialInputSection}>
-                        <Input
-                          label="Quantity"
-                          value={equipmentQuantity}
-                          onChangeText={setEquipmentQuantity}
-                          keyboardType="numeric"
-                          placeholder="1"
-                        />
-                      </View>
-                    </>
-                  ) : (
-                    <View style={styles.noSelectionPlaceholder}>
-                      <Text style={styles.noSelectionText}>
-                        Select an item from the catalog to configure quantity
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.fullScreenModalFooter}>
-              <Button
-                title="Done"
-                variant="outline"
-                size="lg"
-                onPress={() => {
-                  setShowAddEquipmentModal(false);
-                  setSelectedEquipmentItem(null);
-                  setEquipmentQuantity('1');
-                }}
-                style={styles.fullScreenModalCancelButton}
-              />
-              <Button
-                title="Add Equipment"
-                variant="primary"
-                size="lg"
-                disabled={!selectedEquipmentItem}
-                onPress={handleAddEquipment}
-                style={styles.fullScreenModalAddButton}
-              />
-            </View>
-          </View>
-        </Modal>
-      </View>
-    );
-  };
-
-  const OrderServiceScreen = () => {
-    const totalNetWeight = activeContainers.reduce(
-      (sum, c) => sum + c.netWeight,
-      0,
-    );
-    const programsToShip = Object.values(selectedPrograms).filter(
-      p => p === 'ship',
-    ).length;
-    
-    // Get service type time entries for this order
-    const serviceTypeTimeEntriesForOrder = selectedOrderData
-      ? serviceTypeTimeService.getTimeEntriesForOrder(selectedOrderData.orderNumber)
-      : [];
-    const totalServiceTimeMinutes = selectedOrderData
-      ? serviceTypeTimeService.getTotalDurationForOrder(selectedOrderData.orderNumber)
-      : 0;
-    
-    // Check if all service types are complete
-    const allServiceTypesComplete = selectedOrderData
-      ? selectedOrderData.programs.every(serviceTypeId => {
-          const entry = serviceTypeTimeService.getTimeEntry(
-            selectedOrderData.orderNumber,
-            serviceTypeId,
-          );
-          return entry?.startTime != null && entry?.endTime != null;
-        })
-      : false;
-    
-    const [customerFirstName, setCustomerFirstName] = useState('');
-    const [customerLastName, setCustomerLastName] = useState('');
-    const [customerEmail, setCustomerEmail] = useState('');
-    const [acknowledgeIncomplete, setAcknowledgeIncomplete] = useState(false);
-
-    // Compute incomplete reasons for this order
-    const incompleteReasons = useMemo(() => {
-      const reasons: Array<{id: string; reason: string; severity: 'warning' | 'error'}> = [];
-      
-      // Check for scanned manifest - simulate missing for WO-2024-1234
-      const hasScannedManifest = scannedDocuments.some(
-        doc => doc.orderNumber === selectedOrderData?.orderNumber && doc.documentType === 'manifest'
-      );
-      if (!hasScannedManifest || selectedOrderData?.orderNumber === 'WO-2024-1234') {
-        reasons.push({
-          id: 'missing-manifest',
-          reason: 'Scanned manifest document is missing',
-          severity: 'error',
-        });
-      }
-
-      // Check if no containers were added
-      if (addedContainers.length === 0) {
-        reasons.push({
-          id: 'no-containers',
-          reason: 'No containers have been added to this order',
-          severity: 'warning',
-        });
-      }
-
-      // Check if programs are not all selected
-      const allProgramsSelected = selectedOrderData?.programs.every(
-        program => selectedPrograms[program]
-      );
-      if (!allProgramsSelected && selectedOrderData?.programs && selectedOrderData.programs.length > 0) {
-        reasons.push({
-          id: 'incomplete-programs',
-          reason: 'Not all programs have been selected',
-          severity: 'warning',
-        });
-      }
-
-      return reasons;
-    }, [scannedDocuments, selectedOrderData, addedContainers, selectedPrograms]);
-
-    const hasBlockingErrors = incompleteReasons.some(r => r.severity === 'error');
-
-    const handleCompleteOrder = async () => {
-      if (!customerFirstName.trim() || !customerLastName.trim()) {
-        Alert.alert(
-          'Required Fields',
-          'Please enter customer first name and last name.',
-        );
-        return;
-      }
-
-      // Check for blocking errors that haven't been acknowledged
-      if (hasBlockingErrors && !acknowledgeIncomplete) {
-        Alert.alert(
-          'Incomplete Order',
-          'This order has incomplete items that must be acknowledged before completing. Please review the warnings above and check the acknowledgment box.',
-        );
-        return;
-      }
-
-      if (!selectedOrderData) return;
-
-      // Store the service type that's being completed (before ending it)
-      const completingServiceTypeId = activeServiceTypeTimer;
-
-      // If there's an active service type timer, end it first
-      if (activeServiceTypeTimer) {
-        try {
-          await serviceTypeTimeService.endServiceType(
-            selectedOrderData.orderNumber,
-            activeServiceTypeTimer,
-          );
-          
-          // Reload service type time entries
-          const entries = new Map<string, ServiceTypeTimeEntry>();
-          selectedOrderData.programs.forEach(stId => {
-            const entry = serviceTypeTimeService.getTimeEntry(
-              selectedOrderData.orderNumber,
-              stId,
-            );
-            if (entry) {
-              entries.set(stId, entry);
-            }
-          });
-          setServiceTypeTimeEntries(entries);
-          setActiveServiceTypeTimer(null);
-        } catch (error) {
-          console.error('Error ending service type time tracking:', error);
-          Alert.alert('Error', 'Failed to end service type time tracking');
-          return;
-        }
-      }
-
-      // Check if all service types are complete
-      const allServiceTypesComplete = selectedOrderData.programs.every(serviceTypeId => {
-        const entry = serviceTypeTimeEntries.get(serviceTypeId);
-        return entry?.startTime != null && entry?.endTime != null;
-      });
-
-      if (allServiceTypesComplete) {
-        // All service types are complete - complete the entire order
-        // Queue order completion for sync
-        await syncService.addPendingOperation('order', {
-          orderNumber: selectedOrderData.orderNumber,
-          completed: true,
-          containers: addedContainers,
-          programs: selectedPrograms,
-          materialsSupplies,
-          equipmentPPE,
-          totalNetWeight,
-          programsToShip,
-          customerAcknowledgment: {
-            firstName: customerFirstName,
-            lastName: customerLastName,
-            email: customerEmail || undefined,
-            acknowledgedAt: new Date().toISOString(),
-          },
-        });
-
-        // Stop overall order time tracking
-        try {
-          await stopTimeTracking(selectedOrderData.orderNumber);
-          // Clear active tracking if this was the active order
-          if (activeTimeTracking?.orderNumber === selectedOrderData.orderNumber) {
-            setActiveTimeTracking(null);
-          }
-          // Clear current order tracking
-          if (currentOrderTimeTracking?.orderNumber === selectedOrderData.orderNumber) {
-            setCurrentOrderTimeTracking(null);
-            setElapsedTimeDisplay('');
-          }
-        } catch (error) {
-          console.error('Error stopping time tracking:', error);
-        }
-
-        // Mark order as completed
-        setCompletedOrders(prev => [...prev, selectedOrderData.orderNumber]);
-        // Update order status
-        setOrderStatuses(prev => ({
-          ...prev,
-          [selectedOrderData.orderNumber]: 'Completed',
-        }));
-        // Reset state and clear selected order so user cannot open manifest/service types for completed order
-        setSelectedOrderData(null);
-        setDashboardSelectedOrder(null);
-        // Keep addedContainers — they persist on truck until user marks and confirms drop in Record Drop flow
-        setSelectedPrograms({});
-        setMaterialsSupplies([]);
-        setEquipmentPPE([]);
-        setBarcode('');
-        setTareWeight('45');
-        setGrossWeight('285');
-        setCustomerFirstName('');
-        setCustomerLastName('');
-        setCustomerEmail('');
-        setCurrentStep('dashboard');
-      } else {
-        // Not all service types are complete - just complete the current service type
-        // Reload service type time entries to reflect the updated state
-        const entries = new Map<string, ServiceTypeTimeEntry>();
-        selectedOrderData.programs.forEach(stId => {
-          const entry = serviceTypeTimeService.getTimeEntry(
-            selectedOrderData.orderNumber,
-            stId,
-          );
-          if (entry) {
-            entries.set(stId, entry);
-          }
-        });
-        setServiceTypeTimeEntries(entries);
-        
-        // Update order status to "Partial" (not all service types complete yet)
-        setOrderStatuses(prev => ({
-          ...prev,
-          [selectedOrderData.orderNumber]: 'Partial',
-        }));
-        
-        // Navigate to dashboard after completing service type
-        setCurrentStep('dashboard');
-        // Keep the order selected so user can start the next service type
-        // Don't clear selectedOrderData - let user see the order and start next service type
-      }
-    };
-
-    // Customer Acknowledgment View
-    if (!selectedOrderData) return null;
-    
-    return (
-      <View style={styles.container}>
-        <PersistentOrderHeader
-          orderData={selectedOrderData}
-          isCollapsed={isOrderHeaderCollapsed}
-          onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
-          onBackPress={() => setCurrentStep('manifest-management')}
-          subtitle="Customer Acknowledgment"
-          elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
-          isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
-          onPause={handleRequestPause}
-          onResume={handleResumeTracking}
-          onViewNotes={() => {
-            setShowJobNotesModal(true);
-          }}
-          validationState={validationState}
-          onViewValidation={() => setShowValidationModal(true)}
-          onViewServiceCenter={() => setShowServiceCenterModal(true)}
-          truckNumber={selectedTruck?.number || truckId || undefined}
-          trailerNumber={selectedTrailer?.number || null}
-          syncStatus={syncStatus}
-          pendingSyncCount={pendingSyncCount}
-          onSync={handleManualSync}
-          serviceTypeBadges={serviceTypeBadgesForHeader}
-        />
-
-        <View style={styles.scrollViewContainer}>
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            removeClippedSubviews={false}>
-            {/* Service Summary - Matching Print Layout */}
-            <View style={styles.serviceSummaryContainer}>
-              {/* Header */}
-              <View style={styles.serviceSummaryHeader}>
-                <Text style={styles.serviceSummaryTitle}>Service Summary</Text>
-                <View style={styles.serviceSummaryLogo}>
-                  <Text style={styles.serviceSummaryLogoText}>CleanEarth</Text>
-                  <View style={styles.serviceSummaryLogoDot} />
-                </View>
-              </View>
-
-              {/* Work Order # and Date Row */}
-              <View style={styles.serviceSummaryTopRow}>
-                <View style={styles.serviceSummaryTopItem}>
-                  <Text style={styles.serviceSummaryFieldLabel}>Work Order #:</Text>
-                  <Text style={styles.serviceSummaryFieldValue}>{selectedOrderData?.orderNumber || 'N/A'}</Text>
-                </View>
-                <View style={styles.serviceSummaryTopItem}>
-                  <Text style={styles.serviceSummaryFieldLabel}>Date:</Text>
-                  <Text style={styles.serviceSummaryFieldValue}>{new Date().toLocaleDateString()}</Text>
-                </View>
-              </View>
-
-              {/* Customer and Generator Section */}
-              <View style={styles.serviceSummaryTwoColumn}>
-                {/* CUSTOMER Section */}
-                <View style={styles.serviceSummaryColumnBox}>
-                  <View style={styles.serviceSummarySectionHeader}>
-                    <Text style={styles.serviceSummarySectionHeaderText}>CUSTOMER:</Text>
-                  </View>
-                  <View style={styles.serviceSummarySectionBody}>
-                    <Text style={styles.serviceSummaryText}>HDDS</Text>
-                    <Text style={styles.serviceSummaryText}>HDDS</Text>
-                    <Text style={styles.serviceSummaryText}>5250 Triangle Parkway Suite 200</Text>
-                    <Text style={styles.serviceSummaryText}>Peachtree Corners, GA 30092</Text>
-                    <View style={styles.serviceSummaryFieldRow}>
-                      <Text style={styles.serviceSummaryFieldLabel}>Phone:</Text>
-                      <Text style={styles.serviceSummaryText}></Text>
-                    </View>
-                    <View style={styles.serviceSummaryFieldRow}>
-                      <Text style={styles.serviceSummaryFieldLabel}>Billing:</Text>
-                      <Text style={styles.serviceSummaryText}>A40000167</Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* GENERATOR Section */}
-                <View style={styles.serviceSummaryColumnBox}>
-                  <View style={styles.serviceSummarySectionHeader}>
-                    <Text style={styles.serviceSummarySectionHeaderText}>GENERATOR:</Text>
-                  </View>
-                  <View style={styles.serviceSummarySectionBody}>
-                    <Text style={styles.serviceSummaryText}>HDDS</Text>
-                    <Text style={styles.serviceSummaryText}>Soleo Health#</Text>
-                    <Text style={styles.serviceSummaryText}>1324 W Winton Ave</Text>
-                    <Text style={styles.serviceSummaryText}>Hayward, CA 94545-1408</Text>
-                    <View style={styles.serviceSummaryFieldRow}>
-                      <Text style={styles.serviceSummaryFieldLabel}>Generator:</Text>
-                      <Text style={styles.serviceSummaryText}>(510) 362-7360</Text>
-                    </View>
-                    <View style={styles.serviceSummaryFieldRow}>
-                      <Text style={styles.serviceSummaryFieldLabel}>EPA ID:</Text>
-                      <Text style={styles.serviceSummaryText}>CAL000483809</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* WORK ORDER DETAILS Section */}
-              <View style={styles.serviceSummarySection}>
-                <View style={styles.serviceSummarySectionHeader}>
-                  <Text style={styles.serviceSummarySectionHeaderText}>WORK ORDER DETAILS</Text>
-                </View>
-                <View style={styles.serviceSummaryTableRow}>
-                  <View style={[styles.serviceSummaryTableCell, {flex: 1}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>Account Rep</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {flex: 1}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>Terms</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {flex: 1}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>Purchase Order</Text>
-                  </View>
-                </View>
-                <View style={styles.serviceSummaryTableRow}>
-                  <View style={[styles.serviceSummaryTableCell, {flex: 1}]}>
-                    <Text style={styles.serviceSummaryTableValue}>House Account</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {flex: 1}]}>
-                    <Text style={styles.serviceSummaryTableValue}>ON RECEIPT(4)</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {flex: 1}]}>
-                    <Text style={styles.serviceSummaryTableValue}>West</Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* SERVICE TYPE TIME BREAKDOWN Section */}
-              {serviceTypeTimeEntriesForOrder.length > 0 && (
-                <View style={styles.serviceSummarySection}>
-                  <View style={styles.serviceSummarySectionHeader}>
-                    <Text style={styles.serviceSummarySectionHeaderText}>SERVICE TYPE TIME BREAKDOWN</Text>
-                  </View>
-                  {serviceTypeTimeEntriesForOrder.map((entry, index) => {
-                    const serviceType = serviceTypeService.getServiceType(entry.serviceTypeId);
-                    return (
-                      <View key={entry.serviceTypeId} style={styles.serviceSummaryTimeRow}>
-                        <View style={styles.serviceSummaryTimeServiceType}>
-                          <Text style={styles.serviceSummaryTimeServiceTypeName}>
-                            {serviceType?.name || entry.serviceTypeId}:
-                          </Text>
-                        </View>
-                        <View style={styles.serviceSummaryTimeDetails}>
-                          <Text style={styles.serviceSummaryTimeText}>
-                            {entry.startTime
-                              ? serviceTypeTimeService.formatTime(entry.startTime)
-                              : 'N/A'}{' '}
-                            –{' '}
-                            {entry.endTime
-                              ? serviceTypeTimeService.formatTime(entry.endTime)
-                              : 'In Progress'}{' '}
-                            ({entry.durationMinutes !== null && entry.durationMinutes !== undefined
-                              ? serviceTypeTimeService.formatDuration(entry.durationMinutes)
-                              : 'N/A'})
-                          </Text>
-                        </View>
-                      </View>
-                    );
-                  })}
-                  {totalServiceTimeMinutes > 0 && (
-                    <View style={styles.serviceSummaryTimeTotal}>
-                      <Text style={styles.serviceSummaryTimeTotalLabel}>Total Service Time:</Text>
-                      <Text style={styles.serviceSummaryTimeTotalValue}>
-                        {serviceTypeTimeService.formatDuration(totalServiceTimeMinutes)}
-                      </Text>
-                    </View>
-                  )}
-                  {currentOrderTimeTracking && (
-                    <View style={styles.serviceSummaryTimeTotal}>
-                      <Text style={styles.serviceSummaryTimeTotalLabel}>Order Time (Total On-Site):</Text>
-                      <Text style={styles.serviceSummaryTimeTotalValue}>
-                        {elapsedTimeDisplay || 'N/A'}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              )}
-
-              {/* WORK PERFORMED Section */}
-              <View style={styles.serviceSummarySection}>
-                <View style={styles.serviceSummarySectionHeader}>
-                  <Text style={styles.serviceSummarySectionHeaderText}>WORK PERFORMED</Text>
-                </View>
-                <View style={styles.serviceSummaryTableRow}>
-                  <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>Profile #</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>Profile Name</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>Size</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {width: 60}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>VOL</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {width: 40}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>UOM</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>Number of Containers</Text>
-                  </View>
-                </View>
-                {addedContainers.length > 0 ? (
-                  addedContainers.map((container, index) => (
-                    <View key={container.id} style={styles.serviceSummaryTableRow}>
-                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                        <Text style={styles.serviceSummaryTableValue}>5014883{index + 3}</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
-                        <Text style={styles.serviceSummaryTableValue}>{container.streamName}</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                        <Text style={styles.serviceSummaryTableValue}>{container.containerSize}</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {width: 60}]}>
-                        <Text style={styles.serviceSummaryTableValue}>{String(container.netWeight).padStart(5, '0')}</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {width: 40}]}>
-                        <Text style={styles.serviceSummaryTableValue}>P</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                        <Text style={styles.serviceSummaryTableValue}>1</Text>
-                      </View>
-                    </View>
-                  ))
-                ) : (
-                  <>
-                    <View style={styles.serviceSummaryTableRow}>
-                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                        <Text style={styles.serviceSummaryTableValue}>50148833</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
-                        <Text style={styles.serviceSummaryTableValue}>W PHARMACEUTICAL AEROSOLS/ INHALERS</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                        <Text style={styles.serviceSummaryTableValue}>Box 2.5 Ga</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {width: 60}]}>
-                        <Text style={styles.serviceSummaryTableValue}>00001</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {width: 40}]}>
-                        <Text style={styles.serviceSummaryTableValue}>P</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                        <Text style={styles.serviceSummaryTableValue}>1</Text>
-                      </View>
-                    </View>
-                    <View style={styles.serviceSummaryTableRow}>
-                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                        <Text style={styles.serviceSummaryTableValue}>50148851</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
-                        <Text style={styles.serviceSummaryTableValue}>FLAMMABLE/CORROSIVE PHARMACEUTICALS (AMMONIA INHAL</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                        <Text style={styles.serviceSummaryTableValue}>Box 2.5 Ga</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {width: 60}]}>
-                        <Text style={styles.serviceSummaryTableValue}>00002</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {width: 40}]}>
-                        <Text style={styles.serviceSummaryTableValue}>P</Text>
-                      </View>
-                      <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                        <Text style={styles.serviceSummaryTableValue}>1</Text>
-                      </View>
-                    </View>
-                  </>
-                )}
-              </View>
-
-              {/* LABOR, MATERIAL AND SUPPLIES USED Section */}
-              <View style={styles.serviceSummarySection}>
-                <View style={styles.serviceSummarySectionHeader}>
-                  <Text style={styles.serviceSummarySectionHeaderText}>LABOR, MATERIAL AND SUPPLIES USED</Text>
-                </View>
-                <View style={styles.serviceSummaryTableRow}>
-                  <View style={[styles.serviceSummaryTableCell, {width: 100}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>Product</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>Description</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                    <Text style={styles.serviceSummaryTableHeader}># Delivered</Text>
-                  </View>
-                </View>
-                {materialsSupplies.filter(m => m.type === 'used').length > 0 ? (
-                  materialsSupplies
-                    .filter(m => m.type === 'used')
-                    .map(material => (
-                      <View key={material.id} style={styles.serviceSummaryTableRow}>
-                        <View style={[styles.serviceSummaryTableCell, {width: 100}]}>
-                          <Text style={styles.serviceSummaryTableValue}>{material.itemNumber}</Text>
-                        </View>
-                        <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
-                          <Text style={styles.serviceSummaryTableValue}>{material.description}</Text>
-                        </View>
-                        <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                          <Text style={styles.serviceSummaryTableValue}>{material.quantity}</Text>
-                        </View>
-                      </View>
-                    ))
-                ) : (
-                  <View style={[styles.serviceSummaryTableRow, {minHeight: 30}]}>
-                    <View style={[styles.serviceSummaryTableCell, {width: 100}]} />
-                    <View style={[styles.serviceSummaryTableCell, {flex: 2}]} />
-                    <View style={[styles.serviceSummaryTableCell, {width: 80}]} />
-                  </View>
-                )}
-              </View>
-
-              {/* LABOR, MATERIAL AND SUPPLIES LEFT BEHIND Section */}
-              <View style={styles.serviceSummarySection}>
-                <View style={styles.serviceSummarySectionHeader}>
-                  <Text style={styles.serviceSummarySectionHeaderText}>LABOR, MATERIAL AND SUPPLIES LEFT BEHIND</Text>
-                </View>
-                <View style={styles.serviceSummaryTableRow}>
-                  <View style={[styles.serviceSummaryTableCell, {width: 100}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>Product</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
-                    <Text style={styles.serviceSummaryTableHeader}>Description</Text>
-                  </View>
-                  <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                    <Text style={styles.serviceSummaryTableHeader}># Delivered</Text>
-                  </View>
-                </View>
-                {materialsSupplies.filter(m => m.type === 'left_behind').length > 0 ? (
-                  materialsSupplies
-                    .filter(m => m.type === 'left_behind')
-                    .map(material => (
-                      <View key={material.id} style={styles.serviceSummaryTableRow}>
-                        <View style={[styles.serviceSummaryTableCell, {width: 100}]}>
-                          <Text style={styles.serviceSummaryTableValue}>{material.itemNumber}</Text>
-                        </View>
-                        <View style={[styles.serviceSummaryTableCell, {flex: 2}]}>
-                          <Text style={styles.serviceSummaryTableValue}>{material.description}</Text>
-                        </View>
-                        <View style={[styles.serviceSummaryTableCell, {width: 80}]}>
-                          <Text style={styles.serviceSummaryTableValue}>{material.quantity}</Text>
-                        </View>
-                      </View>
-                    ))
-                ) : (
-                  <View style={[styles.serviceSummaryTableRow, {minHeight: 30}]}>
-                    <View style={[styles.serviceSummaryTableCell, {width: 100}]} />
-                    <View style={[styles.serviceSummaryTableCell, {flex: 2}]} />
-                    <View style={[styles.serviceSummaryTableCell, {width: 80}]} />
-                  </View>
-                )}
-              </View>
-
-              {/* Customer Acknowledgement Section */}
-              <View style={styles.serviceSummaryAcknowledgement}>
-                <View style={styles.serviceSummaryAckLeft}>
-                  <Text style={styles.serviceSummaryAckTitle}>Customer{'\n'}Acknowledgement:</Text>
-                </View>
-                <View style={styles.serviceSummaryAckMiddle}>
-                  <View style={styles.serviceSummaryAckField}>
-                    <Text style={styles.serviceSummaryAckLabel}>Last Name:</Text>
-                    <View style={styles.serviceSummaryAckInputLine} />
-                  </View>
-                  <View style={styles.serviceSummaryAckField}>
-                    <Text style={styles.serviceSummaryAckLabel}>First Name:</Text>
-                    <View style={styles.serviceSummaryAckInputLine} />
-                  </View>
-                  <View style={styles.serviceSummaryAckField}>
-                    <Text style={styles.serviceSummaryAckLabel}>Email:</Text>
-                    <View style={styles.serviceSummaryAckInputLine} />
-                  </View>
-                </View>
-                <View style={styles.serviceSummaryAckRight}>
-                  <View style={styles.serviceSummaryAckField}>
-                    <Text style={styles.serviceSummaryAckLabel}>Technician:</Text>
-                    <Text style={styles.serviceSummaryAckValue}>Rashad Sayles</Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Footer */}
-              <View style={styles.serviceSummaryFooter}>
-                <View style={styles.serviceSummaryFooterItem}>
-                  <Text style={styles.serviceSummaryFooterLabel}>Work Order #:</Text>
-                  <Text style={styles.serviceSummaryFooterValue}>{selectedOrderData?.orderNumber || 'N/A'}</Text>
-                </View>
-                <View style={styles.serviceSummaryFooterItem}>
-                  <Text style={styles.serviceSummaryFooterLabel}>On Site Time:</Text>
-                  <Text style={styles.serviceSummaryFooterValueMuted}>Not Available - Offline</Text>
-                </View>
-                <View style={styles.serviceSummaryFooterItem}>
-                  <Text style={styles.serviceSummaryFooterLabel}>Departure Time:</Text>
-                  <Text style={styles.serviceSummaryFooterValue}>11/14/2025 9:36:24 AM</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Incomplete Reasons Warning */}
-            {incompleteReasons.length > 0 && (
-              <Card style={styles.incompleteWarningCard}>
-                <CardHeader>
-                  <CardTitle>
-                    <View style={styles.incompleteWarningHeader}>
-                      <Icon name="warning" size={20} color="#B45309" />
-                      <Text style={styles.incompleteWarningTitleText}>
-                        Incomplete Order - Action Required
-                      </Text>
-                    </View>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Text style={styles.incompleteWarningDescription}>
-                    The following items are incomplete and must be addressed or acknowledged before completing this order:
-                  </Text>
-                  
-                  <View style={styles.incompleteReasonsList}>
-                    {incompleteReasons.map(item => (
-                      <View 
-                        key={item.id} 
-                        style={[
-                          styles.incompleteReasonItem,
-                          item.severity === 'error' 
-                            ? styles.incompleteReasonError 
-                            : styles.incompleteReasonWarning
-                        ]}
-                      >
-                        <Text style={styles.incompleteReasonBullet}>
-                          <Icon 
-                            name={item.severity === 'error' ? 'error' : 'warning'} 
-                            size={16} 
-                            color={item.severity === 'error' ? colors.destructive : colors.warning} 
-                          />
-                        </Text>
-                        <View style={styles.incompleteReasonContent}>
-                          <Text style={[
-                            styles.incompleteReasonText,
-                            item.severity === 'error' && styles.incompleteReasonTextError
-                          ]}>
-                            {item.reason}
-                          </Text>
-                          {item.id === 'missing-manifest' && (
-                            <Text style={styles.incompleteReasonHint}>
-                              Use the "Scan Documents" quick action to capture the signed manifest
-                            </Text>
-                          )}
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-
-                  {hasBlockingErrors && (
-                    <TouchableOpacity 
-                      style={styles.acknowledgeCheckboxRow}
-                      onPress={() => setAcknowledgeIncomplete(!acknowledgeIncomplete)}
-                    >
-                      <View style={[
-                        styles.acknowledgeCheckbox,
-                        acknowledgeIncomplete && styles.acknowledgeCheckboxChecked
-                      ]}>
-                        {acknowledgeIncomplete && (
-                          <Icon name="check" size={18} color={colors.primaryForeground} />
-                        )}
-                      </View>
-                      <Text style={styles.acknowledgeCheckboxLabel}>
-                        I acknowledge that this order is incomplete and want to proceed anyway
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Customer Information Form */}
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <CardTitleText>Customer Information</CardTitleText>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Text style={styles.cardDescription}>
-                  Enter customer information to acknowledge this order
-                </Text>
-
-                <Input
-                  label="First Name *"
-                  value={customerFirstName}
-                  onChangeText={setCustomerFirstName}
-                  placeholder="Enter first name"
-                  style={styles.customerInput}
-                />
-
-                <Input
-                  label="Last Name *"
-                  value={customerLastName}
-                  onChangeText={setCustomerLastName}
-                  placeholder="Enter last name"
-                  style={styles.customerInput}
-                />
-
-                <Input
-                  label="Email (Optional)"
-                  value={customerEmail}
-                  onChangeText={setCustomerEmail}
-                  placeholder="Enter email address"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  style={styles.customerInput}
-                />
-              </CardContent>
-            </Card>
-          </ScrollView>
-        </View>
-
-        <View style={styles.footer}>
-          <Button
-            title="Back"
-            variant="outline"
-            size="md"
-            onPress={() => setCurrentStep('manifest-management')}
-          />
-          <Button
-            title="Service Checklist"
-            variant="secondary"
-            size="md"
-            onPress={() => {
-              setShowChecklistModal(true);
-            }}
-          />
-          <Button
-            title={allServiceTypesComplete ? "Acknowledge & Complete Order" : "Acknowledge & Complete Service Type"}
-            variant="primary"
-            size="md"
-            onPress={handleCompleteOrder}
-          />
-        </View>
-      </View>
-    );
-  };
-
-  // Main fixed footer navigation icon color
-  const FOOTER_NAV_ICON_COLOR = '#0092bc';
-
-  // Quick Actions Bar - shows on all order workflow screens
   const QuickActionsBar = () => {
     if (!selectedOrderData || currentStep === 'dashboard') {
       return null;
@@ -8113,193 +2930,56 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           </TouchableOpacity>
         </Modal>
 
-        {/* Document Type Selector - Bottom Sheet */}
-        <Modal
+        {/* Document Type Selector - Modal */}
+        <DocumentTypeSelectionModal
           visible={showDocumentTypeSelector}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowDocumentTypeSelector(false)}>
-          <View style={styles.bottomSheetOverlay}>
-            <TouchableOpacity
-              style={{flex: 1}}
-              activeOpacity={1}
-              onPress={() => setShowDocumentTypeSelector(false)}
-            />
-            <View style={styles.bottomSheetContent}>
-              {/* Drag Handle */}
-              <View style={styles.bottomSheetHandle} />
-              
-              <View style={styles.bottomSheetHeader}>
-                <Text style={styles.bottomSheetTitle}>Select Document Type</Text>
-                <Text style={styles.bottomSheetSubtitle}>
-                  Choose the type of document you want to scan
-                </Text>
-              </View>
-              
-              <ScrollView 
-                contentContainerStyle={styles.bottomSheetBodyContent}
-                showsVerticalScrollIndicator={true}>
-                <TouchableOpacity
-                  style={styles.bottomSheetOptionButton}
-                  onPress={() => captureDocument('manifest')}
-                  activeOpacity={0.7}>
-                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
-                    <Icon name="assignment" size={24} color={colors.foreground} />
-                  </View>
-                  <View style={styles.bottomSheetOptionInfo}>
-                    <Text style={styles.bottomSheetOptionLabel}>Manifest</Text>
-                    <Text style={styles.bottomSheetOptionDesc}>
-                      Hazardous waste manifest (EPA Form 8700-22)
-                    </Text>
-                  </View>
-                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
-                </TouchableOpacity>
+          onRequestClose={() => setShowDocumentTypeSelector(false)}
+          onSelectDocumentType={async (documentType) => {
+            setShowDocumentTypeSelector(false);
+            setPendingDocumentType(documentType);
+            setShowCaptureMethodSelector(true);
+          }}
+        />
 
-                <TouchableOpacity
-                  style={styles.bottomSheetOptionButton}
-                  onPress={() => captureDocument('ldr')}
-                  activeOpacity={0.7}>
-                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEF3C7'}]}>
-                    <Icon name="description" size={24} color={colors.foreground} />
-                  </View>
-                  <View style={styles.bottomSheetOptionInfo}>
-                    <Text style={styles.bottomSheetOptionLabel}>LDR</Text>
-                    <Text style={styles.bottomSheetOptionDesc}>
-                      Land Disposal Restrictions notification
-                    </Text>
-                  </View>
-                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.bottomSheetOptionButton}
-                  onPress={() => captureDocument('bol')}
-                  activeOpacity={0.7}>
-                  <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#D1FAE5'}]}>
-                    <Icon name="local-shipping" size={24} color={colors.foreground} />
-                  </View>
-                  <View style={styles.bottomSheetOptionInfo}>
-                    <Text style={styles.bottomSheetOptionLabel}>BOL</Text>
-                    <Text style={styles.bottomSheetOptionDesc}>
-                      Bill of Lading for shipment
-                    </Text>
-                  </View>
-                  <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
-                </TouchableOpacity>
-              </ScrollView>
-
-              <View style={styles.bottomSheetFooter}>
-                <TouchableOpacity
-                  style={styles.bottomSheetCancelButton}
-                  onPress={() => setShowDocumentTypeSelector(false)}>
-                  <Text style={styles.bottomSheetCancelText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Capture Method Selector - Camera or Gallery (or "Capture Now" only when from Manifest Shipment Scan manifest) */}
-        <Modal
+        {/* Capture Method Selector - Modal */}
+        <CaptureMethodSelectionModal
           visible={showCaptureMethodSelector}
-          transparent
-          animationType="slide"
           onRequestClose={() => {
             setShowCaptureMethodSelector(false);
             setCaptureFromManifestScanView(false);
-          }}>
-          <View style={styles.bottomSheetOverlay}>
-            <TouchableOpacity
-              style={{flex: 1}}
-              activeOpacity={1}
-              onPress={() => {
-                setShowCaptureMethodSelector(false);
-                setCaptureFromManifestScanView(false);
-              }}
-            />
-            <View style={styles.bottomSheetContent}>
-              <View style={styles.bottomSheetHandle} />
+          }}
+          onSelectCaptureMethod={async (method) => {
+            setShowCaptureMethodSelector(false);
+            setCaptureFromManifestScanView(false);
+            const documentType = pendingDocumentType;
+            if (!documentType) return;
+            
+            const typeLabels = {manifest: 'Manifest', ldr: 'LDR', bol: 'BOL'};
+            
+            try {
+              const methodLabel = method === 'camera' ? 'Camera' : 'Gallery';
               
-              <View style={styles.bottomSheetHeader}>
-                <Text style={styles.bottomSheetTitle}>
-                  {captureFromManifestScanView ? 'Scan manifest' : 'Capture Method'}
-                </Text>
-                <Text style={styles.bottomSheetSubtitle}>
-                  {captureFromManifestScanView
-                    ? 'Capture the manifest document now'
-                    : 'Choose how to capture the document'}
-                </Text>
-              </View>
+              // Create document entry with metadata (no image URI needed for demo)
+              setScannedDocuments(prev => [
+                ...prev,
+                {
+                  id: `doc-${Date.now()}`,
+                  uri: `mock://${documentType}-${method}-${Date.now()}`, // Placeholder URI
+                  timestamp: new Date().toISOString(),
+                  orderNumber: selectedOrderData?.orderNumber || '',
+                  documentType: documentType,
+                  captureMethod: methodLabel, // Store capture method for display
+                },
+              ]);
               
-              <ScrollView 
-                contentContainerStyle={styles.bottomSheetBodyContent}
-                showsVerticalScrollIndicator={true}>
-                {captureFromManifestScanView ? (
-                  <TouchableOpacity
-                    style={styles.bottomSheetOptionButton}
-                    onPress={() => handleCaptureWithMethod('camera')}
-                    activeOpacity={0.7}>
-                    <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
-                      <Icon name="camera-alt" size={24} color={colors.foreground} />
-                    </View>
-                    <View style={styles.bottomSheetOptionInfo}>
-                      <Text style={styles.bottomSheetOptionLabel}>Capture Now</Text>
-                      <Text style={styles.bottomSheetOptionDesc}>
-                        Use camera to capture the manifest
-                      </Text>
-                    </View>
-                    <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
-                  </TouchableOpacity>
-                ) : (
-                  <>
-                    <TouchableOpacity
-                      style={styles.bottomSheetOptionButton}
-                      onPress={() => handleCaptureWithMethod('camera')}
-                      activeOpacity={0.7}>
-                      <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#DBEAFE'}]}>
-                        <Icon name="camera-alt" size={24} color={colors.foreground} />
-                      </View>
-                      <View style={styles.bottomSheetOptionInfo}>
-                        <Text style={styles.bottomSheetOptionLabel}>Take Photo</Text>
-                        <Text style={styles.bottomSheetOptionDesc}>
-                          Use camera to capture the document
-                        </Text>
-                      </View>
-                      <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.bottomSheetOptionButton}
-                      onPress={() => handleCaptureWithMethod('gallery')}
-                      activeOpacity={0.7}>
-                      <View style={[styles.bottomSheetOptionIcon, {backgroundColor: '#FEF3C7'}]}>
-                        <Icon name="folder" size={24} color={colors.foreground} />
-                      </View>
-                      <View style={styles.bottomSheetOptionInfo}>
-                        <Text style={styles.bottomSheetOptionLabel}>Choose from Files</Text>
-                        <Text style={styles.bottomSheetOptionDesc}>
-                          Select an existing image file
-                        </Text>
-                      </View>
-                      <Icon name="arrow-forward" size={20} color={colors.mutedForeground} />
-                    </TouchableOpacity>
-                  </>
-                )}
-              </ScrollView>
-
-              <View style={styles.bottomSheetFooter}>
-                <TouchableOpacity
-                  style={styles.bottomSheetCancelButton}
-                  onPress={() => {
-                    setShowCaptureMethodSelector(false);
-                    setCaptureFromManifestScanView(false);
-                  }}>
-                  <Text style={styles.bottomSheetCancelText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+              Alert.alert('Success', `${typeLabels[documentType]} captured via ${methodLabel}!`);
+            } catch (error: any) {
+              console.error('Document capture error:', error);
+              Alert.alert('Error', 'Failed to capture document');
+            }
+          }}
+          isManifestScanView={captureFromManifestScanView}
+        />
 
         {/* Scanned Documents Viewer Modal */}
         <Modal
@@ -8448,36 +3128,376 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const renderScreen = () => {
     switch (currentStep) {
       case 'dashboard':
-        // Use master-detail on tablets in landscape mode if enabled, otherwise use full-screen
-        // In portrait mode, always use full-screen for better UX
-        if (isTablet() && useMasterDetail && isLandscape()) {
-          return <DashboardScreenMasterDetail />;
-        }
-        return <DashboardScreen />;
+        return renderDashboardScreen();
       case 'stream-selection':
-        return <StreamSelectionScreen />;
+        return (
+          <ExtStreamSelectionScreen
+            selectedOrderData={selectedOrderData}
+            setSelectedOrderData={setSelectedOrderData}
+            isOrderHeaderCollapsed={isOrderHeaderCollapsed}
+            setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
+            setCurrentStep={setCurrentStep}
+            elapsedTimeDisplay={elapsedTimeDisplay}
+            currentOrderTimeTracking={currentOrderTimeTracking}
+            handleRequestPause={handleRequestPause}
+            handleResumeTracking={handleResumeTracking}
+            setShowJobNotesModal={setShowJobNotesModal}
+            validationState={validationState}
+            setShowValidationModal={setShowValidationModal}
+            setShowServiceCenterModal={setShowServiceCenterModal}
+            selectedTruck={selectedTruck}
+            truckId={truckId}
+            selectedTrailer={selectedTrailer}
+            syncStatus={syncStatus}
+            pendingSyncCount={pendingSyncCount}
+            handleManualSync={handleManualSync}
+            serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
+            isOrderCompleted={isOrderCompleted}
+            offlineStatus={offlineStatus}
+            setShowOfflineBlockedModal={setShowOfflineBlockedModal}
+            streamSearchQuery={streamSearchQuery}
+            setStreamSearchQuery={setStreamSearchQuery}
+            filteredStreams={filteredStreams}
+            recentlyUsedProfiles={recentlyUsedProfiles}
+            setRecentlyUsedProfiles={setRecentlyUsedProfiles}
+            setSelectedStream={setSelectedStream}
+            setSelectedStreamCode={setSelectedStreamCode}
+            setSelectedStreamId={setSelectedStreamId}
+            setCylinderCount={setCylinderCount}
+            searchInputRef={searchInputRef}
+            handleSearchFocus={handleSearchFocus}
+            handleSearchBlur={handleSearchBlur}
+            handleSearchChange={handleSearchChange}
+            wasteStreams={wasteStreams}
+          />
+        );
       case 'container-selection':
-        return <ContainerSelectionScreen />;
+        return (
+          <ExtContainerSelectionScreen
+            selectedOrderData={selectedOrderData}
+            isOrderHeaderCollapsed={isOrderHeaderCollapsed}
+            setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
+            setCurrentStep={setCurrentStep}
+            elapsedTimeDisplay={elapsedTimeDisplay}
+            currentOrderTimeTracking={currentOrderTimeTracking}
+            handleRequestPause={handleRequestPause}
+            handleResumeTracking={handleResumeTracking}
+            setShowJobNotesModal={setShowJobNotesModal}
+            validationState={validationState}
+            setShowValidationModal={setShowValidationModal}
+            setShowServiceCenterModal={setShowServiceCenterModal}
+            selectedTruck={selectedTruck}
+            truckId={truckId}
+            selectedTrailer={selectedTrailer}
+            syncStatus={syncStatus}
+            pendingSyncCount={pendingSyncCount}
+            handleManualSync={handleManualSync}
+            serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
+            isOrderCompleted={isOrderCompleted}
+            selectedStreamId={selectedStreamId}
+            wasteStreams={wasteStreams}
+            allContainerTypes={allContainerTypes}
+            selectedStream={selectedStream}
+            setSelectedContainerType={setSelectedContainerType}
+          />
+        );
       case 'container-entry':
-        return <ContainerEntryScreen />;
+        return (
+          <ExtContainerEntryScreen
+            selectedOrderData={selectedOrderData}
+            isOrderHeaderCollapsed={isOrderHeaderCollapsed}
+            setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
+            setCurrentStep={setCurrentStep}
+            elapsedTimeDisplay={elapsedTimeDisplay}
+            currentOrderTimeTracking={currentOrderTimeTracking}
+            handleRequestPause={handleRequestPause}
+            handleResumeTracking={handleResumeTracking}
+            setShowJobNotesModal={setShowJobNotesModal}
+            validationState={validationState}
+            setShowValidationModal={setShowValidationModal}
+            setShowServiceCenterModal={setShowServiceCenterModal}
+            selectedTruck={selectedTruck}
+            truckId={truckId}
+            selectedTrailer={selectedTrailer}
+            syncStatus={syncStatus}
+            pendingSyncCount={pendingSyncCount}
+            handleManualSync={handleManualSync}
+            serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
+            isOrderCompleted={isOrderCompleted}
+            offlineStatus={offlineStatus}
+            setShowOfflineBlockedModal={setShowOfflineBlockedModal}
+            tareWeight={tareWeight}
+            setTareWeight={setTareWeight}
+            grossWeight={grossWeight}
+            setGrossWeight={setGrossWeight}
+            scaleWeight={scaleWeight}
+            setScaleWeight={setScaleWeight}
+            barcode={barcode}
+            setBarcode={setBarcode}
+            cylinderCount={cylinderCount}
+            setCylinderCount={setCylinderCount}
+            isManualWeightEntry={isManualWeightEntry}
+            setIsManualWeightEntry={setIsManualWeightEntry}
+            isScaleConnected={isScaleConnected}
+            setIsScaleConnected={setIsScaleConnected}
+            scaleReading={scaleReading}
+            setScaleReading={setScaleReading}
+            selectedStream={selectedStream}
+            selectedStreamCode={selectedStreamCode}
+            selectedStreamId={selectedStreamId}
+            selectedContainerType={selectedContainerType}
+            addedContainers={addedContainers}
+            setAddedContainers={setAddedContainers}
+            activeServiceTypeTimer={activeServiceTypeTimer}
+            generateShippingLabelBarcode={generateShippingLabelBarcode}
+            printShippingLabel={printShippingLabel}
+            setPrintingLabelBarcode={setPrintingLabelBarcode}
+            setShowLabelPrinting={setShowLabelPrinting}
+            wasteStreams={wasteStreams}
+          />
+        );
       case 'container-summary':
-        return <ContainerSummaryScreen />;
+        return (
+          <ExtContainerSummaryScreen
+            selectedOrderData={selectedOrderData}
+            isOrderHeaderCollapsed={isOrderHeaderCollapsed}
+            setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
+            setCurrentStep={setCurrentStep}
+            elapsedTimeDisplay={elapsedTimeDisplay}
+            currentOrderTimeTracking={currentOrderTimeTracking}
+            handleRequestPause={handleRequestPause}
+            handleResumeTracking={handleResumeTracking}
+            setShowJobNotesModal={setShowJobNotesModal}
+            validationState={validationState}
+            setShowValidationModal={setShowValidationModal}
+            setShowServiceCenterModal={setShowServiceCenterModal}
+            selectedTruck={selectedTruck}
+            truckId={truckId}
+            selectedTrailer={selectedTrailer}
+            syncStatus={syncStatus}
+            pendingSyncCount={pendingSyncCount}
+            handleManualSync={handleManualSync}
+            serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
+            isOrderCompleted={isOrderCompleted}
+            activeContainers={activeContainers}
+            activeServiceTypeTimer={activeServiceTypeTimer}
+            hasManifestForOrder={hasManifestForOrder}
+            isOrderReadyForManifest={isOrderReadyForManifest}
+            printShippingLabel={printShippingLabel}
+            setAddedContainers={setAddedContainers}
+            handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
+            returnToContainersReviewAfterAdd={returnToContainersReviewAfterAdd}
+            setReturnToContainersReviewAfterAdd={setReturnToContainersReviewAfterAdd}
+          />
+        );
       case 'containers-review':
-        return <OrderContainersReviewScreen />;
+        return (
+          <ExtOrderContainersReviewScreen
+            selectedOrderData={selectedOrderData}
+            isOrderHeaderCollapsed={isOrderHeaderCollapsed}
+            setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
+            setCurrentStep={setCurrentStep}
+            elapsedTimeDisplay={elapsedTimeDisplay}
+            currentOrderTimeTracking={currentOrderTimeTracking}
+            handleRequestPause={handleRequestPause}
+            handleResumeTracking={handleResumeTracking}
+            setShowJobNotesModal={setShowJobNotesModal}
+            validationState={validationState}
+            setShowValidationModal={setShowValidationModal}
+            setShowServiceCenterModal={setShowServiceCenterModal}
+            selectedTruck={selectedTruck}
+            truckId={truckId}
+            selectedTrailer={selectedTrailer}
+            syncStatus={syncStatus}
+            pendingSyncCount={pendingSyncCount}
+            handleManualSync={handleManualSync}
+            serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
+            activeContainers={activeContainers}
+            setAddedContainers={setAddedContainers}
+            isServiceTypeNoShip={isServiceTypeNoShip}
+            setActiveServiceTypeTimer={setActiveServiceTypeTimer}
+            setReturnToContainersReviewAfterAdd={setReturnToContainersReviewAfterAdd}
+            hasManifestForOrder={hasManifestForOrder}
+            generateManifestTrackingNumber={generateManifestTrackingNumber}
+            setManifestTrackingNumber={setManifestTrackingNumber}
+            setManifestOrderNumber={setManifestOrderNumber}
+            setManifestData={setManifestData}
+          />
+        );
       case 'manifest-management':
-        return <ManifestManagementScreen />;
+        return (
+          <ExtManifestManagementScreen
+            selectedOrderData={selectedOrderData}
+            isOrderHeaderCollapsed={isOrderHeaderCollapsed}
+            setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
+            setCurrentStep={setCurrentStep}
+            elapsedTimeDisplay={elapsedTimeDisplay}
+            currentOrderTimeTracking={currentOrderTimeTracking}
+            handleRequestPause={handleRequestPause}
+            handleResumeTracking={handleResumeTracking}
+            setShowJobNotesModal={setShowJobNotesModal}
+            validationState={validationState}
+            setShowValidationModal={setShowValidationModal}
+            setShowServiceCenterModal={setShowServiceCenterModal}
+            selectedTruck={selectedTruck}
+            truckId={truckId}
+            selectedTrailer={selectedTrailer}
+            syncStatus={syncStatus}
+            pendingSyncCount={pendingSyncCount}
+            handleManualSync={handleManualSync}
+            serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
+            isOrderCompleted={isOrderCompleted}
+            addedContainers={addedContainers}
+            manifestTrackingNumber={manifestTrackingNumber}
+            manifestData={manifestData}
+            setManifestData={setManifestData}
+            scannedDocuments={scannedDocuments.map(doc => ({
+              ...doc,
+              imageUri: doc.uri,
+              scannedAt: doc.timestamp,
+            })) as unknown as ScannedDocument[]}
+            showSignatureModal={showSignatureModal}
+            setShowSignatureModal={setShowSignatureModal}
+            showPrintPreview={showPrintPreview}
+            setShowPrintPreview={setShowPrintPreview}
+            showPrintOptions={showPrintOptions}
+            setShowPrintOptions={setShowPrintOptions}
+            signatureRef={signatureRef}
+            voidManifest={voidManifest}
+            printManifest={printManifest}
+            printLDR={printLDR}
+            setPendingDocumentType={setPendingDocumentType}
+            setCaptureFromManifestScanView={setCaptureFromManifestScanView}
+            setShowCaptureMethodSelector={setShowCaptureMethodSelector}
+            setSelectedOrderData={setSelectedOrderData}
+          />
+        );
       case 'materials-supplies':
-        return <MaterialsSuppliesScreen />;
+        return (
+          <ExtMaterialsSuppliesScreen
+            selectedOrderData={selectedOrderData}
+            isOrderHeaderCollapsed={isOrderHeaderCollapsed}
+            setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
+            setCurrentStep={setCurrentStep}
+            elapsedTimeDisplay={elapsedTimeDisplay}
+            currentOrderTimeTracking={currentOrderTimeTracking}
+            handleRequestPause={handleRequestPause}
+            handleResumeTracking={handleResumeTracking}
+            setShowJobNotesModal={setShowJobNotesModal}
+            validationState={validationState}
+            setShowValidationModal={setShowValidationModal}
+            setShowServiceCenterModal={setShowServiceCenterModal}
+            selectedTruck={selectedTruck}
+            truckId={truckId}
+            selectedTrailer={selectedTrailer}
+            syncStatus={syncStatus}
+            pendingSyncCount={pendingSyncCount}
+            handleManualSync={handleManualSync}
+            serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
+            isOrderCompleted={isOrderCompleted}
+            materialsSupplies={materialsSupplies}
+            setMaterialsSupplies={setMaterialsSupplies}
+            setShowAddMaterialModal={setShowAddMaterialModal}
+            activeServiceTypeTimer={activeServiceTypeTimer}
+            handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
+          />
+        );
       case 'equipment-ppe':
-        return <EquipmentPPEScreen />;
+        return (
+          <ExtEquipmentPPEScreen
+            selectedOrderData={selectedOrderData}
+            isOrderHeaderCollapsed={isOrderHeaderCollapsed}
+            setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
+            setCurrentStep={setCurrentStep}
+            elapsedTimeDisplay={elapsedTimeDisplay}
+            currentOrderTimeTracking={currentOrderTimeTracking}
+            handleRequestPause={handleRequestPause}
+            handleResumeTracking={handleResumeTracking}
+            setShowJobNotesModal={setShowJobNotesModal}
+            validationState={validationState}
+            setShowValidationModal={setShowValidationModal}
+            setShowServiceCenterModal={setShowServiceCenterModal}
+            selectedTruck={selectedTruck}
+            truckId={truckId}
+            selectedTrailer={selectedTrailer}
+            syncStatus={syncStatus}
+            pendingSyncCount={pendingSyncCount}
+            handleManualSync={handleManualSync}
+            serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
+            isOrderCompleted={isOrderCompleted}
+            equipmentPPE={equipmentPPE}
+            setEquipmentPPE={setEquipmentPPE}
+            activeServiceTypeTimer={activeServiceTypeTimer}
+            handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
+          />
+        );
       case 'order-service':
-        return <OrderServiceScreen />;
+        return (
+          <ExtOrderServiceScreen
+            selectedOrderData={selectedOrderData}
+            isOrderHeaderCollapsed={isOrderHeaderCollapsed}
+            setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
+            setCurrentStep={setCurrentStep}
+            elapsedTimeDisplay={elapsedTimeDisplay}
+            currentOrderTimeTracking={currentOrderTimeTracking}
+            handleRequestPause={handleRequestPause}
+            handleResumeTracking={handleResumeTracking}
+            setShowJobNotesModal={setShowJobNotesModal}
+            validationState={validationState}
+            setShowValidationModal={setShowValidationModal}
+            setShowServiceCenterModal={setShowServiceCenterModal}
+            selectedTruck={selectedTruck}
+            truckId={truckId}
+            selectedTrailer={selectedTrailer}
+            syncStatus={syncStatus}
+            pendingSyncCount={pendingSyncCount}
+            handleManualSync={handleManualSync}
+            serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
+            isOrderCompleted={isOrderCompleted}
+            activeContainers={activeContainers}
+            selectedPrograms={selectedPrograms}
+            materialsSupplies={materialsSupplies}
+            equipmentPPE={equipmentPPE}
+            addedContainers={addedContainers}
+            scannedDocuments={scannedDocuments.map(doc => ({
+              ...doc,
+              imageUri: doc.uri,
+              scannedAt: doc.timestamp,
+            })) as unknown as ScannedDocument[]}
+            setCompletedOrders={setCompletedOrders}
+            setOrderStatuses={setOrderStatuses}
+            setSelectedOrderData={setSelectedOrderData}
+            setDashboardSelectedOrder={setDashboardSelectedOrder}
+            setSelectedPrograms={setSelectedPrograms}
+            setMaterialsSupplies={setMaterialsSupplies}
+            setEquipmentPPE={setEquipmentPPE}
+            setBarcode={setBarcode}
+            setTareWeight={setTareWeight}
+            setGrossWeight={setGrossWeight}
+            setShowChecklistModal={setShowChecklistModal}
+            activeServiceTypeTimer={activeServiceTypeTimer}
+            setActiveServiceTypeTimer={setActiveServiceTypeTimer}
+            serviceTypeTimeEntries={serviceTypeTimeEntries}
+            setServiceTypeTimeEntries={setServiceTypeTimeEntries}
+            activeTimeTracking={activeTimeTracking}
+            setActiveTimeTracking={setActiveTimeTracking}
+            setCurrentOrderTimeTracking={setCurrentOrderTimeTracking}
+            setElapsedTimeDisplay={setElapsedTimeDisplay}
+            hasManifestForOrder={hasManifestForOrder}
+            noshipByOrderAndServiceType={
+              noshipByOrderAndServiceType as unknown as Record<
+                string,
+                Record<string, boolean>
+              >
+            }
+            isServiceTypeNoShip={isServiceTypeNoShip}
+            handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
+            showDocumentTypeSelector={showDocumentTypeSelector}
+            setShowDocumentTypeSelector={setShowDocumentTypeSelector}
+          />
+        );
       default:
-        // In portrait mode, always use full-screen for better UX
-        if (isTablet() && useMasterDetail && isLandscape()) {
-          return <DashboardScreenMasterDetail />;
-        }
-        return <DashboardScreen />;
+        return renderDashboardScreen();
     }
   };
 
@@ -10874,7 +5894,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+export const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
