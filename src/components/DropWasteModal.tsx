@@ -65,8 +65,8 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
   const [transferLocation, setTransferLocation] = useState<string>('');
   // Address/phone under dropdown: from selected transfer location when available, else service location fallback
   const selectedLocationInfo = transferLocation && transferLocationDetails?.[transferLocation];
-  const displayedAddress = selectedLocationInfo?.address ?? serviceLocationAddress ?? null;
-  const displayedPhone = selectedLocationInfo?.phone ?? serviceLocationPhone ?? null;
+  const displayedAddress = (typeof selectedLocationInfo === 'object' && selectedLocationInfo?.address) ?? serviceLocationAddress ?? null;
+  const displayedPhone = (typeof selectedLocationInfo === 'object' && selectedLocationInfo?.phone) ?? serviceLocationPhone ?? null;
   const [dropDate, setDropDate] = useState<string>('');
   const [dropTime, setDropTime] = useState<string>('');
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
