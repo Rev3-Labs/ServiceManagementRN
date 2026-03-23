@@ -188,48 +188,6 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
             )}
           </View>
 
-          {/* FR-3a.EXT.3.2: List active containers; all selected by default; partial drop by deselecting */}
-          <View style={styles.formField}>
-            <View style={styles.containerListHeader}>
-              <Text style={styles.formLabel}>Containers on truck</Text>
-              <View style={styles.selectAllRow}>
-                <TouchableOpacity onPress={selectAll} style={styles.selectAllBtn}>
-                  <Text style={styles.selectAllText}>Select all</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={deselectAll} style={styles.selectAllBtn}>
-                  <Text style={styles.selectAllText}>Deselect all</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-            {activeContainers.length === 0 ? (
-              <Text style={styles.emptyContainersText}>No active containers on truck.</Text>
-            ) : (
-              <View style={styles.containerList}>
-                {activeContainers.map(c => {
-                  const isSelected = selectedIds.has(c.id);
-                  const label = c.label || `Container ${c.id.slice(-6)}`;
-                  return (
-                    <TouchableOpacity
-                      key={c.id}
-                      style={styles.containerRow}
-                      onPress={() => toggleContainer(c.id)}
-                      activeOpacity={0.7}>
-                      <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-                        {isSelected && (
-                          <Icon name="check" size={16} color={colors.primaryForeground} />
-                        )}
-                      </View>
-                      <View style={styles.containerRowContent}>
-                        <Text style={styles.containerLabel}>{label}</Text>
-                        <Text style={styles.containerWeight}>{c.netWeight} lbs</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-          </View>
-
           <View style={styles.formField}>
             <Text style={styles.formLabel}>Drop Date *</Text>
             <TextInput
