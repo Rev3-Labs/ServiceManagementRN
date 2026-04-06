@@ -898,7 +898,7 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
           }}
         />
         <Button
-          title={allServiceTypesComplete ? "Acknowledge & Complete Order" : "Acknowledge & Complete Service Type"}
+          title={allServiceTypesComplete ? "Acknowledge & Complete Order" : "Acknowledge & Complete Work Order"}
           variant="primary"
           size="md"
           onPress={handleCompleteOrder}
