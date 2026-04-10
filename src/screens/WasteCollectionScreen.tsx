@@ -3911,7 +3911,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         onRequestClose={() => setShowAllNotesModal(false)}>
         <SafeAreaView style={styles.jobNotesModalContainer}>
           <View style={styles.jobNotesModalHeader}>
-            <Text style={styles.jobNotesModalTitle}>Upcoming Order Notes</Text>
+            <Text style={styles.jobNotesModalTitle}>Current Order Notes</Text>
             <TouchableOpacity
               onPress={() => setShowAllNotesModal(false)}
               style={styles.jobNotesModalCloseButton}
@@ -3925,7 +3925,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             contentContainerStyle={styles.jobNotesModalContent}>
             {upcomingOrdersWithNotes.length === 0 ? (
               <Text style={styles.allNotesEmptyText}>
-                No service notes on upcoming orders.
+                No service notes on current orders.
               </Text>
             ) : (
               upcomingOrdersWithNotes.map(order => {
@@ -6847,7 +6847,7 @@ export const styles = StyleSheet.create({
     fontWeight: '600',
   },
   dashboardTableRemainingPositive: {
-    color: colors.warning,
+    color: colors.success,
     fontWeight: '600',
   },
   inventoryExpandRow: {

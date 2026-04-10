@@ -740,7 +740,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
             activeOpacity={0.8}
             accessibilityRole="tab"
             accessibilityState={{selected: dashboardViewTab === 'orders'}}>
-            <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Upcoming Orders</Text>
+            <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Current Orders</Text>
           </TouchableOpacity>
         </View>
         <Text style={styles.dashboardTabDateLabel} numberOfLines={1}>
@@ -756,7 +756,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
         <View style={[styles.masterPane, {width: getSidebarWidth()}]}>
           <View style={styles.masterPaneHeader}>
             <View style={styles.masterPaneHeaderRow}>
-              <Text style={styles.masterPaneTitle}>Upcoming Orders</Text>
+              <Text style={styles.masterPaneTitle}>Current Orders</Text>
               <Button
                 title={
                   upcomingOrdersWithNotes.length > 0
@@ -1836,7 +1836,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
             activeOpacity={0.8}
             accessibilityRole="tab"
             accessibilityState={{selected: dashboardViewTab === 'orders'}}>
-            <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Upcoming Orders</Text>
+            <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Current Orders</Text>
           </TouchableOpacity>
         </View>
         <Text style={styles.dashboardTabDateLabel} numberOfLines={1}>
