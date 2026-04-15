@@ -482,8 +482,6 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     currentTotalWeight,
     dashboardViewTab,
     setDashboardViewTab,
-    completedOrdersSectionCollapsed,
-    setCompletedOrdersSectionCollapsed,
     upcomingOrdersWithNotes,
     setShowAllNotesModal,
     getOrderStatus,
@@ -835,58 +833,13 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                 </TouchableOpacity>
               ))
             ) : (
-              completedOrdersList.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <Text style={styles.emptyStateTitle}>
-                    No Orders Scheduled
-                  </Text>
-                  <Text style={styles.emptyStateText}>
-                    You have no orders scheduled for today.
-                  </Text>
-                </View>
-              ) : null
-            )}
-            {/* Completed Orders Section - collapsed at bottom (master-detail) */}
-            {completedOrdersList.length > 0 && (
-              <View style={styles.completedOrdersSection}>
-                <TouchableOpacity
-                  style={styles.completedOrdersHeaderRow}
-                  onPress={() => setCompletedOrdersSectionCollapsed(prev => !prev)}
-                  activeOpacity={0.7}>
-                  <View style={styles.completedOrdersTitleRow}>
-                    <Icon name="check-circle" size={18} color={colors.success} style={styles.completedOrdersIcon} />
-                    <Text style={styles.completedOrdersTitle}>
-                      Completed ({completedOrdersList.length})
-                    </Text>
-                    <Icon
-                      name={completedOrdersSectionCollapsed ? 'keyboard-arrow-down' : 'keyboard-arrow-up'}
-                      size={24}
-                      color={colors.mutedForeground}
-                    />
-                  </View>
-                </TouchableOpacity>
-                {!completedOrdersSectionCollapsed &&
-                  completedOrdersList.map((order, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={styles.completedOrderCard}
-                      onPress={() => setDashboardSelectedOrder(order)}
-                      activeOpacity={0.7}>
-                      <View style={styles.completedOrderContent}>
-                        <View style={styles.completedOrderLeft}>
-                          <Text style={styles.completedOrderNumber}>
-                            {order.orderNumber}
-                          </Text>
-                          <Text style={styles.completedOrderCustomer}>
-                            {formatCustomerWithStore(order.customer, order.site)}
-                          </Text>
-                        </View>
-                        <View style={styles.completedOrderRight}>
-                          <Icon name="check-circle" size={20} color={colors.success} />
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateTitle}>
+                  No Current Orders
+                </Text>
+                <Text style={styles.emptyStateText}>
+                  There are no open workorders remaining.
+                </Text>
               </View>
             )}
           </ScrollView>
@@ -1550,8 +1503,6 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     currentTotalWeight,
     dashboardViewTab,
     setDashboardViewTab,
-    completedOrdersSectionCollapsed,
-    setCompletedOrdersSectionCollapsed,
     showHeaderMenuModal,
     setShowHeaderMenuModal,
     upcomingOrdersWithNotes,
@@ -1576,7 +1527,6 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
   const allOrders = MOCK_ORDERS || orders || [];
   // Split orders into active and completed
   const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
-  const completedOrdersList = allOrders.filter(order => isOrderCompleted(order.orderNumber));
   const dashboardDate = useMemo(() => {
     const d = new Date();
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -2372,59 +2322,15 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                 </View>
               </TouchableOpacity>
             ))
-              ) : completedOrdersList.length === 0 ? (
+              ) : (
                 <View style={styles.emptyState}>
-                  <Text style={styles.emptyStateTitle}>No Orders Scheduled</Text>
+                  <Text style={styles.emptyStateTitle}>No Current Orders</Text>
                   <Text style={styles.emptyStateText}>
-                    You have no orders scheduled for today.
+                    There are no open workorders remaining.
                   </Text>
                 </View>
-              ) : null}
+              )}
             </>
-          )}
-
-          {/* Completed Orders Section - collapsed at bottom */}
-          {completedOrdersList.length > 0 && (
-            <View style={styles.completedOrdersSection}>
-              <TouchableOpacity
-                style={styles.completedOrdersHeaderRow}
-                onPress={() => setCompletedOrdersSectionCollapsed(prev => !prev)}
-                activeOpacity={0.7}>
-                <View style={styles.completedOrdersTitleRow}>
-                  <Icon name="check-circle" size={18} color={colors.success} style={styles.completedOrdersIcon} />
-                  <Text style={styles.completedOrdersTitle}>
-                    Completed ({completedOrdersList.length})
-                  </Text>
-                  <Icon
-                    name={completedOrdersSectionCollapsed ? 'keyboard-arrow-down' : 'keyboard-arrow-up'}
-                    size={24}
-                    color={colors.mutedForeground}
-                  />
-                </View>
-              </TouchableOpacity>
-              {!completedOrdersSectionCollapsed &&
-                completedOrdersList.map((order, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.completedOrderCard}
-                    onPress={() => setDashboardSelectedOrder(order)}
-                    activeOpacity={0.7}>
-                    <View style={styles.completedOrderContent}>
-                      <View style={styles.completedOrderLeft}>
-                        <Text style={styles.completedOrderNumber}>
-                          {order.orderNumber}
-                        </Text>
-                        <Text style={styles.completedOrderCustomer}>
-                          {formatCustomerWithStore(order.customer, order.site)}
-                        </Text>
-                      </View>
-                      <View style={styles.completedOrderRight}>
-                        <Icon name="check-circle" size={20} color={colors.success} />
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-            </View>
           )}
         </ScrollView>
       </View>

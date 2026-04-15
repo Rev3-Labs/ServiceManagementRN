@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useRef} from 'react';
+import React, {useState, useEffect, useRef, useMemo} from 'react';
 import {
   View,
   Text,
@@ -70,6 +70,7 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
   const [dropDate, setDropDate] = useState<string>('');
   const [dropTime, setDropTime] = useState<string>('');
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
+  const [locationSearchQuery, setLocationSearchQuery] = useState<string>('');
   /** FR-3a.EXT.3.2: All selected by default; user can deselect for partial drop. */
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const prevVisibleRef = useRef(false);
@@ -93,6 +94,7 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
     setDropDate('');
     setDropTime('');
     setShowLocationPicker(false);
+    setLocationSearchQuery('');
     setSelectedIds(new Set());
     onClose();
   };
@@ -100,6 +102,12 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
   const handleLocationSelect = (location: string) => {
     setTransferLocation(location);
     setShowLocationPicker(false);
+    setLocationSearchQuery('');
+  };
+
+  const handleLocationPickerClose = () => {
+    setShowLocationPicker(false);
+    setLocationSearchQuery('');
   };
 
   const toggleContainer = (id: string) => {
@@ -140,6 +148,19 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
   const selectedWeight = activeContainers
     .filter(c => selectedIds.has(c.id))
     .reduce((sum, c) => sum + c.netWeight, 0);
+
+  const filteredTransferLocationOptions = useMemo(() => {
+    const query = locationSearchQuery.trim().toLowerCase();
+    if (!query) {
+      return transferLocationOptions;
+    }
+    return transferLocationOptions.filter(option => {
+      const optionDetails = transferLocationDetails?.[option];
+      const optionText = option.toLowerCase();
+      const optionAddress = optionDetails?.address?.toLowerCase() ?? '';
+      return optionText.includes(query) || optionAddress.includes(query);
+    });
+  }, [locationSearchQuery, transferLocationOptions, transferLocationDetails]);
 
   return (
     <Modal
@@ -225,19 +246,30 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
           visible={showLocationPicker}
           transparent={true}
           animationType="slide"
-          onRequestClose={() => setShowLocationPicker(false)}>
+          onRequestClose={handleLocationPickerClose}>
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Select Transfer Location</Text>
                 <TouchableOpacity
-                  onPress={() => setShowLocationPicker(false)}
+                  onPress={handleLocationPickerClose}
                   style={styles.modalCloseBtn}>
                   <Icon name="close" size={20} color={colors.foreground} />
                 </TouchableOpacity>
               </View>
+              <View style={styles.searchWrapper}>
+                <TextInput
+                  style={styles.searchInput}
+                  value={locationSearchQuery}
+                  onChangeText={setLocationSearchQuery}
+                  placeholder="Search location"
+                  placeholderTextColor={colors.mutedForeground}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
               <FlatList
-                data={transferLocationOptions}
+                data={filteredTransferLocationOptions}
                 keyExtractor={(item, index) => `location-${index}`}
                 renderItem={({item}) => (
                   <TouchableOpacity
@@ -250,6 +282,11 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
                   </TouchableOpacity>
                 )}
                 style={styles.locationList}
+                ListEmptyComponent={
+                  <Text style={styles.emptyLocationText}>
+                    No transfer locations match your search.
+                  </Text>
+                }
               />
             </View>
           </View>
@@ -498,6 +535,21 @@ const styles = StyleSheet.create({
   locationList: {
     maxHeight: 400,
   },
+  searchWrapper: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  searchInput: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    minHeight: touchTargets.comfortable,
+    color: colors.foreground,
+  },
   locationItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -511,6 +563,13 @@ const styles = StyleSheet.create({
     ...typography.base,
     color: colors.foreground,
     flex: 1,
+  },
+  emptyLocationText: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
   },
 });
 
