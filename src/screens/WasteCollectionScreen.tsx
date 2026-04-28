@@ -9075,12 +9075,88 @@ export const styles = StyleSheet.create({
     marginBottom: spacing.xl,
     borderRadius: borderRadius.lg,
   },
+  // ----- State-driven section ("Action Card" / "Reference Card") styles -----
+  collapsibleCard: {
+    marginBottom: spacing.lg,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+  },
+  collapsibleHeaderPressable: {
+    // Pressable wraps CardHeader; keep it width-filling so the chevron aligns right.
+    width: '100%',
+  },
+  collapsibleHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+  },
+  sectionTitleIcon: {
+    marginRight: spacing.xs,
+  },
+  actionCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: colors.primary,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  referenceCard: {
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  sectionLockedHelpText: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: spacing.xs,
+    fontStyle: 'italic',
+  },
+  sectionAckedHelpText: {
+    ...typography.sm,
+    color: colors.success,
+    marginTop: spacing.xs,
+  },
+  actionRequiredBadge: {
+    marginLeft: spacing.sm,
+  },
+  acknowledgeButton: {
+    marginTop: spacing.lg,
+    alignSelf: 'stretch',
+  },
+  // ----- Compact inline Primary Contact display -----
+  contactInlineRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    rowGap: spacing.sm,
+    columnGap: spacing.lg,
+  },
+  contactInlineItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  contactInlineIcon: {
+    marginRight: spacing.xs,
+  },
+  contactInlineValue: {
+    ...typography.base,
+    color: colors.foreground,
+  },
+  contactInlineLink: {
+    ...typography.base,
+    color: colors.primary,
+    fontWeight: '500',
+    textDecorationLine: 'underline',
+  },
   detailNotesSection: {
     marginBottom: spacing.lg,
-    padding: spacing.lg,
-    backgroundColor: colors.primary + '10',
-    borderWidth: 2,
-    borderColor: colors.primary,
     borderRadius: borderRadius.lg,
   },
   detailNotesHeader: {

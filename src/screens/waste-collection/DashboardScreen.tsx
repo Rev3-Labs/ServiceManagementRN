@@ -1,4 +1,4 @@
-import React, {useMemo, useRef, MutableRefObject} from 'react';
+import React, {useMemo, useRef, useState, useEffect, MutableRefObject} from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,9 @@ import {
   Alert,
   ActivityIndicator,
   ViewStyle,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
 import {Button} from '../../components/Button';
 import {Badge} from '../../components/Badge';
@@ -27,6 +30,7 @@ import {formatDuration} from '../../services/timeTrackingService';
 import {serviceCenterService, ServiceCenter} from '../../services/serviceCenterService';
 import {serviceTypeService} from '../../services/serviceTypeService';
 import {serviceTypeTimeService} from '../../services/serviceTypeTimeService';
+import {serviceNotesAckService} from '../../services/serviceNotesAckService';
 import {SyncStatus} from '../../services/syncService';
 import {OfflineStatus} from '../../services/offlineTrackingService';
 import {OrderData} from '../../types/wasteCollection';
@@ -35,6 +39,14 @@ import {MOCK_ORDERS} from '../../data/mockOrders';
 import {styles} from './styles';
 import {DASHBOARD_INVENTORY_COLUMNS, SIMULATED_CONTAINERS_BY_ORDER_INDEX, getBusinessTypeStyle} from './constants';
 import {InventoryOnTruckCell} from './InventoryOnTruckCell';
+
+// Enable LayoutAnimation on Android for smooth section expand/collapse transitions
+if (
+  Platform.OS === 'android' &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 // Helper functions used locally
 function formatCustomerWithStore(customer: string, site: string): string {
@@ -518,6 +530,73 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     ? selectedOrder.previousServiceNotes.slice(0, 3)
     : [];
 
+  // ----- Service Notes acknowledgment + state-driven section layout -----
+  // Re-render trigger when ack store changes (service is a singleton with subscribers).
+  const [, setAckRefreshKey] = useState(0);
+  useEffect(() => {
+    const unsub = serviceNotesAckService.subscribe(() => {
+      setAckRefreshKey((k) => k + 1);
+    });
+    return unsub;
+  }, []);
+
+  const selectedOrderNumber = selectedOrder?.orderNumber ?? '';
+  // If there are no notes to review, treat as already acknowledged so Order Information
+  // becomes the primary action card immediately.
+  const notesAcknowledged =
+    !hasDetailNotes ||
+    (selectedOrderNumber
+      ? serviceNotesAckService.isAcknowledged(selectedOrderNumber)
+      : true);
+  const ackRecord = selectedOrderNumber
+    ? serviceNotesAckService.getAcknowledgment(selectedOrderNumber)
+    : null;
+
+  // Per-section expanded state. Defaults are recomputed when the selected order or
+  // ack state changes (see effect below), but users can manually toggle within a state.
+  const [sectionsExpanded, setSectionsExpanded] = useState<{
+    contact: boolean;
+    order: boolean;
+    notes: boolean;
+  }>(() =>
+    notesAcknowledged
+      ? { contact: false, order: true, notes: false }
+      : { contact: false, order: false, notes: true },
+  );
+
+  useEffect(() => {
+    setSectionsExpanded(
+      notesAcknowledged
+        ? { contact: false, order: true, notes: false }
+        : { contact: false, order: false, notes: true },
+    );
+  }, [selectedOrderNumber, notesAcknowledged]);
+
+  const toggleSection = (key: 'contact' | 'order' | 'notes') => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSectionsExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleAcknowledgeServiceNotes = async () => {
+    if (!selectedOrder) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    await serviceNotesAckService.acknowledge(
+      selectedOrder.orderNumber,
+      username,
+    );
+    setSectionsExpanded({ contact: false, order: true, notes: false });
+  };
+
+  const formatAckTimestamp = (ts: number): string => {
+    const d = new Date(ts);
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
+
   // Get offline limit warning message for header
   const getOfflineLimitMessage = () => {
     if (offlineStatus.isOnline) return null;
@@ -872,95 +951,151 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                 </Badge>
               </View>
 
-              {/* Primary Contact Section - Prominently placed above the fold */}
-              <Card style={styles.contactCard}>
-                <CardHeader>
-                  <CardTitle>
-                    <CardTitleText>Primary Contact</CardTitleText>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {selectedOrder.primaryContactName ||
-                  selectedOrder.primaryContactPhone ||
-                  selectedOrder.primaryContactEmail ? (
-                    <>
-                      {selectedOrder.primaryContactName && (
-                        <View style={styles.contactRow}>
-                          <Text style={styles.contactLabel}>Name:</Text>
-                          <Text style={styles.contactValue}>
-                            {selectedOrder.primaryContactName}
+              {/* State-driven section layout: pre-ack -> Notes is the Action Card and renders first;
+                  post-ack -> Order Information becomes the Action Card and Notes collapses to a reference. */}
+              {(() => {
+                const contactCard = (
+                  <Card
+                    key="contact-card"
+                    style={[
+                      styles.contactCard,
+                      styles.collapsibleCard,
+                      styles.referenceCard,
+                    ]}>
+                    <CardHeader>
+                      <CardTitle>
+                        <CardTitleText>Primary Contact</CardTitleText>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {selectedOrder.primaryContactName ||
+                      selectedOrder.primaryContactPhone ||
+                      selectedOrder.primaryContactEmail ? (
+                          <View style={styles.contactInlineRow}>
+                            {selectedOrder.primaryContactName && (
+                              <View style={styles.contactInlineItem}>
+                                <Icon
+                                  name="person"
+                                  size={16}
+                                  color={colors.mutedForeground}
+                                  style={styles.contactInlineIcon}
+                                />
+                                <Text style={styles.contactInlineValue}>
+                                  {selectedOrder.primaryContactName}
+                                </Text>
+                              </View>
+                            )}
+                            {selectedOrder.primaryContactPhone && (
+                              <TouchableOpacity
+                                style={styles.contactInlineItem}
+                                onPress={() =>
+                                  handlePhoneCall(selectedOrder.primaryContactPhone!)
+                                }
+                                activeOpacity={0.7}>
+                                <Icon
+                                  name="phone"
+                                  size={16}
+                                  color={colors.primary}
+                                  style={styles.contactInlineIcon}
+                                />
+                                <Text style={styles.contactInlineLink}>
+                                  {formatPhoneNumber(selectedOrder.primaryContactPhone)}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                            {selectedOrder.primaryContactEmail && (
+                              <TouchableOpacity
+                                style={styles.contactInlineItem}
+                                onPress={() =>
+                                  handleEmail(selectedOrder.primaryContactEmail!)
+                                }
+                                activeOpacity={0.7}>
+                                <Icon
+                                  name="email"
+                                  size={16}
+                                  color={colors.primary}
+                                  style={styles.contactInlineIcon}
+                                />
+                                <Text style={styles.contactInlineLink}>
+                                  {selectedOrder.primaryContactEmail}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                            {selectedOrder.hasSecondaryContacts && (
+                              <TouchableOpacity
+                                style={styles.contactInlineItem}
+                                onPress={() => {
+                                  Alert.alert(
+                                    'All Contacts',
+                                    'Secondary contacts feature coming soon.',
+                                  );
+                                }}
+                                activeOpacity={0.7}>
+                                <Text style={styles.contactInlineLink}>
+                                  + View all contacts
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        ) : (
+                          <View style={styles.noContactContainer}>
+                            <Text style={styles.noContactText}>
+                              No contact on file
+                            </Text>
+                          </View>
+                        )}
+                    </CardContent>
+                  </Card>
+                );
+
+                const orderCard = (
+                  <Card
+                    key="order-card"
+                    style={[
+                      styles.detailCard,
+                      styles.collapsibleCard,
+                      notesAcknowledged
+                        ? styles.actionCard
+                        : styles.referenceCard,
+                    ]}>
+                    <Pressable
+                      onPress={() => toggleSection('order')}
+                      style={styles.collapsibleHeaderPressable}
+                      hitSlop={4}>
+                      <CardHeader>
+                        <View style={styles.collapsibleHeaderRow}>
+                          <View style={styles.sectionTitleRow}>
+                            {!notesAcknowledged && (
+                              <Icon
+                                name="lock"
+                                size={16}
+                                color={colors.mutedForeground}
+                                style={styles.sectionTitleIcon}
+                              />
+                            )}
+                            <CardTitle>
+                              <CardTitleText>Order Information</CardTitleText>
+                            </CardTitle>
+                          </View>
+                          <Icon
+                            name={
+                              sectionsExpanded.order
+                                ? 'expand-less'
+                                : 'expand-more'
+                            }
+                            size={22}
+                            color={colors.mutedForeground}
+                          />
+                        </View>
+                        {!notesAcknowledged && (
+                          <Text style={styles.sectionLockedHelpText}>
+                            Acknowledge service notes to start work
                           </Text>
-                        </View>
-                      )}
-                      {selectedOrder.primaryContactPhone ? (
-                        <View style={styles.contactRow}>
-                          <Text style={styles.contactLabel}>Phone:</Text>
-                          <TouchableOpacity
-                            onPress={() =>
-                              handlePhoneCall(selectedOrder.primaryContactPhone!)
-                            }
-                            activeOpacity={0.7}>
-                            <Text style={styles.contactLink}>
-                              {formatPhoneNumber(selectedOrder.primaryContactPhone)}
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <View style={styles.contactRow}>
-                          <Text style={styles.contactLabel}>Phone:</Text>
-                          <Text style={styles.contactValue}>—</Text>
-                        </View>
-                      )}
-                      {selectedOrder.primaryContactEmail ? (
-                        <View style={styles.contactRow}>
-                          <Text style={styles.contactLabel}>Email:</Text>
-                          <TouchableOpacity
-                            onPress={() =>
-                              handleEmail(selectedOrder.primaryContactEmail!)
-                            }
-                            activeOpacity={0.7}>
-                            <Text style={styles.contactLink}>
-                              {selectedOrder.primaryContactEmail}
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <View style={styles.contactRow}>
-                          <Text style={styles.contactLabel}>Email:</Text>
-                          <Text style={styles.contactValue}>—</Text>
-                        </View>
-                      )}
-                      {selectedOrder.hasSecondaryContacts && (
-                        <TouchableOpacity
-                          style={styles.viewAllContactsButton}
-                          onPress={() => {
-                            Alert.alert(
-                              'All Contacts',
-                              'Secondary contacts feature coming soon.',
-                            );
-                          }}
-                          activeOpacity={0.7}>
-
-                        </TouchableOpacity>
-                      )}
-                    </>
-                  ) : (
-                    <View style={styles.noContactContainer}>
-                      <Text style={styles.noContactText}>
-                        No contact on file
-                      </Text>
-                    </View>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card style={styles.detailCard}>
-                <CardHeader>
-                  <CardTitle>
-                    <CardTitleText>Order Information</CardTitleText>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
+                        )}
+                      </CardHeader>
+                    </Pressable>
+                    {sectionsExpanded.order && (
+                      <CardContent>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Customer:</Text>
                     <View style={styles.detailValueContainer}>
@@ -1038,10 +1173,19 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                               ? colors.info
                               : colors.warning;
                         const canEditOrder = !isSelectedOrderCompleted;
+                        const lockedByAck = !notesAcknowledged;
+                        const isInteractive = canEditOrder && !lockedByAck;
                         return (
                           <Pressable
                             key={i}
                             onPress={() => {
+                              if (lockedByAck) {
+                                Alert.alert(
+                                  'Acknowledge service notes',
+                                  'Please acknowledge the service notes before starting work on a service type.',
+                                );
+                                return;
+                              }
                               if (canEditOrder && selectedOrder) {
                                 handleDashboardServiceTypeBadgePress(
                                   selectedOrder,
@@ -1051,10 +1195,11 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                                 );
                               }
                             }}
-                            disabled={!canEditOrder}
+                            disabled={!canEditOrder && !lockedByAck}
                             style={({ pressed }) => [
-                              canEditOrder && pressed && { opacity: 0.7 },
+                              isInteractive && pressed && { opacity: 0.7 },
                               !canEditOrder && { opacity: 1 },
+                              lockedByAck && { opacity: 0.55 },
                             ]}
                             hitSlop={8}>
                             <Badge
@@ -1063,7 +1208,11 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                               textStyle={textStyle}
                               title={serviceTypeService.getServiceTypeName(program)}
                               trailingIcon={
-                                <Icon name="chevron-right" size={20} color={chevronColor} />
+                                <Icon
+                                  name={lockedByAck ? 'lock' : 'chevron-right'}
+                                  size={20}
+                                  color={lockedByAck ? colors.mutedForeground : chevronColor}
+                                />
                               }>
                               {serviceOrderNumber
                                 ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
@@ -1088,6 +1237,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                               title={hasManifestForOrder(selectedOrder.orderNumber) ? 'Open manifest' : 'Continue to manifest'}
                               variant="primary"
                               size="lg"
+                              disabled={!notesAcknowledged}
                               style={styles.detailActionsRowButton}
                               onPress={() => {
                                 if (selectedOrder) {
@@ -1100,6 +1250,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                                 title="Void manifest"
                                 variant="destructive"
                                 size="lg"
+                                disabled={!notesAcknowledged}
                                 style={styles.detailActionsRowButton}
                                 onPress={voidManifest}
                               />
@@ -1113,6 +1264,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                             title="Complete Order as No-Ship"
                             variant="primary"
                             size="lg"
+                            disabled={!notesAcknowledged}
                             style={styles.detailActionsRowButton}
                             onPress={() => {
                               if (!selectedOrder) return;
@@ -1130,109 +1282,188 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                       </>
                     )}
                   </View>
-                </CardContent>
-              </Card>
-
-              <View style={styles.detailNotesSection}>
-                <View style={styles.detailNotesHeader}>
-                  <Text style={styles.detailNotesTitle}>Service Notes</Text>
-                  {hasDetailNotes && (
-                    <Badge variant="secondary">
-                      Review
-                    </Badge>
-                  )}
-                </View>
-                {hasDetailNotes ? (
-                  <>
-                    {selectedOrder.customerSpecialInstructions && (
-                      <Card style={styles.jobNotesCard}>
-                        <CardHeader>
-                          <CardTitle>
-                            <CardTitleText>Customer Special Instructions</CardTitleText>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <Text style={styles.jobNotesText}>
-                            {selectedOrder.customerSpecialInstructions}
-                          </Text>
-                        </CardContent>
-                      </Card>
+                      </CardContent>
                     )}
+                  </Card>
+                );
 
-                    {selectedOrder.siteAccessNotes && (
-                      <Card style={styles.jobNotesCard}>
-                        <CardHeader>
-                          <CardTitle>
-                            <CardTitleText>Site Access Notes</CardTitleText>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <Text style={styles.jobNotesText}>
-                            {selectedOrder.siteAccessNotes}
-                          </Text>
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    {selectedOrder.safetyWarnings &&
-                      selectedOrder.safetyWarnings.length > 0 && (
-                        <Card style={styles.jobNotesSafetyCard}>
-                          <CardHeader>
+                const notesCard = (
+                  <Card
+                    key="notes-card"
+                    style={[
+                      styles.collapsibleCard,
+                      notesAcknowledged
+                        ? styles.referenceCard
+                        : styles.actionCard,
+                    ]}>
+                    <Pressable
+                      onPress={() => toggleSection('notes')}
+                      style={styles.collapsibleHeaderPressable}
+                      hitSlop={4}>
+                      <CardHeader>
+                        <View style={styles.collapsibleHeaderRow}>
+                          <View style={styles.sectionTitleRow}>
+                            {notesAcknowledged && hasDetailNotes && (
+                              <Icon
+                                name="check-circle"
+                                size={16}
+                                color={colors.success}
+                                style={styles.sectionTitleIcon}
+                              />
+                            )}
                             <CardTitle>
-                              <View style={styles.jobNotesSafetyTitleContainer}>
-                                <Icon
-                                  name="warning"
-                                  size={20}
-                                  color={colors.destructive}
-                                  style={styles.jobNotesSafetyIcon}
-                                />
-                                <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
-                                  Safety Warnings
-                                </Text>
-                              </View>
+                              <CardTitleText>Service Notes</CardTitleText>
                             </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            {selectedOrder.safetyWarnings.map((warning, index) => (
-                              <View key={index} style={styles.safetyWarningItem}>
-                                <Text style={styles.safetyWarningText}>{warning}</Text>
-                              </View>
-                            ))}
-                          </CardContent>
-                        </Card>
-                      )}
-
-                    {detailLastThreeNotes.length > 0 && (
-                      <Card style={styles.jobNotesCard}>
-                        <CardHeader>
-                          <CardTitle>
-                            <CardTitleText>Previous Service Notes</CardTitleText>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          {detailLastThreeNotes.map((note, index) => (
-                            <View key={index} style={styles.previousNoteItem}>
-                              <View style={styles.previousNoteHeader}>
-                                <Text style={styles.previousNoteDate}>{note.date}</Text>
-                                {note.technician && (
-                                  <Text style={styles.previousNoteTechnician}>
-                                    {note.technician}
+                            {!notesAcknowledged && hasDetailNotes && (
+                              <Badge
+                                variant="secondary"
+                                style={styles.actionRequiredBadge}>
+                                Action Required
+                              </Badge>
+                            )}
+                          </View>
+                          <Icon
+                            name={
+                              sectionsExpanded.notes
+                                ? 'expand-less'
+                                : 'expand-more'
+                            }
+                            size={22}
+                            color={colors.mutedForeground}
+                          />
+                        </View>
+                        {notesAcknowledged && hasDetailNotes && ackRecord && (
+                          <Text style={styles.sectionAckedHelpText}>
+                            Acknowledged{' '}
+                            {formatAckTimestamp(ackRecord.acknowledgedAt)}
+                            {ackRecord.technicianId
+                              ? ` by ${ackRecord.technicianId}`
+                              : ''}
+                          </Text>
+                        )}
+                      </CardHeader>
+                    </Pressable>
+                    {sectionsExpanded.notes && (
+                      <View style={styles.detailNotesSection}>
+                        {hasDetailNotes ? (
+                          <>
+                            {selectedOrder.customerSpecialInstructions && (
+                              <Card style={styles.jobNotesCard}>
+                                <CardHeader>
+                                  <CardTitle>
+                                    <CardTitleText>Customer Special Instructions</CardTitleText>
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                  <Text style={styles.jobNotesText}>
+                                    {selectedOrder.customerSpecialInstructions}
                                   </Text>
-                                )}
-                              </View>
-                              <Text style={styles.previousNoteText}>{note.note}</Text>
-                            </View>
-                          ))}
-                        </CardContent>
-                      </Card>
+                                </CardContent>
+                              </Card>
+                            )}
+
+                            {selectedOrder.siteAccessNotes && (
+                              <Card style={styles.jobNotesCard}>
+                                <CardHeader>
+                                  <CardTitle>
+                                    <CardTitleText>Site Access Notes</CardTitleText>
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                  <Text style={styles.jobNotesText}>
+                                    {selectedOrder.siteAccessNotes}
+                                  </Text>
+                                </CardContent>
+                              </Card>
+                            )}
+
+                            {selectedOrder.safetyWarnings &&
+                              selectedOrder.safetyWarnings.length > 0 && (
+                                <Card style={styles.jobNotesSafetyCard}>
+                                  <CardHeader>
+                                    <CardTitle>
+                                      <View style={styles.jobNotesSafetyTitleContainer}>
+                                        <Icon
+                                          name="warning"
+                                          size={20}
+                                          color={colors.destructive}
+                                          style={styles.jobNotesSafetyIcon}
+                                        />
+                                        <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
+                                          Safety Warnings
+                                        </Text>
+                                      </View>
+                                    </CardTitle>
+                                  </CardHeader>
+                                  <CardContent>
+                                    {selectedOrder.safetyWarnings.map((warning, index) => (
+                                      <View key={index} style={styles.safetyWarningItem}>
+                                        <Text style={styles.safetyWarningText}>{warning}</Text>
+                                      </View>
+                                    ))}
+                                  </CardContent>
+                                </Card>
+                              )}
+
+                            {detailLastThreeNotes.length > 0 && (
+                              <Card style={styles.jobNotesCard}>
+                                <CardHeader>
+                                  <CardTitle>
+                                    <CardTitleText>Previous Service Notes</CardTitleText>
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                  {detailLastThreeNotes.map((note, index) => (
+                                    <View key={index} style={styles.previousNoteItem}>
+                                      <View style={styles.previousNoteHeader}>
+                                        <Text style={styles.previousNoteDate}>{note.date}</Text>
+                                        {note.technician && (
+                                          <Text style={styles.previousNoteTechnician}>
+                                            {note.technician}
+                                          </Text>
+                                        )}
+                                      </View>
+                                      <Text style={styles.previousNoteText}>{note.note}</Text>
+                                    </View>
+                                  ))}
+                                </CardContent>
+                              </Card>
+                            )}
+
+                            {!notesAcknowledged && (
+                              <Button
+                                title="Acknowledge & Continue"
+                                variant="primary"
+                                size="lg"
+                                style={styles.acknowledgeButton}
+                                onPress={handleAcknowledgeServiceNotes}
+                              />
+                            )}
+                          </>
+                        ) : (
+                          <Text style={styles.detailNotesEmptyText}>
+                            No service notes on file.
+                          </Text>
+                        )}
+                      </View>
                     )}
+                  </Card>
+                );
+
+                return notesAcknowledged ? (
+                  <>
+                    {contactCard}
+                    {orderCard}
+                    {notesCard}
                   </>
                 ) : (
-                  <Text style={styles.detailNotesEmptyText}>
-                    No service notes on file.
-                  </Text>
-                )}
-              </View>
+                  <>
+                    {notesCard}
+                    {contactCard}
+                    {orderCard}
+                  </>
+                );
+              })()}
 
               <View style={styles.detailActions}>
                 {isSelectedOrderCompleted ? (
@@ -1538,6 +1769,68 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     ? dashboardSelectedOrder.previousServiceNotes.slice(0, 3)
     : [];
 
+  // ----- Service Notes acknowledgment + state-driven section layout (full-screen view) -----
+  const [, setDashAckRefreshKey] = useState(0);
+  useEffect(() => {
+    const unsub = serviceNotesAckService.subscribe(() => {
+      setDashAckRefreshKey((k) => k + 1);
+    });
+    return unsub;
+  }, []);
+
+  const dashboardSelectedOrderNumber = dashboardSelectedOrder?.orderNumber ?? '';
+  const dashboardNotesAcknowledged =
+    !hasDashboardNotes ||
+    (dashboardSelectedOrderNumber
+      ? serviceNotesAckService.isAcknowledged(dashboardSelectedOrderNumber)
+      : true);
+  const dashboardAckRecord = dashboardSelectedOrderNumber
+    ? serviceNotesAckService.getAcknowledgment(dashboardSelectedOrderNumber)
+    : null;
+
+  const [dashboardSectionsExpanded, setDashboardSectionsExpanded] = useState<{
+    contact: boolean;
+    order: boolean;
+    notes: boolean;
+  }>(() =>
+    dashboardNotesAcknowledged
+      ? { contact: false, order: true, notes: false }
+      : { contact: false, order: false, notes: true },
+  );
+
+  useEffect(() => {
+    setDashboardSectionsExpanded(
+      dashboardNotesAcknowledged
+        ? { contact: false, order: true, notes: false }
+        : { contact: false, order: false, notes: true },
+    );
+  }, [dashboardSelectedOrderNumber, dashboardNotesAcknowledged]);
+
+  const toggleDashboardSection = (key: 'contact' | 'order' | 'notes') => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setDashboardSectionsExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleAcknowledgeDashboardServiceNotes = async () => {
+    if (!dashboardSelectedOrder) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    await serviceNotesAckService.acknowledge(
+      dashboardSelectedOrder.orderNumber,
+      username,
+    );
+    setDashboardSectionsExpanded({ contact: false, order: true, notes: false });
+  };
+
+  const formatDashboardAckTimestamp = (ts: number): string => {
+    const d = new Date(ts);
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
+
   // Get offline limit warning message for header
   const getOfflineLimitMessage = () => {
     if (offlineStatus.isOnline) return null;
@@ -1836,96 +2129,151 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                 </Badge>
               </View>
 
-              <Card style={styles.contactCard}>
-                <CardHeader>
-                  <CardTitle>
-                    <CardTitleText>Primary Contact</CardTitleText>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {dashboardSelectedOrder.primaryContactName ||
-                  dashboardSelectedOrder.primaryContactPhone ||
-                  dashboardSelectedOrder.primaryContactEmail ? (
-                    <>
-                      {dashboardSelectedOrder.primaryContactName && (
-                        <View style={styles.contactRow}>
-                          <Text style={styles.contactLabel}>Name:</Text>
-                          <Text style={styles.contactValue}>
-                            {dashboardSelectedOrder.primaryContactName}
-                          </Text>
-                        </View>
-                      )}
-                      {dashboardSelectedOrder.primaryContactPhone ? (
-                        <View style={styles.contactRow}>
-                          <Text style={styles.contactLabel}>Phone:</Text>
-                          <TouchableOpacity
-                            onPress={() =>
-                              handlePhoneCall(dashboardSelectedOrder.primaryContactPhone!)
-                            }
-                            activeOpacity={0.7}>
-                            <Text style={styles.contactLink}>
-                              {formatPhoneNumber(dashboardSelectedOrder.primaryContactPhone)}
+              {/* State-driven section layout: pre-ack -> Notes is the Action Card and renders first;
+                  post-ack -> Order Information becomes the Action Card and Notes collapses to a reference. */}
+              {(() => {
+                const contactCard = (
+                  <Card
+                    key="contact-card"
+                    style={[
+                      styles.contactCard,
+                      styles.collapsibleCard,
+                      styles.referenceCard,
+                    ]}>
+                    <CardHeader>
+                      <CardTitle>
+                        <CardTitleText>Primary Contact</CardTitleText>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {dashboardSelectedOrder.primaryContactName ||
+                        dashboardSelectedOrder.primaryContactPhone ||
+                        dashboardSelectedOrder.primaryContactEmail ? (
+                          <View style={styles.contactInlineRow}>
+                            {dashboardSelectedOrder.primaryContactName && (
+                              <View style={styles.contactInlineItem}>
+                                <Icon
+                                  name="person"
+                                  size={16}
+                                  color={colors.mutedForeground}
+                                  style={styles.contactInlineIcon}
+                                />
+                                <Text style={styles.contactInlineValue}>
+                                  {dashboardSelectedOrder.primaryContactName}
+                                </Text>
+                              </View>
+                            )}
+                            {dashboardSelectedOrder.primaryContactPhone && (
+                              <TouchableOpacity
+                                style={styles.contactInlineItem}
+                                onPress={() =>
+                                  handlePhoneCall(dashboardSelectedOrder.primaryContactPhone!)
+                                }
+                                activeOpacity={0.7}>
+                                <Icon
+                                  name="phone"
+                                  size={16}
+                                  color={colors.primary}
+                                  style={styles.contactInlineIcon}
+                                />
+                                <Text style={styles.contactInlineLink}>
+                                  {formatPhoneNumber(dashboardSelectedOrder.primaryContactPhone)}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                            {dashboardSelectedOrder.primaryContactEmail && (
+                              <TouchableOpacity
+                                style={styles.contactInlineItem}
+                                onPress={() =>
+                                  handleEmail(dashboardSelectedOrder.primaryContactEmail!)
+                                }
+                                activeOpacity={0.7}>
+                                <Icon
+                                  name="email"
+                                  size={16}
+                                  color={colors.primary}
+                                  style={styles.contactInlineIcon}
+                                />
+                                <Text style={styles.contactInlineLink}>
+                                  {dashboardSelectedOrder.primaryContactEmail}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                            {dashboardSelectedOrder.hasSecondaryContacts && (
+                              <TouchableOpacity
+                                style={styles.contactInlineItem}
+                                onPress={() => {
+                                  Alert.alert(
+                                    'All Contacts',
+                                    'Secondary contacts feature coming soon.',
+                                  );
+                                }}
+                                activeOpacity={0.7}>
+                                <Text style={styles.contactInlineLink}>
+                                  + View all contacts
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        ) : (
+                          <View style={styles.noContactContainer}>
+                            <Text style={styles.noContactText}>
+                              No contact on file
                             </Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <View style={styles.contactRow}>
-                          <Text style={styles.contactLabel}>Phone:</Text>
-                          <Text style={styles.contactValue}>—</Text>
-                        </View>
-                      )}
-                      {dashboardSelectedOrder.primaryContactEmail ? (
-                        <View style={styles.contactRow}>
-                          <Text style={styles.contactLabel}>Email:</Text>
-                          <TouchableOpacity
-                            onPress={() =>
-                              handleEmail(dashboardSelectedOrder.primaryContactEmail!)
-                            }
-                            activeOpacity={0.7}>
-                            <Text style={styles.contactLink}>
-                              {dashboardSelectedOrder.primaryContactEmail}
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <View style={styles.contactRow}>
-                          <Text style={styles.contactLabel}>Email:</Text>
-                          <Text style={styles.contactValue}>—</Text>
-                        </View>
-                      )}
-                      {dashboardSelectedOrder.hasSecondaryContacts && (
-                        <TouchableOpacity
-                          style={styles.viewAllContactsButton}
-                          onPress={() => {
-                            Alert.alert(
-                              'All Contacts',
-                              'Secondary contacts feature coming soon.',
-                            );
-                          }}
-                          activeOpacity={0.7}>
-                          <Text style={styles.viewAllContactsText}>
-                            View All Contacts
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-                    </>
-                  ) : (
-                    <View style={styles.noContactContainer}>
-                      <Text style={styles.noContactText}>
-                        No contact on file
-                      </Text>
-                    </View>
-                  )}
-                </CardContent>
-              </Card>
+                          </View>
+                        )}
+                    </CardContent>
+                  </Card>
+                );
 
-              <Card style={styles.detailCard}>
-                <CardHeader>
-                  <CardTitle>
-                    <CardTitleText>Order Information</CardTitleText>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
+                const orderCard = (
+                  <Card
+                    key="order-card"
+                    style={[
+                      styles.detailCard,
+                      styles.collapsibleCard,
+                      dashboardNotesAcknowledged
+                        ? styles.actionCard
+                        : styles.referenceCard,
+                    ]}>
+                    <Pressable
+                      onPress={() => toggleDashboardSection('order')}
+                      style={styles.collapsibleHeaderPressable}
+                      hitSlop={4}>
+                      <CardHeader>
+                        <View style={styles.collapsibleHeaderRow}>
+                          <View style={styles.sectionTitleRow}>
+                            {!dashboardNotesAcknowledged && (
+                              <Icon
+                                name="lock"
+                                size={16}
+                                color={colors.mutedForeground}
+                                style={styles.sectionTitleIcon}
+                              />
+                            )}
+                            <CardTitle>
+                              <CardTitleText>Order Information</CardTitleText>
+                            </CardTitle>
+                          </View>
+                          <Icon
+                            name={
+                              dashboardSectionsExpanded.order
+                                ? 'expand-less'
+                                : 'expand-more'
+                            }
+                            size={22}
+                            color={colors.mutedForeground}
+                          />
+                        </View>
+                        {!dashboardNotesAcknowledged && (
+                          <Text style={styles.sectionLockedHelpText}>
+                            Acknowledge service notes to start work
+                          </Text>
+                        )}
+                      </CardHeader>
+                    </Pressable>
+                    {dashboardSectionsExpanded.order && (
+                      <CardContent>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Customer:</Text>
                     <View style={styles.detailValueContainer}>
@@ -2003,10 +2351,19 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                               ? colors.info
                               : colors.warning;
                         const canEditOrder = !isOrderCompleted(dashboardSelectedOrder.orderNumber);
+                        const lockedByAck = !dashboardNotesAcknowledged;
+                        const isInteractive = canEditOrder && !lockedByAck;
                         return (
                           <Pressable
                             key={i}
                             onPress={() => {
+                              if (lockedByAck) {
+                                Alert.alert(
+                                  'Acknowledge service notes',
+                                  'Please acknowledge the service notes before starting work on a service type.',
+                                );
+                                return;
+                              }
                               if (canEditOrder && dashboardSelectedOrder) {
                                 handleDashboardServiceTypeBadgePress(
                                   dashboardSelectedOrder,
@@ -2016,10 +2373,11 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                                 );
                               }
                             }}
-                            disabled={!canEditOrder}
+                            disabled={!canEditOrder && !lockedByAck}
                             style={({ pressed }) => [
-                              canEditOrder && pressed && { opacity: 0.7 },
+                              isInteractive && pressed && { opacity: 0.7 },
                               !canEditOrder && { opacity: 1 },
+                              lockedByAck && { opacity: 0.55 },
                             ]}
                             hitSlop={8}>
                             <Badge
@@ -2028,7 +2386,11 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                               textStyle={textStyle}
                               title={serviceTypeService.getServiceTypeName(program)}
                               trailingIcon={
-                                <Icon name="chevron-right" size={20} color={chevronColor} />
+                                <Icon
+                                  name={lockedByAck ? 'lock' : 'chevron-right'}
+                                  size={20}
+                                  color={lockedByAck ? colors.mutedForeground : chevronColor}
+                                />
                               }>
                               {serviceOrderNumber
                                 ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`
@@ -2053,6 +2415,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                               title={hasManifestForOrder(dashboardSelectedOrder.orderNumber) ? 'Open manifest' : 'Continue to manifest'}
                               variant="primary"
                               size="lg"
+                              disabled={!dashboardNotesAcknowledged}
                               style={styles.detailActionsRowButton}
                               onPress={() => {
                                 handleGenerateManifestForOrder(dashboardSelectedOrder);
@@ -2063,6 +2426,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                                 title="Void manifest"
                                 variant="destructive"
                                 size="lg"
+                                disabled={!dashboardNotesAcknowledged}
                                 style={styles.detailActionsRowButton}
                                 onPress={voidManifest}
                               />
@@ -2076,6 +2440,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                             title="Complete Order as No-Ship"
                             variant="primary"
                             size="lg"
+                            disabled={!dashboardNotesAcknowledged}
                             style={styles.detailActionsRowButton}
                             onPress={() => {
                               if (!dashboardSelectedOrder) return;
@@ -2093,109 +2458,192 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                       </>
                     )}
                   </View>
-                </CardContent>
-              </Card>
-
-              <View style={styles.detailNotesSection}>
-                <View style={styles.detailNotesHeader}>
-                  <Text style={styles.detailNotesTitle}>Service Notes</Text>
-                  {hasDashboardNotes && (
-                    <Badge variant="secondary" style={styles.detailNotesBadge}>
-                      Review
-                    </Badge>
-                  )}
-                </View>
-                {hasDashboardNotes ? (
-                  <>
-                    {dashboardSelectedOrder.customerSpecialInstructions && (
-                      <Card style={styles.jobNotesCard}>
-                        <CardHeader>
-                          <CardTitle>
-                            <CardTitleText>Customer Special Instructions</CardTitleText>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <Text style={styles.jobNotesText}>
-                            {dashboardSelectedOrder.customerSpecialInstructions}
-                          </Text>
-                        </CardContent>
-                      </Card>
+                      </CardContent>
                     )}
+                  </Card>
+                );
 
-                    {dashboardSelectedOrder.siteAccessNotes && (
-                      <Card style={styles.jobNotesCard}>
-                        <CardHeader>
-                          <CardTitle>
-                            <CardTitleText>Site Access Notes</CardTitleText>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <Text style={styles.jobNotesText}>
-                            {dashboardSelectedOrder.siteAccessNotes}
-                          </Text>
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    {dashboardSelectedOrder.safetyWarnings &&
-                      dashboardSelectedOrder.safetyWarnings.length > 0 && (
-                        <Card style={styles.jobNotesSafetyCard}>
-                          <CardHeader>
+                const notesCard = (
+                  <Card
+                    key="notes-card"
+                    style={[
+                      styles.collapsibleCard,
+                      dashboardNotesAcknowledged
+                        ? styles.referenceCard
+                        : styles.actionCard,
+                    ]}>
+                    <Pressable
+                      onPress={() => toggleDashboardSection('notes')}
+                      style={styles.collapsibleHeaderPressable}
+                      hitSlop={4}>
+                      <CardHeader>
+                        <View style={styles.collapsibleHeaderRow}>
+                          <View style={styles.sectionTitleRow}>
+                            {dashboardNotesAcknowledged && hasDashboardNotes && (
+                              <Icon
+                                name="check-circle"
+                                size={16}
+                                color={colors.success}
+                                style={styles.sectionTitleIcon}
+                              />
+                            )}
                             <CardTitle>
-                              <View style={styles.jobNotesSafetyTitleContainer}>
-                                <Icon
-                                  name="warning"
-                                  size={20}
-                                  color={colors.destructive}
-                                  style={styles.jobNotesSafetyIcon}
-                                />
-                                <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
-                                  Safety Warnings
-                                </Text>
-                              </View>
+                              <CardTitleText>Service Notes</CardTitleText>
                             </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            {dashboardSelectedOrder.safetyWarnings.map((warning, index) => (
-                              <View key={index} style={styles.safetyWarningItem}>
-                                <Text style={styles.safetyWarningText}>{warning}</Text>
-                              </View>
-                            ))}
-                          </CardContent>
-                        </Card>
-                      )}
-
-                    {dashboardLastThreeNotes.length > 0 && (
-                      <Card style={styles.jobNotesCard}>
-                        <CardHeader>
-                          <CardTitle>
-                            <CardTitleText>Previous Service Notes</CardTitleText>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          {dashboardLastThreeNotes.map((note, index) => (
-                            <View key={index} style={styles.previousNoteItem}>
-                              <View style={styles.previousNoteHeader}>
-                                <Text style={styles.previousNoteDate}>{note.date}</Text>
-                                {note.technician && (
-                                  <Text style={styles.previousNoteTechnician}>
-                                    {note.technician}
+                            {!dashboardNotesAcknowledged && hasDashboardNotes && (
+                              <Badge
+                                variant="secondary"
+                                style={styles.actionRequiredBadge}>
+                                Action Required
+                              </Badge>
+                            )}
+                          </View>
+                          <Icon
+                            name={
+                              dashboardSectionsExpanded.notes
+                                ? 'expand-less'
+                                : 'expand-more'
+                            }
+                            size={22}
+                            color={colors.mutedForeground}
+                          />
+                        </View>
+                        {dashboardNotesAcknowledged &&
+                          hasDashboardNotes &&
+                          dashboardAckRecord && (
+                            <Text style={styles.sectionAckedHelpText}>
+                              Acknowledged{' '}
+                              {formatDashboardAckTimestamp(
+                                dashboardAckRecord.acknowledgedAt,
+                              )}
+                              {dashboardAckRecord.technicianId
+                                ? ` by ${dashboardAckRecord.technicianId}`
+                                : ''}
+                            </Text>
+                          )}
+                      </CardHeader>
+                    </Pressable>
+                    {dashboardSectionsExpanded.notes && (
+                      <View style={styles.detailNotesSection}>
+                        {hasDashboardNotes ? (
+                          <>
+                            {dashboardSelectedOrder.customerSpecialInstructions && (
+                              <Card style={styles.jobNotesCard}>
+                                <CardHeader>
+                                  <CardTitle>
+                                    <CardTitleText>Customer Special Instructions</CardTitleText>
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                  <Text style={styles.jobNotesText}>
+                                    {dashboardSelectedOrder.customerSpecialInstructions}
                                   </Text>
-                                )}
-                              </View>
-                              <Text style={styles.previousNoteText}>{note.note}</Text>
-                            </View>
-                          ))}
-                        </CardContent>
-                      </Card>
+                                </CardContent>
+                              </Card>
+                            )}
+
+                            {dashboardSelectedOrder.siteAccessNotes && (
+                              <Card style={styles.jobNotesCard}>
+                                <CardHeader>
+                                  <CardTitle>
+                                    <CardTitleText>Site Access Notes</CardTitleText>
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                  <Text style={styles.jobNotesText}>
+                                    {dashboardSelectedOrder.siteAccessNotes}
+                                  </Text>
+                                </CardContent>
+                              </Card>
+                            )}
+
+                            {dashboardSelectedOrder.safetyWarnings &&
+                              dashboardSelectedOrder.safetyWarnings.length > 0 && (
+                                <Card style={styles.jobNotesSafetyCard}>
+                                  <CardHeader>
+                                    <CardTitle>
+                                      <View style={styles.jobNotesSafetyTitleContainer}>
+                                        <Icon
+                                          name="warning"
+                                          size={20}
+                                          color={colors.destructive}
+                                          style={styles.jobNotesSafetyIcon}
+                                        />
+                                        <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
+                                          Safety Warnings
+                                        </Text>
+                                      </View>
+                                    </CardTitle>
+                                  </CardHeader>
+                                  <CardContent>
+                                    {dashboardSelectedOrder.safetyWarnings.map((warning, index) => (
+                                      <View key={index} style={styles.safetyWarningItem}>
+                                        <Text style={styles.safetyWarningText}>{warning}</Text>
+                                      </View>
+                                    ))}
+                                  </CardContent>
+                                </Card>
+                              )}
+
+                            {dashboardLastThreeNotes.length > 0 && (
+                              <Card style={styles.jobNotesCard}>
+                                <CardHeader>
+                                  <CardTitle>
+                                    <CardTitleText>Previous Service Notes</CardTitleText>
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                  {dashboardLastThreeNotes.map((note, index) => (
+                                    <View key={index} style={styles.previousNoteItem}>
+                                      <View style={styles.previousNoteHeader}>
+                                        <Text style={styles.previousNoteDate}>{note.date}</Text>
+                                        {note.technician && (
+                                          <Text style={styles.previousNoteTechnician}>
+                                            {note.technician}
+                                          </Text>
+                                        )}
+                                      </View>
+                                      <Text style={styles.previousNoteText}>{note.note}</Text>
+                                    </View>
+                                  ))}
+                                </CardContent>
+                              </Card>
+                            )}
+
+                            {!dashboardNotesAcknowledged && (
+                              <Button
+                                title="Acknowledge & Continue"
+                                variant="primary"
+                                size="lg"
+                                style={styles.acknowledgeButton}
+                                onPress={handleAcknowledgeDashboardServiceNotes}
+                              />
+                            )}
+                          </>
+                        ) : (
+                          <Text style={styles.detailNotesEmptyText}>
+                            No service notes on file.
+                          </Text>
+                        )}
+                      </View>
                     )}
+                  </Card>
+                );
+
+                return dashboardNotesAcknowledged ? (
+                  <>
+                    {contactCard}
+                    {orderCard}
+                    {notesCard}
                   </>
                 ) : (
-                  <Text style={styles.detailNotesEmptyText}>
-                    No service notes on file.
-                  </Text>
-                )}
-              </View>
+                  <>
+                    {notesCard}
+                    {contactCard}
+                    {orderCard}
+                  </>
+                );
+              })()}
             </>
           ) : (
             <>
