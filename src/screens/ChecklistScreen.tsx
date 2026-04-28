@@ -21,11 +21,19 @@ import {
   QuestionType,
   ConditionalBranch,
 } from '../types/checklist';
+import {checklistDraftService} from '../services/checklistDraftService';
 
 interface ChecklistScreenProps {
   checklist: Checklist;
   onComplete: (answers: ChecklistAnswer[]) => void;
   onCancel: () => void;
+  /**
+   * Stable key under which to persist in-progress answers, so the user can
+   * cancel and re-enter without losing work. Defaults to `checklist.id` —
+   * callers that want per-order or per-context persistence should pass
+   * something like `${orderNumber}:${checklist.id}`.
+   */
+  draftKey?: string;
 }
 
 interface FlatQuestion {
@@ -39,10 +47,50 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
   checklist,
   onComplete,
   onCancel,
+  draftKey,
 }) => {
-  const [answers, setAnswers] = useState<Record<string, ChecklistAnswer>>({});
-  const [visibleQuestionIndices, setVisibleQuestionIndices] = useState<number[]>([0]);
-  const [confirmedQuestions, setConfirmedQuestions] = useState<Set<string>>(new Set());
+  // Effective key for persisting / restoring in-progress drafts.
+  const effectiveDraftKey = draftKey ?? checklist.id;
+
+  // Lazy initial-state init from the draft service (synchronous read against
+  // the in-memory cache populated by the service on app start). If the draft
+  // service hasn't finished its initial async load yet, we hydrate again
+  // inside an effect below once it's ready.
+  const initialDraft = checklistDraftService.getDraft(effectiveDraftKey);
+  const [answers, setAnswers] = useState<Record<string, ChecklistAnswer>>(
+    initialDraft?.answers ?? {},
+  );
+  // confirmedQuestions = the set of question IDs the user has resolved (answered + Continued, auto-advanced, or skipped).
+  // Visibility is derived from this — see `currentFlatQuestionIndex` / `visibleQuestions` below.
+  const [confirmedQuestions, setConfirmedQuestions] = useState<Set<string>>(
+    () => new Set(initialDraft?.confirmedIds ?? []),
+  );
+  // skippedQuestions is a strict subset of confirmedQuestions — used only to render the "Skipped" indicator.
+  const [skippedQuestions, setSkippedQuestions] = useState<Set<string>>(
+    () => new Set(initialDraft?.skippedIds ?? []),
+  );
+
+  // If the draft service hadn't finished loading at mount time, hydrate now.
+  // Guarded so it only fires when the service was not yet loaded AND we
+  // haven't already started the user on a fresh state.
+  const hasHydratedRef = useRef(initialDraft !== null || checklistDraftService.isLoaded());
+  useEffect(() => {
+    if (hasHydratedRef.current) return;
+    let cancelled = false;
+    checklistDraftService.ready().then(() => {
+      if (cancelled || hasHydratedRef.current) return;
+      const draft = checklistDraftService.getDraft(effectiveDraftKey);
+      if (draft) {
+        setAnswers(draft.answers);
+        setConfirmedQuestions(new Set(draft.confirmedIds));
+        setSkippedQuestions(new Set(draft.skippedIds));
+      }
+      hasHydratedRef.current = true;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveDraftKey]);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerMonth, setDatePickerMonth] = useState(new Date());
   const [datePickerQuestionId, setDatePickerQuestionId] = useState<string | null>(null);
@@ -95,82 +143,134 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
     return flattened;
   }, [checklist.questions, answers]);
 
-  // Get the current question index (last visible question)
-  const currentQuestionIndex = visibleQuestionIndices[visibleQuestionIndices.length - 1] ?? 0;
+  // Derive the current question position from confirmedQuestions: the first flatQuestion
+  // whose ID is NOT confirmed is the user's current focus. If everything is confirmed,
+  // current = the last flatQuestion (the user is at the end and ready to complete).
+  // This auto-handles edits + branch flips: when the user un-confirms an earlier
+  // question (Edit) or changes an answer that reshuffles conditional branches, the
+  // visible chain naturally collapses to the new current and any later questions
+  // whose IDs are still confirmed retain their state.
+  const currentFlatQuestionIndex = useMemo(() => {
+    if (flatQuestions.length === 0) return 0;
+    for (let i = 0; i < flatQuestions.length; i++) {
+      if (!confirmedQuestions.has(flatQuestions[i].question.id)) {
+        return i;
+      }
+    }
+    return flatQuestions.length - 1;
+  }, [flatQuestions, confirmedQuestions]);
+
+  // Kept under the legacy name so the rest of the render code reads naturally.
+  const currentQuestionIndex = currentFlatQuestionIndex;
   const currentFlatQuestion = flatQuestions[currentQuestionIndex];
   const currentQuestion = currentFlatQuestion?.question;
-  
-  // Ensure visibleQuestionIndices includes all questions up to currentQuestionIndex
-  useEffect(() => {
-    if (flatQuestions.length > 0) {
-      setVisibleQuestionIndices(prev => {
-        const maxIndex = Math.max(...prev, currentQuestionIndex);
-        const newIndices: number[] = [];
-        for (let i = 0; i <= maxIndex && i < flatQuestions.length; i++) {
-          if (!newIndices.includes(i)) {
-            newIndices.push(i);
-          }
-        }
-        return newIndices.length > 0 ? newIndices : [0];
-      });
-    }
-  }, [flatQuestions.length, currentQuestionIndex]);
-  
-  // Calculate progress based on answered questions
-  const answeredCount = Object.keys(answers).filter(id => {
+
+  // Visible chain = flatQuestions up to (and including) the current question.
+  // Anything past the current question is hidden until the user advances past current.
+  const visibleQuestions = useMemo(
+    () => flatQuestions.slice(0, currentFlatQuestionIndex + 1),
+    [flatQuestions, currentFlatQuestionIndex],
+  );
+
+  // Calculate progress based on answered + skipped questions (both count as resolved).
+  // Only count answers/skips for questions that are still part of flatQuestions —
+  // orphaned values from a since-flipped conditional branch don't contribute.
+  const liveQuestionIds = useMemo(
+    () => new Set(flatQuestions.map((fq) => fq.question.id)),
+    [flatQuestions],
+  );
+  const answeredCount = Object.keys(answers).filter((id) => {
+    if (!liveQuestionIds.has(id)) return false;
     const answer = answers[id];
     return answer && answer.value !== null && answer.value !== undefined;
   }).length;
-  const progress = flatQuestions.length > 0 
-    ? (answeredCount / flatQuestions.length) * 100 
+  const liveSkippedCount = Array.from(skippedQuestions).filter((id) =>
+    liveQuestionIds.has(id),
+  ).length;
+  const resolvedCount = answeredCount + liveSkippedCount;
+  const progress = flatQuestions.length > 0
+    ? (resolvedCount / flatQuestions.length) * 100
     : 0;
 
-  const handleAnswerChange = (questionId: string, value: any, questionType: QuestionType) => {
-    setAnswers(prev => {
-      const newAnswers = {
-        ...prev,
-        [questionId]: {
-          questionId,
-          value,
-        },
-      };
-      
-      // Check if we should auto-advance for Yes/No/NA or Single Choice
-      const shouldAutoAdvance = questionType === 'Yes/No/NA' || questionType === 'Single Choice';
-      
-      if (shouldAutoAdvance && value !== null && value !== undefined) {
-        // Mark as confirmed since it auto-advances
-        setConfirmedQuestions(prev => new Set(prev).add(questionId));
-        // Auto-advance to next question after a short delay
-        setTimeout(() => {
-          handleNextQuestion();
-        }, 300);
-      }
-      
-      return newAnswers;
-    });
-  };
-
-  const handleNextQuestion = () => {
-    const nextIndex = currentQuestionIndex + 1;
-    if (nextIndex < flatQuestions.length) {
-      setVisibleQuestionIndices(prev => {
-        if (!prev.includes(nextIndex)) {
-          return [...prev, nextIndex];
-        }
-        return prev;
-      });
-    }
-    // Don't auto-complete - user must click "Complete Checklist" button
-  };
-
-
-  // Initialize date answer to today if not set for visible questions
+  // Refs that always mirror the latest state — used by the unmount-flush below
+  // so we can save the most recent draft synchronously when the modal is closed.
+  const answersRef = useRef(answers);
+  const confirmedRef = useRef(confirmedQuestions);
+  const skippedRef = useRef(skippedQuestions);
   useEffect(() => {
-    visibleQuestionIndices.forEach(index => {
-      const flatQuestion = flatQuestions[index];
-      if (flatQuestion?.question.type === 'Date') {
-        setAnswers(prev => {
+    answersRef.current = answers;
+  }, [answers]);
+  useEffect(() => {
+    confirmedRef.current = confirmedQuestions;
+  }, [confirmedQuestions]);
+  useEffect(() => {
+    skippedRef.current = skippedQuestions;
+  }, [skippedQuestions]);
+
+  // Tracks whether the user explicitly completed the checklist — if so, we don't
+  // want the unmount-flush to re-create the draft we just cleared.
+  const completedRef = useRef(false);
+
+  // Debounced save during normal use (so we don't write on every keystroke).
+  useEffect(() => {
+    if (!hasHydratedRef.current) return;
+    const timer = setTimeout(() => {
+      checklistDraftService.saveDraft(
+        effectiveDraftKey,
+        answers,
+        Array.from(confirmedQuestions),
+        Array.from(skippedQuestions),
+      );
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [effectiveDraftKey, answers, confirmedQuestions, skippedQuestions]);
+
+  // Flush latest state on unmount so canceling within the debounce window
+  // doesn't drop the most recent change.
+  useEffect(() => {
+    return () => {
+      if (!hasHydratedRef.current) return;
+      if (completedRef.current) return;
+      checklistDraftService.saveDraft(
+        effectiveDraftKey,
+        answersRef.current,
+        Array.from(confirmedRef.current),
+        Array.from(skippedRef.current),
+      );
+    };
+  }, [effectiveDraftKey]);
+
+  const handleAnswerChange = (questionId: string, value: any, questionType: QuestionType) => {
+    setAnswers(prev => ({
+      ...prev,
+      [questionId]: {
+        questionId,
+        value,
+      },
+    }));
+
+    // For auto-advance question types, hold the selection visible for a moment
+    // (so the user sees their choice highlight) before confirming + revealing the next.
+    const shouldAutoAdvance = questionType === 'Yes/No/NA' || questionType === 'Single Choice';
+    if (shouldAutoAdvance && value !== null && value !== undefined) {
+      // If the user is editing a previously-skipped question, clear the skipped flag.
+      setSkippedQuestions(prev => {
+        if (!prev.has(questionId)) return prev;
+        const next = new Set(prev);
+        next.delete(questionId);
+        return next;
+      });
+      setTimeout(() => {
+        setConfirmedQuestions(prev => new Set(prev).add(questionId));
+      }, 300);
+    }
+  };
+
+  // Initialize date answer to today if not set for any currently visible Date question.
+  useEffect(() => {
+    visibleQuestions.forEach((flatQuestion) => {
+      if (flatQuestion.question.type === 'Date') {
+        setAnswers((prev) => {
           if (prev[flatQuestion.question.id]) {
             return prev; // Already has an answer
           }
@@ -186,7 +286,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
         });
       }
     });
-  }, [visibleQuestionIndices, flatQuestions]);
+  }, [visibleQuestions]);
 
   const isAnswerValid = (question: ChecklistQuestion): boolean => {
     if (!question.required) return true;
@@ -216,9 +316,32 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
       return;
     }
 
-    // Mark as confirmed when user clicks Continue
+    // Mark as confirmed; visibility advancement is derived from confirmed state.
     setConfirmedQuestions(prev => new Set(prev).add(questionId));
-    handleNextQuestion();
+    // If the user previously skipped this question and is now answering it,
+    // remove it from the skipped set.
+    setSkippedQuestions(prev => {
+      if (!prev.has(questionId)) return prev;
+      const next = new Set(prev);
+      next.delete(questionId);
+      return next;
+    });
+  };
+
+  const handleSkipQuestion = (questionId: string) => {
+    const question = flatQuestions.find(fq => fq.question.id === questionId)?.question;
+    if (!question || question.required) return;
+
+    // Clear any in-progress answer so the question stays visually "unanswered",
+    // mark it as skipped (for the indicator) and confirmed (so the flow advances).
+    setAnswers(prev => {
+      if (!(questionId in prev)) return prev;
+      const next = {...prev};
+      delete next[questionId];
+      return next;
+    });
+    setSkippedQuestions(prev => new Set(prev).add(questionId));
+    setConfirmedQuestions(prev => new Set(prev).add(questionId));
   };
 
   const handleComplete = () => {
@@ -236,16 +359,33 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
         'Incomplete Checklist',
         `Please answer all required questions. ${missingRequired.length} question(s) remaining.`
       );
-      // Find first missing question and make it visible
+      // Un-confirm the first missing question (and everything after it) so it
+      // becomes the current question and the user is taken straight to it.
       const firstMissingIndex = flatQuestions.findIndex(
         fq => missingRequired.some(mr => mr.id === fq.question.id)
       );
       if (firstMissingIndex >= 0) {
-        setVisibleQuestionIndices([firstMissingIndex]);
+        const idsToUnconfirm = new Set<string>();
+        for (let i = firstMissingIndex; i < flatQuestions.length; i++) {
+          idsToUnconfirm.add(flatQuestions[i].question.id);
+        }
+        setConfirmedQuestions(prev => {
+          const next = new Set(prev);
+          idsToUnconfirm.forEach(id => next.delete(id));
+          return next;
+        });
+        setSkippedQuestions(prev => {
+          const next = new Set(prev);
+          idsToUnconfirm.forEach(id => next.delete(id));
+          return next;
+        });
       }
       return;
     }
 
+    // Checklist is complete — clear the persisted draft so re-entering starts fresh.
+    completedRef.current = true;
+    checklistDraftService.clearDraft(effectiveDraftKey);
     onComplete(allAnswers);
   };
 
@@ -598,11 +738,6 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
     );
   }
 
-  // Get visible questions (all answered + current unanswered)
-  const visibleQuestions = visibleQuestionIndices
-    .map(index => flatQuestions[index])
-    .filter(Boolean);
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -636,30 +771,40 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
           const answer = answers[question.id];
           const hasAnswer = answer && answer.value !== null && answer.value !== undefined;
           const isConfirmed = confirmedQuestions.has(question.id);
+          const isSkipped = skippedQuestions.has(question.id);
           // A question is "answered" (visually) only if it has an answer AND is confirmed
           // OR if it's auto-advance type (Yes/No/NA, Single Choice) and has an answer
           const isAnswered = hasAnswer && (
-            isConfirmed || 
-            question.type === 'Yes/No/NA' || 
+            isConfirmed ||
+            question.type === 'Yes/No/NA' ||
             question.type === 'Single Choice'
           );
           const isCurrentQuestion = questionIndex === visibleQuestions.length - 1;
           const isLastQuestion = currentQuestionIndex === flatQuestions.length - 1;
           // Don't show continue button for the last question - user will use "Complete Checklist" button
-          const needsContinueButton = hasAnswer && !isConfirmed && isCurrentQuestion && 
+          const needsContinueButton = hasAnswer && !isConfirmed && isCurrentQuestion &&
             !isLastQuestion &&
-            question.type !== 'Yes/No/NA' && 
+            question.type !== 'Yes/No/NA' &&
             question.type !== 'Single Choice';
+          // Skip button: only on the current, non-required, not-yet-resolved question.
+          // (Hidden on the very last question — there's nothing to advance to; the user
+          // can simply tap "Complete Checklist" without answering.)
+          const canSkip =
+            !question.required &&
+            isCurrentQuestion &&
+            !isAnswered &&
+            !isSkipped &&
+            !isLastQuestion;
 
           const cardStyles = [
             styles.questionCard,
-            isAnswered && styles.questionCardAnswered,
-            isCurrentQuestion && !isAnswered && styles.questionCardCurrent,
+            (isAnswered || isSkipped) && styles.questionCardAnswered,
+            isCurrentQuestion && !isAnswered && !isSkipped && styles.questionCardCurrent,
           ].filter(Boolean);
 
           return (
-            <Card 
-              key={question.id} 
+            <Card
+              key={question.id}
               style={cardStyles.length > 1 ? cardStyles : cardStyles[0]}>
               <CardContent>
                 {flatQuestion.level > 0 && (
@@ -671,16 +816,38 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                   </View>
                 )}
 
-                <CardTitle>
-                  <CardTitleText>
-                    {question.text}&nbsp; 
-                    {question.required && (
-                      <View style={[styles.tag, styles.tagRequired]}>
-                        <Text style={styles.tagText}>Required</Text>
-                      </View>
-                    )}
-                  </CardTitleText>
-                </CardTitle>
+                <View style={styles.questionHeaderRow}>
+                  <View style={styles.questionTitleColumn}>
+                    <CardTitle>
+                      <CardTitleText>
+                        {question.text}&nbsp;
+                        {question.required ? (
+                          <View style={[styles.tag, styles.tagRequired]}>
+                            <Text style={styles.tagText}>Required</Text>
+                          </View>
+                        ) : (
+                          <View style={[styles.tag, styles.tagOptional]}>
+                            <Text style={[styles.tagText, styles.tagTextOptional]}>Optional</Text>
+                          </View>
+                        )}
+                      </CardTitleText>
+                    </CardTitle>
+                  </View>
+                  {canSkip && (
+                    <TouchableOpacity
+                      onPress={() => handleSkipQuestion(question.id)}
+                      style={styles.skipHeaderButton}
+                      hitSlop={8}
+                      activeOpacity={0.7}>
+                      <Text style={styles.skipHeaderButtonText}>Skip</Text>
+                      <Icon
+                        name="chevron-right"
+                        size={18}
+                        color={colors.mutedForeground}
+                      />
+                    </TouchableOpacity>
+                  )}
+                </View>
 
                 {question.description && (
                   <Text style={styles.description}>{question.description}</Text>
@@ -693,7 +860,10 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                 )}
 
                 <View style={styles.inputContainer}>
-                  {renderQuestionInput(question, isAnswered)}
+                  {/* Inputs are always enabled — the user can change any answer
+                      at any time, which will reflow conditional branches and
+                      collapse subsequent confirmed questions out of view as needed. */}
+                  {renderQuestionInput(question, false)}
                 </View>
 
                 {needsContinueButton && (
@@ -707,7 +877,19 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                   </View>
                 )}
 
-                {isAnswered && isCurrentQuestion && currentQuestionIndex < flatQuestions.length - 1 && (
+                {isSkipped && (
+                  <View style={styles.answeredIndicator}>
+                    <Icon
+                      name="skip-next"
+                      size={16}
+                      color={colors.mutedForeground}
+                      style={styles.answeredIcon}
+                    />
+                    <Text style={[styles.answeredText, styles.skippedText]}>Skipped</Text>
+                  </View>
+                )}
+
+                {isAnswered && !isSkipped && isCurrentQuestion && currentQuestionIndex < flatQuestions.length - 1 && (
                   <View style={styles.answeredIndicator}>
                     <Icon name="check" size={16} color={colors.success} style={styles.answeredIcon} />
                     <Text style={styles.answeredText}>Answered</Text>
@@ -837,10 +1019,18 @@ const styles = StyleSheet.create({
   tagRequired: {
     backgroundColor: colors.warning,
   },
+  tagOptional: {
+    backgroundColor: colors.muted,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   tagText: {
     ...typography.xs,
     color: colors.foreground,
     fontWeight: '500',
+  },
+  tagTextOptional: {
+    color: colors.mutedForeground,
   },
   inputContainer: {
     marginTop: spacing.md,
@@ -897,6 +1087,30 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
+  questionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  questionTitleColumn: {
+    flexShrink: 1,
+    flexGrow: 1,
+  },
+  skipHeaderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.md,
+    flexShrink: 0,
+  },
+  skipHeaderButtonText: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontWeight: '600',
+    marginRight: 2,
+  },
   answeredIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -911,6 +1125,9 @@ const styles = StyleSheet.create({
     ...typography.sm,
     color: colors.success,
     fontWeight: '600',
+  },
+  skippedText: {
+    color: colors.mutedForeground,
   },
   content: {
     flex: 1,
