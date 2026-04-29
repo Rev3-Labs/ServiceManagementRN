@@ -34,6 +34,14 @@ interface ChecklistScreenProps {
    * something like `${orderNumber}:${checklist.id}`.
    */
   draftKey?: string;
+  /**
+   * If provided, the screen renders a read-only Q&A summary of the previously
+   * submitted answers (with a Reset button) instead of the editable form.
+   * The parent owns the completed-answers state — `onReset` is invoked when
+   * the user confirms the reset, and the parent should clear that state.
+   */
+  completedAnswers?: ChecklistAnswer[] | null;
+  onReset?: () => void;
 }
 
 interface FlatQuestion {
@@ -48,9 +56,13 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
   onComplete,
   onCancel,
   draftKey,
+  completedAnswers,
+  onReset,
 }) => {
   // Effective key for persisting / restoring in-progress drafts.
   const effectiveDraftKey = draftKey ?? checklist.id;
+
+  const isReadOnly = !!(completedAnswers && completedAnswers.length > 0);
 
   // Lazy initial-state init from the draft service (synchronous read against
   // the in-memory cache populated by the service on app start). If the draft
@@ -94,6 +106,12 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerMonth, setDatePickerMonth] = useState(new Date());
   const [datePickerQuestionId, setDatePickerQuestionId] = useState<string | null>(null);
+  // Tracks the open reset-confirmation modal (null = closed). 'inProgress' is
+  // triggered from the form header; 'completed' is triggered from the read-only
+  // view's footer — different copy + different post-confirm behavior.
+  const [resetConfirmMode, setResetConfirmMode] = useState<
+    'inProgress' | 'completed' | null
+  >(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Flatten questions with conditional logic
@@ -213,6 +231,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
 
   // Debounced save during normal use (so we don't write on every keystroke).
   useEffect(() => {
+    if (isReadOnly) return;
     if (!hasHydratedRef.current) return;
     const timer = setTimeout(() => {
       checklistDraftService.saveDraft(
@@ -223,11 +242,12 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
       );
     }, 300);
     return () => clearTimeout(timer);
-  }, [effectiveDraftKey, answers, confirmedQuestions, skippedQuestions]);
+  }, [effectiveDraftKey, answers, confirmedQuestions, skippedQuestions, isReadOnly]);
 
   // Flush latest state on unmount so canceling within the debounce window
   // doesn't drop the most recent change.
   useEffect(() => {
+    if (isReadOnly) return;
     return () => {
       if (!hasHydratedRef.current) return;
       if (completedRef.current) return;
@@ -238,7 +258,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
         Array.from(skippedRef.current),
       );
     };
-  }, [effectiveDraftKey]);
+  }, [effectiveDraftKey, isReadOnly]);
 
   const handleAnswerChange = (questionId: string, value: any, questionType: QuestionType) => {
     setAnswers(prev => ({
@@ -268,6 +288,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
 
   // Initialize date answer to today if not set for any currently visible Date question.
   useEffect(() => {
+    if (isReadOnly) return;
     visibleQuestions.forEach((flatQuestion) => {
       if (flatQuestion.question.type === 'Date') {
         setAnswers((prev) => {
@@ -286,7 +307,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
         });
       }
     });
-  }, [visibleQuestions]);
+  }, [visibleQuestions, isReadOnly]);
 
   const isAnswerValid = (question: ChecklistQuestion): boolean => {
     if (!question.required) return true;
@@ -344,6 +365,22 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
     setConfirmedQuestions(prev => new Set(prev).add(questionId));
   };
 
+  const handleResetInProgress = () => {
+    setResetConfirmMode('inProgress');
+  };
+
+  const handleConfirmReset = () => {
+    const mode = resetConfirmMode;
+    checklistDraftService.clearDraft(effectiveDraftKey);
+    setAnswers({});
+    setConfirmedQuestions(new Set());
+    setSkippedQuestions(new Set());
+    setResetConfirmMode(null);
+    if (mode === 'completed') {
+      onReset?.();
+    }
+  };
+
   const handleComplete = () => {
     const allAnswers = Object.values(answers);
     const requiredQuestions = flatQuestions
@@ -389,6 +426,30 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
     onComplete(allAnswers);
   };
 
+  const renderRadioIndicator = (isSelected: boolean) => (
+    <View
+      style={[
+        styles.choiceIndicator,
+        styles.radioIndicator,
+        isSelected && styles.choiceIndicatorSelected,
+      ]}>
+      {isSelected && <View style={styles.radioInner} />}
+    </View>
+  );
+
+  const renderCheckboxIndicator = (isSelected: boolean) => (
+    <View
+      style={[
+        styles.choiceIndicator,
+        styles.checkboxIndicator,
+        isSelected && styles.choiceIndicatorSelected,
+      ]}>
+      {isSelected && (
+        <Icon name="check" size={16} color={colors.primary} />
+      )}
+    </View>
+  );
+
   const renderQuestionInput = (question: ChecklistQuestion, isAnswered: boolean) => {
     const answer = answers[question.id];
     const answerValue = answer?.value;
@@ -409,6 +470,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                   ]}
                   onPress={() => !isAnswered && handleAnswerChange(question.id, option, question.type)}
                   disabled={isAnswered}>
+                  {renderRadioIndicator(isSelected)}
                   <Text
                     style={[
                       styles.choiceButtonText,
@@ -439,6 +501,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                   ]}
                   onPress={() => !isAnswered && handleAnswerChange(question.id, choice.id, question.type)}
                   disabled={isAnswered}>
+                  {renderRadioIndicator(isSelected)}
                   <Text
                     style={[
                       styles.choiceButtonText,
@@ -455,14 +518,14 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
 
       case 'Multiple Choice':
         if (!question.choices) return null;
-        const selectedValues = Array.isArray(answerValue) 
-          ? answerValue 
+        const selectedValues = Array.isArray(answerValue)
+          ? answerValue
           : answerValue ? [answerValue] : [];
-        
+
         return (
           <View style={styles.choiceContainer}>
             {question.choices.map(choice => {
-              const isSelected = selectedValues.includes(choice.id) || 
+              const isSelected = selectedValues.includes(choice.id) ||
                                selectedValues.includes(choice.label);
               return (
                 <TouchableOpacity
@@ -480,6 +543,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                     handleAnswerChange(question.id, newValues, question.type);
                   }}
                   disabled={isAnswered}>
+                  {renderCheckboxIndicator(isSelected)}
                   <Text
                     style={[
                       styles.choiceButtonText,
@@ -730,20 +794,210 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
   if (flatQuestions.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.headerTopRow}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {checklist.name}
+            </Text>
+            <TouchableOpacity
+              onPress={onCancel}
+              style={styles.closeButton}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+              accessibilityLabel="Close checklist"
+              accessibilityRole="button">
+              <Icon name="close" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+        </View>
         <View style={styles.content}>
           <Text style={styles.errorText}>No questions available</Text>
-          <Button title="Go Back" onPress={onCancel} variant="outline" />
         </View>
       </SafeAreaView>
     );
   }
 
+  if (isReadOnly) {
+    const answerMap = new Map(
+      (completedAnswers ?? []).map(a => [a.questionId, a]),
+    );
+
+    type SummaryItem = {
+      question: ChecklistQuestion;
+      level: number;
+      answer: ChecklistAnswer | undefined;
+    };
+    const summaryItems: SummaryItem[] = [];
+    const walkSummary = (q: ChecklistQuestion, level: number) => {
+      const a = answerMap.get(q.id);
+      summaryItems.push({question: q, level, answer: a});
+      if (q.conditionalQuestions && a && a.value != null) {
+        const raw = Array.isArray(a.value)
+          ? a.value[0]?.toString().toLowerCase()
+          : a.value.toString().toLowerCase();
+        q.conditionalQuestions.forEach(cond => {
+          const shouldShow =
+            (cond.branch === 'IF YES' && (raw === 'yes' || raw === 'true')) ||
+            (cond.branch === 'IF NO' && (raw === 'no' || raw === 'false'));
+          if (shouldShow) walkSummary(cond.question, level + 1);
+        });
+      }
+    };
+    checklist.questions.forEach(q => walkSummary(q, 0));
+
+    const formatAnswerValue = (
+      q: ChecklistQuestion,
+      a: ChecklistAnswer | undefined,
+    ): string => {
+      if (
+        !a ||
+        a.value === null ||
+        a.value === undefined ||
+        (Array.isArray(a.value) && a.value.length === 0) ||
+        (typeof a.value === 'string' && a.value.trim() === '')
+      ) {
+        return 'Not answered';
+      }
+      const value = a.value;
+      switch (q.type) {
+        case 'Yes/No/NA':
+          return value.toString();
+        case 'Single Choice': {
+          const choice = q.choices?.find(
+            c => c.id === value || c.label === value,
+          );
+          return choice?.label ?? value.toString();
+        }
+        case 'Multiple Choice': {
+          const arr = Array.isArray(value) ? value : [value];
+          return arr
+            .map(v => {
+              const choice = q.choices?.find(
+                c => c.id === v || c.label === v,
+              );
+              return choice?.label ?? v.toString();
+            })
+            .join(', ');
+        }
+        case 'Date': {
+          const s = value.toString();
+          const parts = s.split('-');
+          if (parts.length === 3) {
+            return `${parts[1]}/${parts[2]}/${parts[0]}`;
+          }
+          return s;
+        }
+        case 'Number':
+        case 'Text':
+        default:
+          return value.toString();
+      }
+    };
+
+    const handleReset = () => {
+      setResetConfirmMode('completed');
+    };
+
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.headerTopRow}>
+            <View style={styles.summaryHeaderTextColumn}>
+              <Text style={styles.summaryHeaderTitle} numberOfLines={1}>
+                {checklist.name}
+              </Text>
+              <Text style={styles.summaryHeaderSubtitle}>
+                Completed — {summaryItems.length} question
+                {summaryItems.length === 1 ? '' : 's'} answered
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={onCancel}
+              style={styles.closeButton}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+              accessibilityLabel="Close checklist"
+              accessibilityRole="button">
+              <Icon name="close" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}>
+          {summaryItems.map((item, idx) => (
+            <View
+              key={`${item.question.id}-${idx}`}
+              style={[
+                styles.summaryItem,
+                item.level > 0 && {
+                  paddingLeft: spacing.md + spacing.lg * item.level,
+                  borderLeftWidth: 2,
+                  borderLeftColor: colors.border,
+                  marginLeft: spacing.md * item.level,
+                },
+              ]}>
+              <Text style={styles.summaryQuestion}>{item.question.text}</Text>
+              <Text style={styles.summaryAnswer}>
+                {formatAnswerValue(item.question, item.answer)}
+              </Text>
+            </View>
+          ))}
+        </ScrollView>
+
+        <View style={styles.footer}>
+          <Button
+            title="Reset Checklist"
+            onPress={handleReset}
+            variant="outline"
+            size="lg"
+          />
+        </View>
+
+        <ResetConfirmDialog
+          mode={resetConfirmMode}
+          onCancel={() => setResetConfirmMode(null)}
+          onConfirm={handleConfirmReset}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  const hasProgress =
+    Object.keys(answers).length > 0 ||
+    confirmedQuestions.size > 0 ||
+    skippedQuestions.size > 0;
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={onCancel} style={styles.cancelButton}>
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </TouchableOpacity>
+        <View style={styles.headerTopRow}>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {checklist.name}
+          </Text>
+          {hasProgress && (
+            <TouchableOpacity
+              onPress={handleResetInProgress}
+              style={styles.headerResetButton}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+              accessibilityLabel="Reset checklist"
+              accessibilityRole="button">
+              <Icon
+                name="refresh"
+                size={16}
+                color={colors.mutedForeground}
+              />
+              <Text style={styles.headerResetText}>Reset</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            onPress={onCancel}
+            style={styles.closeButton}
+            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+            accessibilityLabel="Close checklist"
+            accessibilityRole="button">
+            <Icon name="close" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+        </View>
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
             <View style={[styles.progressFill, {width: `${progress}%`}]} />
@@ -859,6 +1113,10 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                   </View>
                 )}
 
+                {question.type === 'Multiple Choice' && (
+                  <Text style={styles.choiceHint}>Select all that apply</Text>
+                )}
+
                 <View style={styles.inputContainer}>
                   {/* Inputs are always enabled — the user can change any answer
                       at any time, which will reflow conditional branches and
@@ -911,14 +1169,93 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
           />
         </View>
       )}
+
+      <ResetConfirmDialog
+        mode={resetConfirmMode}
+        onCancel={() => setResetConfirmMode(null)}
+        onConfirm={handleConfirmReset}
+      />
     </SafeAreaView>
   );
 };
+
+interface ResetConfirmDialogProps {
+  mode: 'inProgress' | 'completed' | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+const ResetConfirmDialog: React.FC<ResetConfirmDialogProps> = ({
+  mode,
+  onCancel,
+  onConfirm,
+}) => (
+  <Modal
+    visible={mode !== null}
+    transparent
+    animationType="fade"
+    onRequestClose={onCancel}>
+    <View style={styles.confirmOverlay}>
+      <View style={styles.confirmDialog}>
+        <Text style={styles.confirmTitle}>Reset Checklist</Text>
+        <Text style={styles.confirmMessage}>
+          {mode === 'completed'
+            ? 'Are you sure you want to reset this checklist? All answers will be cleared and you will need to fill it out again.'
+            : 'Are you sure you want to start over? All current answers will be cleared.'}
+        </Text>
+        <View style={styles.confirmActions}>
+          <Button
+            title="Cancel"
+            variant="outline"
+            size="md"
+            onPress={onCancel}
+          />
+          <Button
+            title="Reset"
+            variant="destructive"
+            size="md"
+            onPress={onConfirm}
+          />
+        </View>
+      </View>
+    </View>
+  </Modal>
+);
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  confirmDialog: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    width: '100%',
+    maxWidth: 480,
+  },
+  confirmTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.sm,
+  },
+  confirmMessage: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    marginBottom: spacing.lg,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.md,
   },
   header: {
     paddingHorizontal: spacing.lg,
@@ -927,16 +1264,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-  },
-  cancelButton: {
-    alignSelf: 'flex-start',
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  cancelButtonText: {
-    ...typography.base,
-    color: colors.mutedForeground,
-    fontWeight: '500',
   },
   progressContainer: {
     marginTop: spacing.sm,
@@ -1042,6 +1369,12 @@ const styles = StyleSheet.create({
   choiceContainer: {
     gap: spacing.md,
   },
+  choiceHint: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontStyle: 'italic',
+    marginBottom: spacing.sm,
+  },
   choiceButton: {
     minHeight: touchTargets.comfortable,
     paddingHorizontal: spacing.lg,
@@ -1050,8 +1383,35 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.input,
     borderRadius: borderRadius.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: spacing.md,
+  },
+  choiceIndicator: {
+    width: 22,
+    height: 22,
+    borderWidth: 2,
+    borderColor: colors.input,
+    backgroundColor: colors.inputBackground,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  choiceIndicatorSelected: {
+    borderColor: colors.primaryForeground,
+    backgroundColor: colors.primaryForeground,
+  },
+  radioIndicator: {
+    borderRadius: 11,
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primary,
+  },
+  checkboxIndicator: {
+    borderRadius: borderRadius.sm,
   },
   choiceButtonSelected: {
     backgroundColor: colors.primary,
@@ -1256,6 +1616,68 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.md,
     marginTop: spacing.sm,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+    gap: spacing.md,
+  },
+  headerTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+    flex: 1,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.muted,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerResetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.md,
+    gap: spacing.xs,
+  },
+  headerResetText: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    fontWeight: '600',
+  },
+  summaryHeaderTextColumn: {
+    flex: 1,
+  },
+  summaryHeaderTitle: {
+    ...typography.lg,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.xs,
+  },
+  summaryHeaderSubtitle: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  summaryItem: {
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  summaryQuestion: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
+  summaryAnswer: {
+    ...typography.base,
+    color: colors.mutedForeground,
   },
 });
 

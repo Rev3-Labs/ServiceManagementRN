@@ -35,6 +35,12 @@ const ServiceCloseoutScreen: React.FC<ServiceCloseoutScreenProps> = ({
   };
 
   const handleChecklistCancel = () => {
+    // In the read-only completed view there's no in-progress work to lose —
+    // close immediately. Only prompt when the user is mid-form.
+    if (checklistAnswers && checklistAnswers.length > 0) {
+      setShowChecklist(false);
+      return;
+    }
     Alert.alert(
       'Cancel Checklist',
       'Are you sure you want to cancel? Your progress will be lost.',
@@ -51,7 +57,7 @@ const ServiceCloseoutScreen: React.FC<ServiceCloseoutScreenProps> = ({
     );
   };
 
-  const handleEditChecklist = () => {
+  const handleViewChecklist = () => {
     setShowChecklist(true);
   };
 
@@ -160,8 +166,8 @@ const ServiceCloseoutScreen: React.FC<ServiceCloseoutScreenProps> = ({
             <View style={styles.buttonContainer}>
               {isChecklistCompleted ? (
                 <Button
-                  title="Edit Checklist"
-                  onPress={handleEditChecklist}
+                  title="View Checklist"
+                  onPress={handleViewChecklist}
                   variant="outline"
                   fullWidth
                 />
@@ -190,9 +196,9 @@ const ServiceCloseoutScreen: React.FC<ServiceCloseoutScreenProps> = ({
               </Text>
               <TouchableOpacity
                 style={styles.viewDetailsButton}
-                onPress={handleEditChecklist}
+                onPress={handleViewChecklist}
                 activeOpacity={0.7}>
-                <Text style={styles.viewDetailsText}>View/Edit Checklist Details</Text>
+                <Text style={styles.viewDetailsText}>View Checklist Details</Text>
               </TouchableOpacity>
             </CardContent>
           </Card>
@@ -207,7 +213,12 @@ const ServiceCloseoutScreen: React.FC<ServiceCloseoutScreenProps> = ({
         onRequestClose={handleChecklistCancel}>
         <ChecklistScreen
           checklist={sampleChecklist}
+          completedAnswers={checklistAnswers}
           onComplete={handleChecklistComplete}
+          onReset={() => {
+            setChecklistAnswers(null);
+            setShowChecklist(false);
+          }}
           onCancel={handleChecklistCancel}
         />
       </Modal>

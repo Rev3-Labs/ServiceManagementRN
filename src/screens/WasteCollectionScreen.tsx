@@ -3475,6 +3475,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             setTareWeight={setTareWeight}
             setGrossWeight={setGrossWeight}
             setShowChecklistModal={setShowChecklistModal}
+            isChecklistCompleted={!!(checklistAnswers && checklistAnswers.length > 0)}
             activeServiceTypeTimer={activeServiceTypeTimer}
             setActiveServiceTypeTimer={setActiveServiceTypeTimer}
             serviceTypeTimeEntries={serviceTypeTimeEntries}
@@ -5878,10 +5879,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         onRequestClose={() => setShowChecklistModal(false)}>
         <ChecklistScreen
           checklist={sampleChecklist}
+          completedAnswers={checklistAnswers}
           onComplete={(answers) => {
             setChecklistAnswers(answers);
             setShowChecklistModal(false);
             console.log('[WasteCollection] Checklist completed:', answers);
+          }}
+          onReset={() => {
+            setChecklistAnswers(null);
+            setShowChecklistModal(false);
           }}
           onCancel={() => {
             // Close modal directly - user can confirm if needed before opening
@@ -9918,6 +9924,37 @@ export const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: '#CCCCCC',
+  },
+  checklistCompletedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.success + '15',
+    borderBottomWidth: 1,
+    borderBottomColor: '#CCCCCC',
+  },
+  checklistCompletedBadgeText: {
+    fontSize: 13,
+    color: colors.success,
+    fontWeight: '600',
+  },
+  checklistButtonWrap: {
+    position: 'relative',
+  },
+  checklistButtonCheckBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.success,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.card,
   },
   serviceSummaryTopItem: {
     flexDirection: 'row',

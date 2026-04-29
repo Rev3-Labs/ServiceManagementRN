@@ -78,6 +78,7 @@ export interface OrderServiceScreenProps {
   setTareWeight: (weight: string) => void;
   setGrossWeight: (weight: string) => void;
   setShowChecklistModal: (show: boolean) => void;
+  isChecklistCompleted: boolean;
   activeServiceTypeTimer: string | null;
   setActiveServiceTypeTimer: (timer: string | null) => void;
   serviceTypeTimeEntries: Map<string, ServiceTypeTimeEntry>;
@@ -132,6 +133,7 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
   setTareWeight,
   setGrossWeight,
   setShowChecklistModal,
+  isChecklistCompleted,
   activeServiceTypeTimer,
   setActiveServiceTypeTimer,
   serviceTypeTimeEntries,
@@ -419,6 +421,15 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
                 <Text style={styles.serviceSummaryFieldValue}>{new Date().toLocaleDateString()}</Text>
               </View>
             </View>
+
+            {isChecklistCompleted && (
+              <View style={styles.checklistCompletedBadge}>
+                <Icon name="check-circle" size={16} color={colors.success} />
+                <Text style={styles.checklistCompletedBadgeText}>
+                  Service Checklist Completed
+                </Text>
+              </View>
+            )}
 
             {/* Customer and Generator Section */}
             <View style={styles.serviceSummaryTwoColumn}>
@@ -889,14 +900,25 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
           size="md"
           onPress={() => setCurrentStep('manifest-management')}
         />
-        <Button
-          title="Service Checklist"
-          variant="secondary"
-          size="md"
-          onPress={() => {
-            setShowChecklistModal(true);
-          }}
-        />
+        <View style={styles.checklistButtonWrap}>
+          <Button
+            title="Service Checklist"
+            variant="secondary"
+            size="md"
+            onPress={() => {
+              setShowChecklistModal(true);
+            }}
+          />
+          {isChecklistCompleted && (
+            <View style={styles.checklistButtonCheckBadge}>
+              <Icon
+                name="check"
+                size={14}
+                color={colors.primaryForeground}
+              />
+            </View>
+          )}
+        </View>
         <Button
           title={allServiceTypesComplete ? "Acknowledge & Complete Order" : "Acknowledge & Complete Work Order"}
           variant="primary"
