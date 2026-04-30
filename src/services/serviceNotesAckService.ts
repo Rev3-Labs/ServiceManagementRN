@@ -2,16 +2,10 @@ import {safeAsyncStorage} from '../utils/storage';
 
 const SERVICE_NOTES_ACK_KEY = '@service_notes_acknowledgments';
 
-export interface ServiceNotesAcknowledgment {
-  orderNumber: string;
-  technicianId?: string;
-  acknowledgedAt: number; // epoch ms
-}
-
 type Listener = () => void;
 
 class ServiceNotesAckService {
-  private acks: Map<string, ServiceNotesAcknowledgment> = new Map();
+  private acks: Set<string> = new Set();
   private listeners: Set<Listener> = new Set();
   private loaded = false;
   private loadPromise: Promise<void>;
@@ -25,9 +19,14 @@ class ServiceNotesAckService {
       const stored = await safeAsyncStorage.getItem(SERVICE_NOTES_ACK_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        Object.entries(parsed).forEach(([key, value]) => {
-          this.acks.set(key, value as ServiceNotesAcknowledgment);
-        });
+        if (Array.isArray(parsed)) {
+          parsed.forEach((key) => {
+            if (typeof key === 'string') this.acks.add(key);
+          });
+        } else if (parsed && typeof parsed === 'object') {
+          // Backwards-compat with prior object-shaped storage.
+          Object.keys(parsed).forEach((key) => this.acks.add(key));
+        }
       }
     } catch (error) {
       console.error('[ServiceNotesAckService] Error loading acks:', error);
@@ -39,11 +38,10 @@ class ServiceNotesAckService {
 
   private async saveAcks() {
     try {
-      const obj: Record<string, ServiceNotesAcknowledgment> = {};
-      this.acks.forEach((value, key) => {
-        obj[key] = value;
-      });
-      await safeAsyncStorage.setItem(SERVICE_NOTES_ACK_KEY, JSON.stringify(obj));
+      await safeAsyncStorage.setItem(
+        SERVICE_NOTES_ACK_KEY,
+        JSON.stringify(Array.from(this.acks)),
+      );
     } catch (error) {
       console.error('[ServiceNotesAckService] Error saving acks:', error);
     }
@@ -57,28 +55,12 @@ class ServiceNotesAckService {
   }
 
   /**
-   * Returns the full acknowledgment record (or null) for an order.
-   */
-  getAcknowledgment(orderNumber: string): ServiceNotesAcknowledgment | null {
-    return this.acks.get(orderNumber) || null;
-  }
-
-  /**
    * Mark service notes as acknowledged for an order.
    */
-  async acknowledge(
-    orderNumber: string,
-    technicianId?: string,
-  ): Promise<ServiceNotesAcknowledgment> {
-    const ack: ServiceNotesAcknowledgment = {
-      orderNumber,
-      technicianId,
-      acknowledgedAt: Date.now(),
-    };
-    this.acks.set(orderNumber, ack);
+  async acknowledge(orderNumber: string): Promise<void> {
+    this.acks.add(orderNumber);
     await this.saveAcks();
     this.notify();
-    return ack;
   }
 
   /**

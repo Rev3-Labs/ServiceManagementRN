@@ -548,9 +548,6 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     (selectedOrderNumber
       ? serviceNotesAckService.isAcknowledged(selectedOrderNumber)
       : true);
-  const ackRecord = selectedOrderNumber
-    ? serviceNotesAckService.getAcknowledgment(selectedOrderNumber)
-    : null;
 
   // Per-section expanded state. Defaults are recomputed when the selected order or
   // ack state changes (see effect below), but users can manually toggle within a state.
@@ -580,21 +577,8 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
   const handleAcknowledgeServiceNotes = async () => {
     if (!selectedOrder) return;
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    await serviceNotesAckService.acknowledge(
-      selectedOrder.orderNumber,
-      username,
-    );
+    await serviceNotesAckService.acknowledge(selectedOrder.orderNumber);
     setSectionsExpanded({ contact: false, order: true, notes: false });
-  };
-
-  const formatAckTimestamp = (ts: number): string => {
-    const d = new Date(ts);
-    return d.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
   };
 
   // Get offline limit warning message for header
@@ -1332,13 +1316,9 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                             color={colors.mutedForeground}
                           />
                         </View>
-                        {notesAcknowledged && hasDetailNotes && ackRecord && (
+                        {notesAcknowledged && hasDetailNotes && (
                           <Text style={styles.sectionAckedHelpText}>
-                            Acknowledged{' '}
-                            {formatAckTimestamp(ackRecord.acknowledgedAt)}
-                            {ackRecord.technicianId
-                              ? ` by ${ackRecord.technicianId}`
-                              : ''}
+                            Acknowledged
                           </Text>
                         )}
                       </CardHeader>
@@ -1784,9 +1764,6 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     (dashboardSelectedOrderNumber
       ? serviceNotesAckService.isAcknowledged(dashboardSelectedOrderNumber)
       : true);
-  const dashboardAckRecord = dashboardSelectedOrderNumber
-    ? serviceNotesAckService.getAcknowledgment(dashboardSelectedOrderNumber)
-    : null;
 
   const [dashboardSectionsExpanded, setDashboardSectionsExpanded] = useState<{
     contact: boolean;
@@ -1814,21 +1791,8 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
   const handleAcknowledgeDashboardServiceNotes = async () => {
     if (!dashboardSelectedOrder) return;
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    await serviceNotesAckService.acknowledge(
-      dashboardSelectedOrder.orderNumber,
-      username,
-    );
+    await serviceNotesAckService.acknowledge(dashboardSelectedOrder.orderNumber);
     setDashboardSectionsExpanded({ contact: false, order: true, notes: false });
-  };
-
-  const formatDashboardAckTimestamp = (ts: number): string => {
-    const d = new Date(ts);
-    return d.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
   };
 
   // Get offline limit warning message for header
@@ -2508,19 +2472,11 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                             color={colors.mutedForeground}
                           />
                         </View>
-                        {dashboardNotesAcknowledged &&
-                          hasDashboardNotes &&
-                          dashboardAckRecord && (
-                            <Text style={styles.sectionAckedHelpText}>
-                              Acknowledged{' '}
-                              {formatDashboardAckTimestamp(
-                                dashboardAckRecord.acknowledgedAt,
-                              )}
-                              {dashboardAckRecord.technicianId
-                                ? ` by ${dashboardAckRecord.technicianId}`
-                                : ''}
-                            </Text>
-                          )}
+                        {dashboardNotesAcknowledged && hasDashboardNotes && (
+                          <Text style={styles.sectionAckedHelpText}>
+                            Acknowledged
+                          </Text>
+                        )}
                       </CardHeader>
                     </Pressable>
                     {dashboardSectionsExpanded.notes && (
