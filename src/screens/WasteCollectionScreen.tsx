@@ -84,6 +84,7 @@ import {
   WasteStream,
   ContainerType,
   AddedContainer,
+  MaterialsSupply,
   ScannedDocument,
   Screen,
   WasteCollectionScreenProps,
@@ -134,6 +135,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   isPostLogin = false,
 }) => {
   const [currentStep, setCurrentStep] = useState<FlowStep>('dashboard');
+  /**
+   * Tracks whether the user has progressed into the manifest-completion phase
+   * (review → manifest → service summary). Stays true while side-quests like
+   * equipment-ppe / materials-supplies are visited from this phase, so the
+   * bottom-row buttons keep their post-collection lock.
+   */
+  const [inManifestCompletion, setInManifestCompletion] = useState(false);
   const [showPostLoginSyncOverlay, setShowPostLoginSyncOverlay] = useState(false);
   const postLoginOverlayShownAtRef = useRef<number | null>(null);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
@@ -267,15 +275,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [completedOrdersSectionCollapsed, setCompletedOrdersSectionCollapsed] = useState(true);
   const [showHeaderMenuModal, setShowHeaderMenuModal] = useState(false);
   const signatureRef = useRef<any>(null);
-  const [materialsSupplies, setMaterialsSupplies] = useState<
-    Array<{
-      id: string;
-      itemNumber: string;
-      description: string;
-      quantity: number;
-      type: 'used' | 'left_behind';
-    }>
-  >([]);
+  const [materialsSupplies, setMaterialsSupplies] = useState<MaterialsSupply[]>([]);
   // Material modal state - moved to parent to persist across re-renders
   const [showAddMaterialModal, setShowAddMaterialModal] = useState(false);
   const [selectedMaterialItem, setSelectedMaterialItem] = useState<{
@@ -291,12 +291,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   // Handler for adding materials - moved to parent to prevent modal remounting
   const handleAddMaterial = useCallback(() => {
     if (!selectedMaterialItem) return;
-    const newMaterial = {
+    const newMaterial: MaterialsSupply = {
       id: `mat-${Date.now()}`,
       itemNumber: selectedMaterialItem.itemNumber,
       description: selectedMaterialItem.description,
       quantity: parseInt(materialQuantity) || 1,
       type: materialType,
+      serviceTypeId: activeServiceTypeTimer ?? undefined,
     };
 
     // Update materials list and reset form in the same batch
@@ -308,7 +309,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     // Show success indicator
     setShowAddMaterialSuccess(true);
     setTimeout(() => setShowAddMaterialSuccess(false), 2000);
-  }, [selectedMaterialItem, materialQuantity, materialType]);
+  }, [selectedMaterialItem, materialQuantity, materialType, activeServiceTypeTimer]);
 
   const [showLabelPrinting, setShowLabelPrinting] = useState(false);
   const [printingLabelBarcode, setPrintingLabelBarcode] = useState('');
@@ -374,6 +375,29 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       setDashboardStartOfDay(Date.now());
     }
   }, [dashboardStartOfDay]);
+
+  // Drive `inManifestCompletion` from currentStep transitions. Pre-review flow
+  // steps clear it; reaching review/manifest/service-summary sets it. The
+  // shared side-quest steps (equipment-ppe, materials-supplies) leave it
+  // untouched so the lock persists when reached from the manifest phase.
+  useEffect(() => {
+    if (
+      currentStep === 'containers-review' ||
+      currentStep === 'manifest-management' ||
+      currentStep === 'order-service'
+    ) {
+      setInManifestCompletion(true);
+    } else if (
+      currentStep === 'dashboard' ||
+      currentStep === 'order-detail' ||
+      currentStep === 'stream-selection' ||
+      currentStep === 'container-selection' ||
+      currentStep === 'container-entry' ||
+      currentStep === 'container-summary'
+    ) {
+      setInManifestCompletion(false);
+    }
+  }, [currentStep]);
 
   // Keep a lightweight timer running to approximate \"time on duty\" since start of day
   useEffect(() => {
@@ -977,10 +1001,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           entries.set(serviceTypes[0], entry);
         }
         setServiceTypeTimeEntries(entries);
-        
-        // Reset materials and equipment for new service type; keep containers on truck until user records drop
-        setMaterialsSupplies([]);
-        setEquipmentPPE([]);
+
+        // Reset materials/equipment only when starting a different order. Within the
+        // same order, materials carry their per-service-type tag and equipment is
+        // tracked at the work-order level, so both should persist across service
+        // types. Containers stay on the truck until a recorded drop either way.
+        if (selectedOrderData?.orderNumber !== order.orderNumber) {
+          setMaterialsSupplies([]);
+          setEquipmentPPE([]);
+        }
       }
       // Note: For multiple service types, the service type should already be started
       // via the selection modal before this function is called
@@ -1004,7 +1033,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       setCurrentStep('stream-selection');
       setShowJobNotesModal(false);
     }
-  }, [truckId, username]);
+  }, [truckId, username, selectedOrderData?.orderNumber]);
 
   // Check if actions are blocked due to offline limit
   const checkOfflineBlock = useCallback((): boolean => {
@@ -1062,8 +1091,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           if (e) entries.set(id, e);
         });
         setServiceTypeTimeEntries(entries);
-        setMaterialsSupplies([]);
-        setEquipmentPPE([]);
+        // Only reset materials/equipment if we're starting a different order;
+        // within the same order, both should accumulate across service types.
+        if (selectedOrderData?.orderNumber !== order.orderNumber) {
+          setMaterialsSupplies([]);
+          setEquipmentPPE([]);
+        }
         setSelectedOrderData(order);
         setDashboardSelectedOrder(null);
         setCurrentStep('stream-selection');
@@ -1081,6 +1114,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       username,
       getElapsedTimeDisplay,
       checkOfflineBlock,
+      selectedOrderData?.orderNumber,
     ],
   );
 
@@ -2738,10 +2772,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const materialsCount = materialsSupplies.length;
     const equipmentCount = equipmentPPE.length;
 
-    // Disable Containers, Materials, Equipment, Photos on review/manifest and on service summary (order-service)
-    const isReviewOrManifestStep = currentStep === 'containers-review' || currentStep === 'manifest-management';
     const isServiceSummaryStep = currentStep === 'order-service';
-    const quickActionsDisabled = isReviewOrManifestStep || isServiceSummaryStep;
+    // Once the user has progressed into the manifest-completion phase, Containers
+    // and Materials stay locked even when they side-step into equipment-ppe or
+    // materials-supplies via the bottom-row buttons.
+    const containersDisabled = inManifestCompletion;
+    const materialsDisabled = inManifestCompletion;
+    // Equipment stays editable through review/manifest but locks at service summary.
+    const equipmentDisabled = isServiceSummaryStep;
+    // Photos remain available throughout the manifest-completion phase.
+    const photosDisabled = false;
 
     return (
       <View style={styles.quickActionsBar}>
@@ -2757,11 +2797,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           style={[
             styles.quickActionButton,
             isTablet() && styles.quickActionButtonTablet,
-            quickActionsDisabled && { opacity: 0.5 },
+            containersDisabled && { opacity: 0.5 },
           ]}
-          onPress={() => !quickActionsDisabled && setCurrentStep('container-summary')}
+          onPress={() => !containersDisabled && setCurrentStep('container-summary')}
           activeOpacity={0.7}
-          disabled={quickActionsDisabled}>
+          disabled={containersDisabled}>
           <View style={styles.quickActionContent}>
             <Icon name="assignment" size={24} color={FOOTER_NAV_ICON_COLOR} />
             <Text style={styles.quickActionLabel}>Containers</Text>
@@ -2779,11 +2819,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           style={[
             styles.quickActionButton,
             isTablet() && styles.quickActionButtonTablet,
-            quickActionsDisabled && { opacity: 0.5 },
+            materialsDisabled && { opacity: 0.5 },
           ]}
-          onPress={() => !quickActionsDisabled && setCurrentStep('materials-supplies')}
+          onPress={() => !materialsDisabled && setCurrentStep('materials-supplies')}
           activeOpacity={0.7}
-          disabled={quickActionsDisabled}>
+          disabled={materialsDisabled}>
           <View style={styles.quickActionContent}>
             <Icon name="inventory" size={24} color={FOOTER_NAV_ICON_COLOR} />
             <Text
@@ -2805,11 +2845,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           style={[
             styles.quickActionButton,
             isTablet() && styles.quickActionButtonTablet,
-            quickActionsDisabled && { opacity: 0.5 },
+            equipmentDisabled && { opacity: 0.5 },
           ]}
-          onPress={() => !quickActionsDisabled && setCurrentStep('equipment-ppe')}
+          onPress={() => !equipmentDisabled && setCurrentStep('equipment-ppe')}
           activeOpacity={0.7}
-          disabled={quickActionsDisabled}>
+          disabled={equipmentDisabled}>
           <View style={styles.quickActionContent}>
             <Icon name="security" size={24} color={FOOTER_NAV_ICON_COLOR} />
             <Text
@@ -2831,8 +2871,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         {/* Photo Capture Button */}
         {selectedOrderData && (
           <View
-            style={[{ flex: 1 }, quickActionsDisabled && { opacity: 0.5 }]}
-            pointerEvents={quickActionsDisabled ? 'none' : 'auto'}>
+            style={[{ flex: 1 }, photosDisabled && { opacity: 0.5 }]}
+            pointerEvents={photosDisabled ? 'none' : 'auto'}>
             <PhotoCaptureButton
               orderNumber={selectedOrderData.orderNumber}
               iconColor={FOOTER_NAV_ICON_COLOR}
@@ -3429,6 +3469,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             setEquipmentPPE={setEquipmentPPE}
             activeServiceTypeTimer={activeServiceTypeTimer}
             handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
+            inManifestCompletion={inManifestCompletion}
           />
         );
       case 'order-service':

@@ -210,18 +210,6 @@ export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
               </TouchableOpacity>
             )}
 
-            {onScanDocument && (
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => {
-                  setShowQuickActionsMenu(false);
-                  onScanDocument();
-                }}
-                activeOpacity={0.7}>
-                <Icon name="description" size={24} color={colors.foreground} />
-                <Text style={styles.menuItemText}>Scan Document</Text>
-              </TouchableOpacity>
-            )}
           </View>
         </TouchableOpacity>
       </Modal>

@@ -1,4 +1,4 @@
-import React, {useEffect} from 'react';
+import React, {useEffect, useMemo} from 'react';
 import {
   View,
   Text,
@@ -28,6 +28,7 @@ import {
 } from '../../types/wasteCollection';
 import {SyncStatus} from '../../services/syncService';
 import {TimeTrackingRecord} from '../../services/timeTrackingService';
+import {serviceTypeService} from '../../services/serviceTypeService';
 import {colors, spacing, borderRadius} from '../../styles/theme';
 import {styles} from './styles';
 
@@ -130,6 +131,30 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
     ? isOrderCompleted(selectedOrderData.orderNumber)
     : false;
 
+  /** Containers for the manifest, grouped by service type using order programs as the canonical order. */
+  const containersByServiceType = useMemo(() => {
+    const map = new Map<string, AddedContainer[]>();
+    if (!selectedOrderData) return map;
+    selectedOrderData.programs.forEach(stId => {
+      map.set(
+        stId,
+        addedContainers.filter(c => c.serviceTypeId === stId),
+      );
+    });
+    const unassigned = addedContainers.filter(
+      c =>
+        !c.serviceTypeId ||
+        !selectedOrderData.programs.includes(c.serviceTypeId),
+    );
+    if (unassigned.length > 0) map.set('_unassigned', unassigned);
+    return map;
+  }, [selectedOrderData, addedContainers]);
+
+  const totalNetWeight = useMemo(
+    () => addedContainers.reduce((sum, c) => sum + (c.netWeight || 0), 0),
+    [addedContainers],
+  );
+
   // Completed orders cannot open or view manifest — redirect to dashboard
   useEffect(() => {
     if (selectedOrderData && isOrderCompleted(selectedOrderData.orderNumber)) {
@@ -190,6 +215,15 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
                       {addedContainers.length}
                     </Text>
                   </View>
+                  <View style={styles.manifestSummaryDivider} />
+                  <View style={styles.manifestSummaryItem}>
+                    <Text style={styles.manifestSummaryLabel}>
+                      Total Net Weight
+                    </Text>
+                    <Text style={styles.manifestSummaryValue}>
+                      {totalNetWeight} lbs
+                    </Text>
+                  </View>
                   {manifestTrackingNumber ? (
                     <>
                       <View style={styles.manifestSummaryDivider} />
@@ -210,6 +244,93 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
                 </View>
               </View>
 
+              {/* Containers grouped by service type for the work order */}
+              {selectedOrderData.programs.map(stId => {
+                const list = containersByServiceType.get(stId) ?? [];
+                if (list.length === 0) return null;
+                const stName = serviceTypeService.getServiceTypeName(stId);
+                const srNumber =
+                  selectedOrderData.serviceOrderNumbers?.[stId];
+                const groupNet = list.reduce(
+                  (sum, c) => sum + (c.netWeight || 0),
+                  0,
+                );
+                return (
+                  <View key={stId} style={styles.containersReviewSection}>
+                    <View style={styles.containersReviewSectionHeader}>
+                      <Text style={styles.containersReviewSectionTitle}>
+                        {serviceTypeService.formatForBadge(stId)} — {stName}
+                        {srNumber ? ` • ${srNumber}` : ''}
+                      </Text>
+                      <Text style={styles.containersReviewSectionCount}>
+                        {list.length} container
+                        {list.length !== 1 ? 's' : ''} • {groupNet} lbs
+                      </Text>
+                    </View>
+                    {list.map((c, idx) => (
+                      <View key={c.id} style={styles.containerSummaryCard}>
+                        <View style={styles.containerSummaryHeader}>
+                          <View style={styles.containerSummaryHeaderLeft}>
+                            <Text style={styles.containerSummaryNumber}>
+                              #{idx + 1}
+                            </Text>
+                            <View style={styles.containerSummaryTitleGroup}>
+                              <Text style={styles.containerSummaryTitle}>
+                                {c.streamName}
+                              </Text>
+                              <Text style={styles.containerSummarySubtitle}>
+                                {c.containerSize} • {c.containerType}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={styles.containerSummaryNetWeight}>
+                            <Text
+                              style={styles.containerSummaryNetWeightLabel}>
+                              Net
+                            </Text>
+                            <Text
+                              style={[
+                                styles.containerSummaryNetWeightValue,
+                                styles.netWeightHighlight,
+                              ]}>
+                              {c.netWeight} lbs
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                );
+              })}
+
+              {(containersByServiceType.get('_unassigned')?.length ?? 0) > 0 && (
+                <View style={styles.containersReviewSection}>
+                  <Text style={styles.containersReviewSectionTitle}>
+                    Unassigned containers
+                  </Text>
+                  {(containersByServiceType.get('_unassigned') ?? []).map(
+                    (c, idx) => (
+                      <View key={c.id} style={styles.containerSummaryCard}>
+                        <View style={styles.containerSummaryHeader}>
+                          <View style={styles.containerSummaryHeaderLeft}>
+                            <Text style={styles.containerSummaryNumber}>
+                              #{idx + 1}
+                            </Text>
+                            <Text style={styles.containerSummaryTitle}>
+                              {c.streamName}
+                            </Text>
+                          </View>
+                          <Text
+                            style={styles.containerSummaryNetWeightValue}>
+                            {c.netWeight} lbs
+                          </Text>
+                        </View>
+                      </View>
+                    ),
+                  )}
+                </View>
+              )}
+
               {(manifestData?.scannedImageUri ||
                 scannedDocuments.some(
                   doc =>
@@ -229,18 +350,6 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
               <View style={styles.manifestActionsInCard}>
                 <Text style={styles.manifestActionsLabel}>Manifest actions</Text>
                 <View style={styles.manifestActionsRow}>
-                  <Button
-                    title="Scan Manifest"
-                    variant="outline"
-                    size="md"
-                    disabled={isCurrentOrderCompleted}
-                    onPress={() => {
-                      setPendingDocumentType('manifest');
-                      setCaptureFromManifestScanView(true);
-                      setShowCaptureMethodSelector(true);
-                    }}
-                    style={styles.manifestActionButton}
-                  />
                   <Button
                     title="Sign Manifest"
                     variant="outline"

@@ -84,6 +84,11 @@ export interface AddedContainer {
   netWeight: number;
   isManualEntry?: boolean;
   shippingLabelBarcode?: string;
+  status?: 'loaded' | 'in_transit' | 'dropped';
+  /** Service type this container was added under; used for per-service-type grouping. */
+  serviceTypeId?: string;
+  /** Order this container belongs to; used for per-customer projected inventory aggregation. */
+  orderNumber?: string;
 }
 
 export interface MaterialsSupply {
@@ -92,6 +97,8 @@ export interface MaterialsSupply {
   description: string;
   quantity: number;
   type: 'used' | 'left_behind';
+  /** Service type this item was logged under; drives per-service-type grouping in summaries. */
+  serviceTypeId?: string;
 }
 
 export interface EquipmentPPE {

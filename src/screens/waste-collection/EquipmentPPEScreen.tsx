@@ -4,7 +4,6 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  TextInput,
   Modal,
 } from 'react-native';
 import {Button} from '../../components/Button';
@@ -61,6 +60,12 @@ export interface EquipmentPPEScreenProps {
   setEquipmentPPE: (equipment: EquipmentPPEType[] | ((prev: EquipmentPPEType[]) => EquipmentPPEType[])) => void;
   activeServiceTypeTimer: string | null;
   handleMarkServiceTypeComplete: () => void;
+  /**
+   * When true, the user reached this screen from the manifest-completion
+   * phase (where the service type is already considered complete), so the
+   * "Mark service type complete" footer button should be hidden.
+   */
+  inManifestCompletion?: boolean;
 }
 
 export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
@@ -88,11 +93,8 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
   setEquipmentPPE,
   activeServiceTypeTimer,
   handleMarkServiceTypeComplete,
+  inManifestCompletion = false,
 }) => {
-  const [editingEquipmentId, setEditingEquipmentId] = useState<string | null>(
-    null,
-  );
-  const [editEquipmentCount, setEditEquipmentCount] = useState('');
   const [showAddEquipmentModal, setShowAddEquipmentModal] = useState(false);
   const [selectedEquipmentItem, setSelectedEquipmentItem] = useState<
     string | null
@@ -117,12 +119,23 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
 
   const handleAddEquipment = () => {
     if (!selectedEquipmentItem) return;
-    const newEquipment = {
-      id: `eq-${Date.now()}`,
-      name: selectedEquipmentItem,
-      count: parseInt(equipmentQuantity) || 1,
-    };
-    setEquipmentPPE(prev => [...prev, newEquipment]);
+    const quantity = parseInt(equipmentQuantity) || 1;
+    setEquipmentPPE(prev => {
+      const existing = prev.find(e => e.name === selectedEquipmentItem);
+      if (existing) {
+        return prev.map(e =>
+          e.id === existing.id ? {...e, count: e.count + quantity} : e,
+        );
+      }
+      return [
+        ...prev,
+        {
+          id: `eq-${Date.now()}`,
+          name: selectedEquipmentItem,
+          count: quantity,
+        },
+      ];
+    });
     // Show success indicator
     setShowAddEquipmentSuccess(true);
     setTimeout(() => setShowAddEquipmentSuccess(false), 2000);
@@ -135,18 +148,12 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
     setEquipmentPPE(prev => prev.filter(e => e.id !== id));
   };
 
-  const handleStartEditCount = (id: string, currentCount: number) => {
-    setEditingEquipmentId(id);
-    setEditEquipmentCount(String(currentCount));
-  };
-
-  const handleSaveCount = (id: string) => {
-    const newCount = parseInt(editEquipmentCount) || 1;
+  const handleAdjustCount = (id: string, delta: number) => {
     setEquipmentPPE(prev =>
-      prev.map(e => (e.id === id ? {...e, count: newCount} : e)),
+      prev.map(e =>
+        e.id === id ? {...e, count: Math.max(1, e.count + delta)} : e,
+      ),
     );
-    setEditingEquipmentId(null);
-    setEditEquipmentCount('');
   };
 
   if (!selectedOrderData) return null;
@@ -213,42 +220,27 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                         {equipment.name}
                       </Text>
                       <View style={styles.materialsTableCell}>
-                        {editingEquipmentId === equipment.id ? (
-                          <View style={styles.quantityEditContainer}>
-                            <TextInput
-                              style={styles.quantityEditInput}
-                              value={editEquipmentCount}
-                              onChangeText={setEditEquipmentCount}
-                              keyboardType="numeric"
-                              autoFocus
-                            />
-                            <TouchableOpacity
-                              onPress={() => handleSaveCount(equipment.id)}
-                              style={styles.quantityEditButton}>
-                              <Icon name="check" size={20} color={colors.primaryForeground} />
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              onPress={() => {
-                                setEditingEquipmentId(null);
-                                setEditEquipmentCount('');
-                              }}
-                              style={styles.quantityEditButton}>
-                              <Icon name="close" size={20} color={colors.foreground} />
-                            </TouchableOpacity>
-                          </View>
-                        ) : (
+                        <View style={styles.quantityEditContainer}>
                           <TouchableOpacity
-                            onPress={() =>
-                              handleStartEditCount(
-                                equipment.id,
-                                equipment.count,
-                              )
-                            }>
-                            <Text style={styles.materialsTableQuantity}>
-                              {equipment.count}
-                            </Text>
+                            onPress={() => handleAdjustCount(equipment.id, -1)}
+                            disabled={equipment.count <= 1}
+                            style={[
+                              styles.quantityEditButton,
+                              equipment.count <= 1 && {opacity: 0.4},
+                            ]}
+                            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+                            <Icon name="remove" size={20} color={colors.foreground} />
                           </TouchableOpacity>
-                        )}
+                          <Text style={styles.materialsTableQuantity}>
+                            {equipment.count}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => handleAdjustCount(equipment.id, 1)}
+                            style={styles.quantityEditButton}
+                            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+                            <Icon name="add" size={20} color={colors.foreground} />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                       <View style={styles.materialsTableCell}>
                         <TouchableOpacity
@@ -292,13 +284,15 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
           size="md"
           onPress={() => setCurrentStep('manifest-management')}
         />
-        <Button
-          title="Mark service type complete"
-          variant="primary"
-          size="md"
-          disabled={!activeServiceTypeTimer}
-          onPress={handleMarkServiceTypeComplete}
-        />
+        {!inManifestCompletion && (
+          <Button
+            title="Mark service type complete"
+            variant="primary"
+            size="md"
+            disabled={!activeServiceTypeTimer}
+            onPress={handleMarkServiceTypeComplete}
+          />
+        )}
       </View>
 
       {/* Add Equipment Modal - Full Screen */}

@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useMemo, useState} from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,6 @@ import {
 } from '../../components/Card';
 import {Badge} from '../../components/Badge';
 import {Icon} from '../../components/Icon';
-import {Input} from '../../components/Input';
 import {PersistentOrderHeader} from '../../components/PersistentOrderHeader';
 import {
   OrderData,
@@ -25,6 +24,7 @@ import {
 } from '../../types/wasteCollection';
 import {SyncStatus} from '../../services/syncService';
 import {TimeTrackingRecord} from '../../services/timeTrackingService';
+import {serviceTypeService} from '../../services/serviceTypeService';
 import {colors} from '../../styles/theme';
 import {styles} from './styles';
 
@@ -116,7 +116,103 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
     setEditQuantityValue('');
   };
 
+  /** Materials grouped by service type (using order programs as the canonical order). */
+  const materialsByServiceType = useMemo(() => {
+    const map = new Map<string, MaterialsSupply[]>();
+    if (!selectedOrderData) return map;
+    selectedOrderData.programs.forEach(stId => {
+      map.set(
+        stId,
+        materialsSupplies.filter(m => m.serviceTypeId === stId),
+      );
+    });
+    const unassigned = materialsSupplies.filter(
+      m => !m.serviceTypeId ||
+        !selectedOrderData.programs.includes(m.serviceTypeId),
+    );
+    if (unassigned.length > 0) map.set('_unassigned', unassigned);
+    return map;
+  }, [selectedOrderData, materialsSupplies]);
+
+  const totalQuantity = useMemo(
+    () => materialsSupplies.reduce((sum, m) => sum + m.quantity, 0),
+    [materialsSupplies],
+  );
+
   if (!selectedOrderData) return null;
+
+  const renderMaterialRow = (material: MaterialsSupply) => (
+    <View key={material.id} style={styles.materialsTableRow}>
+      <Text style={styles.materialsTableCell}>{material.itemNumber}</Text>
+      <Text
+        style={[
+          styles.materialsTableCell,
+          styles.materialsTableCellDescription,
+        ]}>
+        {material.description}
+      </Text>
+      <View style={styles.materialsTableCell}>
+        {editingQuantityId === material.id ? (
+          <View style={styles.quantityEditContainer}>
+            <TextInput
+              style={styles.quantityEditInput}
+              value={editQuantityValue}
+              onChangeText={setEditQuantityValue}
+              keyboardType="numeric"
+              autoFocus
+            />
+            <TouchableOpacity
+              onPress={() => handleSaveQuantity(material.id)}
+              style={styles.quantityEditButton}>
+              <Icon name="check" size={20} color={colors.primaryForeground} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                setEditingQuantityId(null);
+                setEditQuantityValue('');
+              }}
+              style={styles.quantityEditButton}>
+              <Icon name="close" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            onPress={() =>
+              handleStartEditQuantity(material.id, material.quantity)
+            }
+            disabled={isCurrentOrderCompleted}>
+            <Text style={styles.materialsTableQuantity}>
+              {material.quantity}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      <View style={styles.materialsTableCell}>
+        <Badge
+          variant={material.type === 'used' ? 'default' : 'secondary'}>
+          {material.type === 'used' ? 'Used' : 'Left Behind'}
+        </Badge>
+      </View>
+      <View style={styles.materialsTableCell}>
+        <TouchableOpacity
+          onPress={() => handleDeleteMaterial(material.id)}
+          disabled={isCurrentOrderCompleted}
+          style={styles.deleteMaterialButton}>
+          <Text style={styles.deleteMaterialButtonText}>Delete</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const renderTableHeader = () => (
+    <View style={styles.materialsTableHeader}>
+      <Text style={styles.materialsTableHeaderText}>Item #</Text>
+      <Text style={styles.materialsTableHeaderText}>Description</Text>
+      <Text style={styles.materialsTableHeaderText}>Qty</Text>
+      <Text style={styles.materialsTableHeaderText}>Type</Text>
+      <Text style={styles.materialsTableHeaderText}>Action</Text>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
@@ -159,97 +255,70 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
             <CardContent>
               <Text style={styles.cardDescription}>
                 Track materials and supplies used or left behind for this
-                order
+                order. Items are grouped by service type.
               </Text>
 
               {materialsSupplies.length > 0 ? (
-                <View style={styles.materialsTable}>
-                  <View style={styles.materialsTableHeader}>
-                    <Text style={styles.materialsTableHeaderText}>
-                      Item #
+                <Text style={styles.summaryText}>
+                  {materialsSupplies.length} item
+                  {materialsSupplies.length !== 1 ? 's' : ''} •{' '}
+                  {totalQuantity} total qty across this work order
+                </Text>
+              ) : null}
+
+              {selectedOrderData.programs.map(stId => {
+                const list = materialsByServiceType.get(stId) ?? [];
+                const stName = serviceTypeService.getServiceTypeName(stId);
+                const srNumber =
+                  selectedOrderData.serviceOrderNumbers?.[stId];
+                return (
+                  <View key={stId} style={styles.containersReviewSection}>
+                    <View style={styles.containersReviewSectionHeader}>
+                      <Text style={styles.containersReviewSectionTitle}>
+                        {serviceTypeService.formatForBadge(stId)} — {stName}
+                        {srNumber ? ` • ${srNumber}` : ''}
+                      </Text>
+                      <Text style={styles.containersReviewSectionCount}>
+                        {list.length} item{list.length !== 1 ? 's' : ''}
+                      </Text>
+                    </View>
+                    {list.length === 0 ? (
+                      <Text style={styles.containersReviewEmpty}>
+                        No materials or supplies for this service type.
+                      </Text>
+                    ) : (
+                      <View style={styles.materialsTable}>
+                        {renderTableHeader()}
+                        {list.map(renderMaterialRow)}
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+
+              {(materialsByServiceType.get('_unassigned')?.length ?? 0) > 0 && (
+                <View style={styles.containersReviewSection}>
+                  <View style={styles.containersReviewSectionHeader}>
+                    <Text style={styles.containersReviewSectionTitle}>
+                      Unassigned
                     </Text>
-                    <Text style={styles.materialsTableHeaderText}>
-                      Description
-                    </Text>
-                    <Text style={styles.materialsTableHeaderText}>Qty</Text>
-                    <Text style={styles.materialsTableHeaderText}>Type</Text>
-                    <Text style={styles.materialsTableHeaderText}>
-                      Action
+                    <Text style={styles.containersReviewSectionCount}>
+                      {materialsByServiceType.get('_unassigned')!.length} item
+                      {materialsByServiceType.get('_unassigned')!.length !== 1
+                        ? 's'
+                        : ''}
                     </Text>
                   </View>
-                  {materialsSupplies.map((material, index) => (
-                    <View key={material.id} style={styles.materialsTableRow}>
-                      <Text style={styles.materialsTableCell}>
-                        {material.itemNumber}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.materialsTableCell,
-                          styles.materialsTableCellDescription,
-                        ]}>
-                        {material.description}
-                      </Text>
-                      <View style={styles.materialsTableCell}>
-                        {editingQuantityId === material.id ? (
-                          <View style={styles.quantityEditContainer}>
-                            <TextInput
-                              style={styles.quantityEditInput}
-                              value={editQuantityValue}
-                              onChangeText={setEditQuantityValue}
-                              keyboardType="numeric"
-                              autoFocus
-                            />
-                            <TouchableOpacity
-                              onPress={() => handleSaveQuantity(material.id)}
-                              style={styles.quantityEditButton}>
-                              <Icon name="check" size={20} color={colors.primaryForeground} />
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              onPress={() => {
-                                setEditingQuantityId(null);
-                                setEditQuantityValue('');
-                              }}
-                              style={styles.quantityEditButton}>
-                              <Icon name="close" size={20} color={colors.foreground} />
-                            </TouchableOpacity>
-                          </View>
-                        ) : (
-                          <TouchableOpacity
-                            onPress={() =>
-                              handleStartEditQuantity(
-                                material.id,
-                                material.quantity,
-                              )
-                            }
-                            disabled={isCurrentOrderCompleted}>
-                            <Text style={styles.materialsTableQuantity}>
-                              {material.quantity}
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                      <View style={styles.materialsTableCell}>
-                        <Badge
-                          variant={
-                            material.type === 'used' ? 'default' : 'secondary'
-                          }>
-                          {material.type === 'used' ? 'Used' : 'Left Behind'}
-                        </Badge>
-                      </View>
-                      <View style={styles.materialsTableCell}>
-                        <TouchableOpacity
-                          onPress={() => handleDeleteMaterial(material.id)}
-                          disabled={isCurrentOrderCompleted}
-                          style={styles.deleteMaterialButton}>
-                          <Text style={styles.deleteMaterialButtonText}>
-                            Delete
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))}
+                  <View style={styles.materialsTable}>
+                    {renderTableHeader()}
+                    {materialsByServiceType
+                      .get('_unassigned')!
+                      .map(renderMaterialRow)}
+                  </View>
                 </View>
-              ) : (
+              )}
+
+              {materialsSupplies.length === 0 && (
                 <View style={styles.emptyMaterialsState}>
                   <Text style={styles.emptyMaterialsText}>
                     No materials or supplies added yet
