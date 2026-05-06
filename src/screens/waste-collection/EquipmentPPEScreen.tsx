@@ -189,10 +189,21 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}>
           <Card>
-            <CardHeader>
-              <CardTitle>
+            <CardHeader
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}>
+              <CardTitle style={{marginBottom: 0, flex: 1}}>
                 <CardTitleText>Equipment & PPE</CardTitleText>
               </CardTitle>
+              <Button
+                title="Add Equipment & PPE"
+                variant="primary"
+                size="sm"
+                onPress={() => setShowAddEquipmentModal(true)}
+              />
             </CardHeader>
             <CardContent>
               <Text style={styles.cardDescription}>
@@ -202,7 +213,11 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
               {equipmentPPE.length > 0 ? (
                 <View style={styles.materialsTable}>
                   <View style={styles.materialsTableHeader}>
-                    <Text style={styles.materialsTableHeaderText}>
+                    <Text
+                      style={[
+                        styles.materialsTableHeaderText,
+                        styles.materialsTableCellDescription,
+                      ]}>
                       Equipment
                     </Text>
                     <Text style={styles.materialsTableHeaderText}>Qty</Text>
@@ -264,14 +279,6 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                   </Text>
                 </View>
               )}
-
-              <Button
-                title="Add Equipment & PPE"
-                variant="primary"
-                size="md"
-                onPress={() => setShowAddEquipmentModal(true)}
-                style={styles.addMaterialButton}
-              />
             </CardContent>
           </Card>
         </ScrollView>

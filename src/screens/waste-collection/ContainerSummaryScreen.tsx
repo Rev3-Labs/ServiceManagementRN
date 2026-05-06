@@ -1,11 +1,21 @@
-import React, {useState, useMemo} from 'react';
-import {View, Text, ScrollView, TouchableOpacity, Modal} from 'react-native';
+import React, {useState} from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  Modal,
+  TextInput,
+  StyleSheet,
+} from 'react-native';
+import {colors, spacing, borderRadius, typography} from '../../styles/theme';
 import {Button} from '../../components/Button';
 import {Card} from '../../components/Card';
 import {PersistentOrderHeader} from '../../components/PersistentOrderHeader';
 import {FlowStep, OrderData, AddedContainer} from '../../types/wasteCollection';
 import {SyncStatus} from '../../services/syncService';
 import {TimeTrackingRecord} from '../../services/timeTrackingService';
+import {serviceTypeService} from '../../services/serviceTypeService';
 import {styles} from './styles';
 
 export interface ContainerSummaryScreenProps {
@@ -89,14 +99,7 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
     ? hasManifestForOrder(selectedOrderData.orderNumber)
     : false;
   const canEditContainers = !manifestGenerated && !isCurrentOrderCompleted;
-  // Only show containers for the current service type on this screen
-  const containersForCurrentServiceType = useMemo(
-    () =>
-      activeContainers.filter(
-        c => c.serviceTypeId === activeServiceTypeTimer,
-      ),
-    [activeContainers, activeServiceTypeTimer],
-  );
+
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
     visible: boolean;
     containerId: string | null;
@@ -106,12 +109,25 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
     containerId: null,
     containerIndex: null,
   });
+  const [deleteBarcodeInput, setDeleteBarcodeInput] = useState('');
+
+  const containerToDelete = deleteConfirmation.containerId
+    ? activeContainers.find(c => c.id === deleteConfirmation.containerId)
+    : null;
+  const expectedBarcode = (
+    containerToDelete?.shippingLabelBarcode ||
+    containerToDelete?.barcode ||
+    ''
+  ).trim();
+  const isBarcodeMatch =
+    expectedBarcode.length > 0 &&
+    deleteBarcodeInput.trim() === expectedBarcode;
 
   const handleDeleteContainer = (
     containerId: string,
     containerIndex: number,
   ) => {
-    // Show custom confirmation modal
+    setDeleteBarcodeInput('');
     setDeleteConfirmation({
       visible: true,
       containerId,
@@ -120,15 +136,15 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
   };
 
   const handleConfirmDelete = () => {
+    if (!isBarcodeMatch) return;
     if (deleteConfirmation.containerId) {
-      // Remove container from state
       setAddedContainers(prev =>
         prev.filter(
           container => container.id !== deleteConfirmation.containerId,
         ),
       );
     }
-    // Close modal
+    setDeleteBarcodeInput('');
     setDeleteConfirmation({
       visible: false,
       containerId: null,
@@ -137,7 +153,7 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
   };
 
   const handleCancelDelete = () => {
-    // Close modal
+    setDeleteBarcodeInput('');
     setDeleteConfirmation({
       visible: false,
       containerId: null,
@@ -202,13 +218,12 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}>
           <Text style={styles.summaryText}>
-            Showing {containersForCurrentServiceType.length} container
-            {containersForCurrentServiceType.length !== 1 ? 's' : ''} for this
-            service type
+            Showing {activeContainers.length} container
+            {activeContainers.length !== 1 ? 's' : ''} for this order
           </Text>
 
-          {containersForCurrentServiceType.length > 0 ? (
-            containersForCurrentServiceType.map((container, index) => (
+          {activeContainers.length > 0 ? (
+            activeContainers.map((container, index) => (
               <View key={container.id}>
                 <Card style={styles.containerSummaryCard}>
                   <View style={styles.containerSummaryHeader}>
@@ -244,12 +259,38 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
                     <View style={styles.containerSummaryInfoGrid}>
                       <View style={styles.containerSummaryInfoCard}>
                         <Text style={styles.containerSummaryInfoLabel}>
+                          Service Type
+                        </Text>
+                        <Text style={styles.containerSummaryInfoValue}>
+                          {container.serviceTypeId
+                            ? `${serviceTypeService.formatForBadge(container.serviceTypeId)}${
+                                selectedOrderData.serviceOrderNumbers?.[container.serviceTypeId]
+                                  ? ` — ${selectedOrderData.serviceOrderNumbers[container.serviceTypeId]}`
+                                  : ''
+                              }`
+                            : '—'}
+                        </Text>
+                      </View>
+                      <View style={styles.containerSummaryInfoCard}>
+                        <Text style={styles.containerSummaryInfoLabel}>
                           Waste Code(s)
                         </Text>
                         <Text style={styles.containerSummaryInfoValue}>
-                          {container.streamCode}
+                          {container.wasteCodes && container.wasteCodes.length > 0
+                            ? container.wasteCodes.join(', ')
+                            : '—'}
                         </Text>
                       </View>
+                      {typeof container.cylinderCount === 'number' && (
+                        <View style={styles.containerSummaryInfoCard}>
+                          <Text style={styles.containerSummaryInfoLabel}>
+                            Cylinders
+                          </Text>
+                          <Text style={styles.containerSummaryInfoValue}>
+                            {container.cylinderCount}
+                          </Text>
+                        </View>
+                      )}
                       {container.shippingLabelBarcode ? (
                         <View style={styles.containerSummaryInfoCard}>
                           <View style={styles.containerSummaryInfoHeader}>
@@ -369,6 +410,19 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
                   : ''}
                 ? This action cannot be undone.
               </Text>
+              <Text style={deleteConfirmStyles.confirmInstructions}>
+                To confirm, enter the container's barcode:
+              </Text>
+              <TextInput
+                style={deleteConfirmStyles.barcodeInput}
+                value={deleteBarcodeInput}
+                onChangeText={setDeleteBarcodeInput}
+                placeholder="Enter barcode"
+                placeholderTextColor={colors.mutedForeground}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                editable={expectedBarcode.length > 0}
+              />
             </View>
 
             <View style={styles.bottomSheetFooter}>
@@ -383,6 +437,7 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
                 title="Delete"
                 variant="destructive"
                 size="lg"
+                disabled={!isBarcodeMatch}
                 onPress={handleConfirmDelete}
                 style={styles.bottomSheetDeleteButton}
               />
@@ -393,3 +448,36 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
     </View>
   );
 };
+
+const deleteConfirmStyles = StyleSheet.create({
+  confirmInstructions: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: spacing.sm,
+  },
+  expectedBarcode: {
+    ...typography.lg,
+    fontFamily: 'monospace',
+    fontWeight: '700',
+    color: colors.foreground,
+    backgroundColor: colors.muted,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    textAlign: 'center',
+    letterSpacing: 1,
+  },
+  barcodeInput: {
+    backgroundColor: colors.inputBackground,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    minHeight: 48,
+    ...typography.base,
+    color: colors.foreground,
+    fontFamily: 'monospace',
+    letterSpacing: 1,
+  },
+});

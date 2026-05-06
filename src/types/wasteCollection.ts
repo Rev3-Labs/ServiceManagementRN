@@ -76,6 +76,8 @@ export interface AddedContainer {
   id: string;
   streamName: string;
   streamCode: string;
+  /** EPA waste codes (e.g. D001, D002, P001) for this container's profile. */
+  wasteCodes?: string[];
   containerType: string;
   containerSize: string;
   barcode: string;
@@ -89,6 +91,8 @@ export interface AddedContainer {
   serviceTypeId?: string;
   /** Order this container belongs to; used for per-customer projected inventory aggregation. */
   orderNumber?: string;
+  /** Number of cylinders captured for profiles that require a cylinder count. */
+  cylinderCount?: number;
 }
 
 export interface MaterialsSupply {

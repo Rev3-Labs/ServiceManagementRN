@@ -15,6 +15,7 @@ interface InputProps extends TextInputProps {
   hint?: string;
   containerStyle?: ViewStyle;
   size?: 'md' | 'lg';
+  required?: boolean;
 }
 
 export const Input = forwardRef<TextInput, InputProps>(({
@@ -24,6 +25,7 @@ export const Input = forwardRef<TextInput, InputProps>(({
   containerStyle,
   style,
   size = 'md',
+  required = false,
   ...props
 }, ref) => {
   const inputStyle = [
@@ -35,7 +37,12 @@ export const Input = forwardRef<TextInput, InputProps>(({
 
   return (
     <View style={[styles.container, containerStyle]}>
-      {label && <Text style={styles.label}>{label}</Text>}
+      {label && (
+        <Text style={styles.label}>
+          {label}
+          {required && <Text style={styles.requiredAsterisk}> *</Text>}
+        </Text>
+      )}
       <TextInput
         ref={ref}
         style={inputStyle}
@@ -62,6 +69,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.foreground,
     marginBottom: spacing.sm,
+  },
+  requiredAsterisk: {
+    color: colors.destructive,
+    fontWeight: '700',
   },
   input: {
     ...typography.base,

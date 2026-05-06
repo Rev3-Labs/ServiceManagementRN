@@ -1,5 +1,14 @@
-import React, {useState, useMemo} from 'react';
-import {View, Text, ScrollView, TouchableOpacity, Modal} from 'react-native';
+import React, {useState} from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  Modal,
+  TextInput,
+  StyleSheet,
+} from 'react-native';
+import {colors, spacing, borderRadius, typography} from '../../styles/theme';
 import {Button} from '../../components/Button';
 import {Card} from '../../components/Card';
 import {PersistentOrderHeader} from '../../components/PersistentOrderHeader';
@@ -42,9 +51,6 @@ export interface OrderContainersReviewScreenProps {
   setAddedContainers: (
     containers: AddedContainer[] | ((prev: AddedContainer[]) => AddedContainer[]),
   ) => void;
-  isServiceTypeNoShip: (orderNumber: string, serviceTypeId: string) => boolean;
-  setActiveServiceTypeTimer: (id: string | null) => void;
-  setReturnToContainersReviewAfterAdd: (value: boolean) => void;
   hasManifestForOrder: (orderNumber: string) => boolean;
   generateManifestTrackingNumber: () => string;
   setManifestTrackingNumber: (number: string | null) => void;
@@ -96,9 +102,6 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
   serviceTypeBadgesForHeader,
   activeContainers,
   setAddedContainers,
-  isServiceTypeNoShip,
-  setActiveServiceTypeTimer,
-  setReturnToContainersReviewAfterAdd,
   hasManifestForOrder,
   generateManifestTrackingNumber,
   setManifestTrackingNumber,
@@ -108,27 +111,38 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
   const [deleteConfirm, setDeleteConfirm] = useState<{id: string} | null>(
     null,
   );
+  const [deleteBarcodeInput, setDeleteBarcodeInput] = useState('');
   const manifestGenerated = selectedOrderData
     ? hasManifestForOrder(selectedOrderData.orderNumber)
     : false;
+  const canEditContainers = !manifestGenerated;
 
-  const containersByServiceType = useMemo(() => {
-    const map = new Map<string, typeof activeContainers>();
-    if (!selectedOrderData) return map;
-    selectedOrderData.programs.forEach(stId => {
-      map.set(
-        stId,
-        activeContainers.filter(c => c.serviceTypeId === stId),
-      );
-    });
-    const unassigned = activeContainers.filter(c => !c.serviceTypeId);
-    if (unassigned.length > 0) map.set('_unassigned', unassigned);
-    return map;
-  }, [selectedOrderData, activeContainers]);
+  const containerToDelete = deleteConfirm
+    ? activeContainers.find(c => c.id === deleteConfirm.id)
+    : null;
+  const expectedBarcode = (
+    containerToDelete?.shippingLabelBarcode ||
+    containerToDelete?.barcode ||
+    ''
+  ).trim();
+  const isBarcodeMatch =
+    expectedBarcode.length > 0 &&
+    deleteBarcodeInput.trim() === expectedBarcode;
+
+  const openDeleteConfirm = (id: string) => {
+    setDeleteBarcodeInput('');
+    setDeleteConfirm({id});
+  };
+
+  const closeDeleteConfirm = () => {
+    setDeleteBarcodeInput('');
+    setDeleteConfirm(null);
+  };
 
   const handleDeleteFromReview = (containerId: string) => {
+    if (!isBarcodeMatch) return;
     setAddedContainers(prev => prev.filter(c => c.id !== containerId));
-    setDeleteConfirm(null);
+    closeDeleteConfirm();
   };
 
   if (!selectedOrderData) return null;
@@ -142,7 +156,7 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
           setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)
         }
         onBackPress={() => setCurrentStep('dashboard')}
-        subtitle="Containers by service type"
+        subtitle="Container Review"
         elapsedTimeDisplay={
           elapsedTimeDisplay &&
           currentOrderTimeTracking &&
@@ -170,132 +184,103 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
         <Text style={styles.summaryText}>
           {manifestGenerated
             ? 'A manifest has been generated for this order. Containers cannot be added or deleted.'
-            : 'Review and edit containers by service type before creating the manifest. You can add or delete containers for any service type.'}
+            : `Showing ${activeContainers.length} container${
+                activeContainers.length !== 1 ? 's' : ''
+              } for this order`}
         </Text>
-        {selectedOrderData.programs.map(stId => {
-          const list = containersByServiceType.get(stId) ?? [];
-          const stName = serviceTypeService.getServiceTypeName(stId);
-          const srNumber = selectedOrderData.serviceOrderNumbers?.[stId];
-          return (
-            <View key={stId} style={styles.containersReviewSection}>
-              <View style={styles.containersReviewSectionHeader}>
-                <Text style={styles.containersReviewSectionTitle}>
-                  {serviceTypeService.formatForBadge(stId)} — {stName}
-                  {srNumber ? ` • ${srNumber}` : ''}
-                </Text>
-                <Text style={styles.containersReviewSectionCount}>
-                  {list.length} container{list.length !== 1 ? 's' : ''}
-                </Text>
-              </View>
-              {list.length === 0 ? (
-                <View>
-                  <Text style={styles.containersReviewEmpty}>
-                    No containers added for this service type.
+
+        {activeContainers.length > 0 ? (
+          activeContainers.map((container, index) => (
+            <Card key={container.id} style={styles.containerSummaryCard}>
+              <View style={styles.containerSummaryHeader}>
+                <View style={styles.containerSummaryHeaderLeft}>
+                  <Text style={styles.containerSummaryNumber}>
+                    #{index + 1}
                   </Text>
-                  {isServiceTypeNoShip(
-                    selectedOrderData.orderNumber,
-                    stId,
-                  ) && (
-                    <Text style={styles.containersReviewNoShipNote}>
-                      Marked as No-Ship.
+                  <View style={styles.containerSummaryTitleGroup}>
+                    <Text style={styles.containerSummaryTitle}>
+                      {container.streamName}
                     </Text>
+                    <Text style={styles.containerSummarySubtitle}>
+                      {container.containerSize} • {container.containerType}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.containerSummaryNetWeight}>
+                  <Text style={styles.containerSummaryNetWeightLabel}>
+                    Net
+                  </Text>
+                  <Text
+                    style={[
+                      styles.containerSummaryNetWeightValue,
+                      styles.netWeightHighlight,
+                    ]}>
+                    {container.netWeight} lbs
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.containerSummaryBody}>
+                <View style={styles.containerSummaryInfoGrid}>
+                  <View style={styles.containerSummaryInfoCard}>
+                    <Text style={styles.containerSummaryInfoLabel}>
+                      Service Type
+                    </Text>
+                    <Text style={styles.containerSummaryInfoValue}>
+                      {container.serviceTypeId
+                        ? `${serviceTypeService.formatForBadge(container.serviceTypeId)} — ${serviceTypeService.getServiceTypeName(container.serviceTypeId)}`
+                        : '—'}
+                    </Text>
+                  </View>
+                  <View style={styles.containerSummaryInfoCard}>
+                    <Text style={styles.containerSummaryInfoLabel}>
+                      Waste Code(s)
+                    </Text>
+                    <Text style={styles.containerSummaryInfoValue}>
+                      {container.wasteCodes && container.wasteCodes.length > 0
+                        ? container.wasteCodes.join(', ')
+                        : '—'}
+                    </Text>
+                  </View>
+                  {typeof container.cylinderCount === 'number' && (
+                    <View style={styles.containerSummaryInfoCard}>
+                      <Text style={styles.containerSummaryInfoLabel}>
+                        Cylinders
+                      </Text>
+                      <Text style={styles.containerSummaryInfoValue}>
+                        {container.cylinderCount}
+                      </Text>
+                    </View>
+                  )}
+                  {container.shippingLabelBarcode ? (
+                    <View style={styles.containerSummaryInfoCard}>
+                      <Text style={styles.containerSummaryInfoLabel}>
+                        Shipping Label
+                      </Text>
+                      <Text style={styles.containerSummaryInfoValue}>
+                        {container.shippingLabelBarcode}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.containerSummaryInfoCard} />
                   )}
                 </View>
-              ) : (
-                list.map((c, idx) => (
-                  <Card key={c.id} style={styles.containerSummaryCard}>
-                    <View style={styles.containerSummaryHeader}>
-                      <View style={styles.containerSummaryHeaderLeft}>
-                        <Text style={styles.containerSummaryNumber}>
-                          #{idx + 1}
-                        </Text>
-                        <View style={styles.containerSummaryTitleGroup}>
-                          <Text style={styles.containerSummaryTitle}>
-                            {c.streamName}
-                          </Text>
-                          <Text style={styles.containerSummarySubtitle}>
-                            {c.containerSize} • {c.containerType}
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={styles.containerSummaryNetWeight}>
-                        <Text style={styles.containerSummaryNetWeightLabel}>
-                          Net
-                        </Text>
-                        <Text
-                          style={[
-                            styles.containerSummaryNetWeightValue,
-                            styles.netWeightHighlight,
-                          ]}>
-                          {c.netWeight} lbs
-                        </Text>
-                      </View>
-                    </View>
-                    {!manifestGenerated && (
-                      <TouchableOpacity
-                        style={styles.deleteButton}
-                        onPress={() => setDeleteConfirm({id: c.id})}
-                        activeOpacity={0.7}>
-                        <Text style={styles.deleteButtonText}>Delete</Text>
-                      </TouchableOpacity>
-                    )}
-                  </Card>
-                ))
-              )}
-              {!manifestGenerated &&
-                !isServiceTypeNoShip(
-                  selectedOrderData.orderNumber,
-                  stId,
-                ) && (
-                  <Button
-                    title={`Add container to ${serviceTypeService.formatForBadge(
-                      stId,
-                    )}${srNumber ? ` (${srNumber})` : ''}`}
-                    variant="outline"
-                    size="sm"
-                    onPress={() => {
-                      setActiveServiceTypeTimer(stId);
-                      setReturnToContainersReviewAfterAdd(true);
-                      setCurrentStep('stream-selection');
-                    }}
-                    style={styles.containersReviewAddBtn}
-                  />
+                {canEditContainers && (
+                  <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={() => openDeleteConfirm(container.id)}
+                    activeOpacity={0.7}>
+                    <Text style={styles.deleteButtonText}>Delete</Text>
+                  </TouchableOpacity>
                 )}
-            </View>
-          );
-        })}
-        {(containersByServiceType.get('_unassigned')?.length ?? 0) > 0 && (
-          <View style={styles.containersReviewSection}>
-            <Text style={styles.containersReviewSectionTitle}>
-              Unassigned
+              </View>
+            </Card>
+          ))
+        ) : (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateTitle}>No Containers Added</Text>
+            <Text style={styles.emptyStateText}>
+              Add containers to track waste collection for this order.
             </Text>
-            {(containersByServiceType.get('_unassigned') ?? []).map(
-              (c, idx) => (
-                <Card key={c.id} style={styles.containerSummaryCard}>
-                  <View style={styles.containerSummaryHeader}>
-                    <View style={styles.containerSummaryHeaderLeft}>
-                      <Text style={styles.containerSummaryNumber}>
-                        #{idx + 1}
-                      </Text>
-                      <Text style={styles.containerSummaryTitle}>
-                        {c.streamName}
-                      </Text>
-                      <Text style={styles.containerSummaryNetWeightValue}>
-                        {c.netWeight} lbs
-                      </Text>
-                    </View>
-                  </View>
-                  {!manifestGenerated && (
-                    <TouchableOpacity
-                      style={styles.deleteButton}
-                      onPress={() => setDeleteConfirm({id: c.id})}
-                      activeOpacity={0.7}>
-                      <Text style={styles.deleteButtonText}>Delete</Text>
-                    </TouchableOpacity>
-                  )}
-                </Card>
-              ),
-            )}
           </View>
         )}
       </ScrollView>
@@ -333,45 +318,107 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
         />
       </View>
 
-      {/* Delete confirmation */}
+      {/* Bottom Sheet Delete Confirmation (Tablet-Optimized) */}
       <Modal
         visible={!!deleteConfirm}
         transparent
-        animationType="fade"
-        onRequestClose={() => setDeleteConfirm(null)}>
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            justifyContent: 'center',
-          }}>
-          <View style={styles.containersReviewDeleteModal}>
-            <Text style={styles.containersReviewDeleteTitle}>
-              Delete container?
-            </Text>
-            <Text style={styles.containersReviewDeleteMessage}>
-              This cannot be undone.
-            </Text>
-            <View style={styles.footer}>
+        animationType="slide"
+        onRequestClose={closeDeleteConfirm}>
+        <TouchableOpacity
+          style={styles.bottomSheetOverlay}
+          activeOpacity={1}
+          onPress={closeDeleteConfirm}>
+          <TouchableOpacity
+            style={styles.bottomSheetContent}
+            activeOpacity={1}
+            onPress={e => e.stopPropagation()}>
+            <View style={styles.bottomSheetHandle} />
+
+            <View style={styles.bottomSheetHeader}>
+              <Text style={styles.bottomSheetTitle}>Delete Container</Text>
+            </View>
+
+            <View style={styles.bottomSheetBody}>
+              <Text style={styles.bottomSheetMessage}>
+                Are you sure you want to delete this container? This action
+                cannot be undone.
+              </Text>
+              <Text style={deleteConfirmStyles.confirmInstructions}>
+                To confirm, enter the container's barcode:
+              </Text>
+              <Text
+                style={deleteConfirmStyles.expectedBarcode}
+                selectable={false}>
+                {expectedBarcode || '(no barcode on file)'}
+              </Text>
+              <TextInput
+                style={deleteConfirmStyles.barcodeInput}
+                value={deleteBarcodeInput}
+                onChangeText={setDeleteBarcodeInput}
+                placeholder="Enter barcode"
+                placeholderTextColor={colors.mutedForeground}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                editable={expectedBarcode.length > 0}
+              />
+            </View>
+
+            <View style={styles.bottomSheetFooter}>
               <Button
                 title="Cancel"
                 variant="outline"
-                size="md"
-                onPress={() => setDeleteConfirm(null)}
+                size="lg"
+                onPress={closeDeleteConfirm}
+                style={styles.bottomSheetCancelButton}
               />
               <Button
                 title="Delete"
                 variant="destructive"
-                size="md"
+                size="lg"
+                disabled={!isBarcodeMatch}
                 onPress={() =>
                   deleteConfirm &&
                   handleDeleteFromReview(deleteConfirm.id)
                 }
+                style={styles.bottomSheetDeleteButton}
               />
             </View>
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </View>
   );
 };
+
+const deleteConfirmStyles = StyleSheet.create({
+  confirmInstructions: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: spacing.sm,
+  },
+  expectedBarcode: {
+    ...typography.lg,
+    fontFamily: 'monospace',
+    fontWeight: '700',
+    color: colors.foreground,
+    backgroundColor: colors.muted,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    textAlign: 'center',
+    letterSpacing: 1,
+  },
+  barcodeInput: {
+    backgroundColor: colors.inputBackground,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    minHeight: 48,
+    ...typography.base,
+    color: colors.foreground,
+    fontFamily: 'monospace',
+    letterSpacing: 1,
+  },
+});

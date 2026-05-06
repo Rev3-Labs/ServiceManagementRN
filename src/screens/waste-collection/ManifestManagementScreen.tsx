@@ -8,6 +8,7 @@ import {
   Alert,
   Image,
   SafeAreaView,
+  StyleSheet,
 } from 'react-native';
 import SignatureCanvas from '../../components/SignatureCanvas';
 import {Button} from '../../components/Button';
@@ -29,7 +30,7 @@ import {
 import {SyncStatus} from '../../services/syncService';
 import {TimeTrackingRecord} from '../../services/timeTrackingService';
 import {serviceTypeService} from '../../services/serviceTypeService';
-import {colors, spacing, borderRadius} from '../../styles/theme';
+import {colors, spacing, borderRadius, typography} from '../../styles/theme';
 import {styles} from './styles';
 
 export interface ManifestManagementScreenProps {
@@ -131,23 +132,19 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
     ? isOrderCompleted(selectedOrderData.orderNumber)
     : false;
 
-  /** Containers for the manifest, grouped by service type using order programs as the canonical order. */
-  const containersByServiceType = useMemo(() => {
-    const map = new Map<string, AddedContainer[]>();
-    if (!selectedOrderData) return map;
+  /** Containers for this manifest, ordered by the order's program sequence with any unassigned at the end. */
+  const manifestContainers = useMemo(() => {
+    if (!selectedOrderData) return [] as AddedContainer[];
+    const ordered: AddedContainer[] = [];
     selectedOrderData.programs.forEach(stId => {
-      map.set(
-        stId,
-        addedContainers.filter(c => c.serviceTypeId === stId),
-      );
+      ordered.push(...addedContainers.filter(c => c.serviceTypeId === stId));
     });
     const unassigned = addedContainers.filter(
       c =>
         !c.serviceTypeId ||
         !selectedOrderData.programs.includes(c.serviceTypeId),
     );
-    if (unassigned.length > 0) map.set('_unassigned', unassigned);
-    return map;
+    return [...ordered, ...unassigned];
   }, [selectedOrderData, addedContainers]);
 
   const totalNetWeight = useMemo(
@@ -244,92 +241,124 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
                 </View>
               </View>
 
-              {/* Containers grouped by service type for the work order */}
-              {selectedOrderData.programs.map(stId => {
-                const list = containersByServiceType.get(stId) ?? [];
-                if (list.length === 0) return null;
-                const stName = serviceTypeService.getServiceTypeName(stId);
-                const srNumber =
-                  selectedOrderData.serviceOrderNumbers?.[stId];
-                const groupNet = list.reduce(
-                  (sum, c) => sum + (c.netWeight || 0),
-                  0,
+              {/* Containers table — clean rows/columns view */}
+              {manifestContainers.length > 0 && (() => {
+                const showCylinders = manifestContainers.some(
+                  c => typeof c.cylinderCount === 'number',
                 );
                 return (
-                  <View key={stId} style={styles.containersReviewSection}>
-                    <View style={styles.containersReviewSectionHeader}>
-                      <Text style={styles.containersReviewSectionTitle}>
-                        {serviceTypeService.formatForBadge(stId)} — {stName}
-                        {srNumber ? ` • ${srNumber}` : ''}
+                <View style={tableStyles.table}>
+                  <View style={tableStyles.headerRow}>
+                    <Text style={[tableStyles.headerCell, tableStyles.colNum]}>
+                      #
+                    </Text>
+                    <Text style={[tableStyles.headerCell, tableStyles.colStream]}>
+                      Profile
+                    </Text>
+                    <Text style={[tableStyles.headerCell, tableStyles.colContainer]}>
+                      Container
+                    </Text>
+                    <Text style={[tableStyles.headerCell, tableStyles.colServiceType]}>
+                      Service Type
+                    </Text>
+                    <Text style={[tableStyles.headerCell, tableStyles.colCodes]}>
+                      Waste Code(s)
+                    </Text>
+                    {showCylinders && (
+                      <Text
+                        style={[
+                          tableStyles.headerCell,
+                          tableStyles.colCylinders,
+                          tableStyles.alignRight,
+                        ]}>
+                        Cylinders
                       </Text>
-                      <Text style={styles.containersReviewSectionCount}>
-                        {list.length} container
-                        {list.length !== 1 ? 's' : ''} • {groupNet} lbs
+                    )}
+                    <Text
+                      style={[
+                        tableStyles.headerCell,
+                        tableStyles.colNet,
+                        tableStyles.alignRight,
+                      ]}>
+                      Net (lbs)
+                    </Text>
+                  </View>
+                  {manifestContainers.map((c, idx) => (
+                    <View
+                      key={c.id}
+                      style={[
+                        tableStyles.row,
+                        idx % 2 === 1 && tableStyles.rowAlt,
+                        idx === manifestContainers.length - 1 &&
+                          tableStyles.rowLast,
+                      ]}>
+                      <Text style={[tableStyles.cell, tableStyles.colNum]}>
+                        {idx + 1}
+                      </Text>
+                      <View style={[tableStyles.cell, tableStyles.colStream]}>
+                        <Text style={tableStyles.cellPrimary} numberOfLines={2}>
+                          {c.streamName}
+                        </Text>
+                      </View>
+                      <Text
+                        style={[tableStyles.cell, tableStyles.colContainer]}
+                        numberOfLines={1}>
+                        {c.containerSize} • {c.containerType}
+                      </Text>
+                      <Text
+                        style={[tableStyles.cell, tableStyles.colServiceType]}
+                        numberOfLines={1}>
+                        {c.serviceTypeId
+                          ? serviceTypeService.formatForBadge(c.serviceTypeId)
+                          : '—'}
+                      </Text>
+                      <Text
+                        style={[tableStyles.cell, tableStyles.colCodes]}
+                        numberOfLines={2}>
+                        {c.wasteCodes && c.wasteCodes.length > 0
+                          ? c.wasteCodes.join(', ')
+                          : '—'}
+                      </Text>
+                      {showCylinders && (
+                        <Text
+                          style={[
+                            tableStyles.cell,
+                            tableStyles.colCylinders,
+                            tableStyles.alignRight,
+                            tableStyles.cellNumeric,
+                          ]}>
+                          {typeof c.cylinderCount === 'number'
+                            ? c.cylinderCount
+                            : '—'}
+                        </Text>
+                      )}
+                      <Text
+                        style={[
+                          tableStyles.cell,
+                          tableStyles.colNet,
+                          tableStyles.alignRight,
+                          tableStyles.cellNumeric,
+                        ]}>
+                        {c.netWeight}
                       </Text>
                     </View>
-                    {list.map((c, idx) => (
-                      <View key={c.id} style={styles.containerSummaryCard}>
-                        <View style={styles.containerSummaryHeader}>
-                          <View style={styles.containerSummaryHeaderLeft}>
-                            <Text style={styles.containerSummaryNumber}>
-                              #{idx + 1}
-                            </Text>
-                            <View style={styles.containerSummaryTitleGroup}>
-                              <Text style={styles.containerSummaryTitle}>
-                                {c.streamName}
-                              </Text>
-                              <Text style={styles.containerSummarySubtitle}>
-                                {c.containerSize} • {c.containerType}
-                              </Text>
-                            </View>
-                          </View>
-                          <View style={styles.containerSummaryNetWeight}>
-                            <Text
-                              style={styles.containerSummaryNetWeightLabel}>
-                              Net
-                            </Text>
-                            <Text
-                              style={[
-                                styles.containerSummaryNetWeightValue,
-                                styles.netWeightHighlight,
-                              ]}>
-                              {c.netWeight} lbs
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-                    ))}
+                  ))}
+                  <View style={tableStyles.footerRow}>
+                    <Text style={tableStyles.footerLabel}>
+                      Total ({manifestContainers.length} container
+                      {manifestContainers.length !== 1 ? 's' : ''})
+                    </Text>
+                    <Text style={tableStyles.footerValue}>
+                      {manifestContainers.reduce(
+                        (sum, c) => sum + (c.netWeight || 0),
+                        0,
+                      )}{' '}
+                      lbs
+                    </Text>
                   </View>
-                );
-              })}
-
-              {(containersByServiceType.get('_unassigned')?.length ?? 0) > 0 && (
-                <View style={styles.containersReviewSection}>
-                  <Text style={styles.containersReviewSectionTitle}>
-                    Unassigned containers
-                  </Text>
-                  {(containersByServiceType.get('_unassigned') ?? []).map(
-                    (c, idx) => (
-                      <View key={c.id} style={styles.containerSummaryCard}>
-                        <View style={styles.containerSummaryHeader}>
-                          <View style={styles.containerSummaryHeaderLeft}>
-                            <Text style={styles.containerSummaryNumber}>
-                              #{idx + 1}
-                            </Text>
-                            <Text style={styles.containerSummaryTitle}>
-                              {c.streamName}
-                            </Text>
-                          </View>
-                          <Text
-                            style={styles.containerSummaryNetWeightValue}>
-                            {c.netWeight} lbs
-                          </Text>
-                        </View>
-                      </View>
-                    ),
-                  )}
                 </View>
-              )}
+                );
+              })()}
 
               {(manifestData?.scannedImageUri ||
                 scannedDocuments.some(
@@ -1045,3 +1074,106 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
     </View>
   );
 };
+
+const tableStyles = StyleSheet.create({
+  table: {
+    marginTop: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.card,
+    overflow: 'hidden',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    backgroundColor: colors.muted,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 2,
+    borderBottomColor: colors.border,
+    alignItems: 'center',
+  },
+  headerCell: {
+    ...typography.xs,
+    fontWeight: '700',
+    color: colors.mutedForeground,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  row: {
+    flexDirection: 'row',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    alignItems: 'center',
+    backgroundColor: colors.card,
+  },
+  rowAlt: {
+    backgroundColor: colors.background,
+  },
+  rowLast: {
+    borderBottomWidth: 0,
+  },
+  cell: {
+    ...typography.sm,
+    color: colors.foreground,
+    paddingRight: spacing.sm,
+  },
+  cellPrimary: {
+    ...typography.sm,
+    color: colors.foreground,
+    fontWeight: '600',
+  },
+  cellNumeric: {
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  alignRight: {
+    textAlign: 'right',
+    paddingRight: 0,
+  },
+  colNum: {
+    width: 40,
+  },
+  colStream: {
+    flex: 2.2,
+  },
+  colContainer: {
+    flex: 1.4,
+  },
+  colServiceType: {
+    flex: 1,
+  },
+  colCodes: {
+    flex: 1.3,
+  },
+  colCylinders: {
+    width: 80,
+  },
+  colNet: {
+    width: 90,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.muted,
+    borderTopWidth: 2,
+    borderTopColor: colors.border,
+  },
+  footerLabel: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.mutedForeground,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  footerValue: {
+    ...typography.base,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+});

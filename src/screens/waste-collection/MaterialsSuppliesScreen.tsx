@@ -1,10 +1,9 @@
-import React, {useMemo, useState} from 'react';
+import React, {useMemo} from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
-  TextInput,
 } from 'react-native';
 import {Button} from '../../components/Button';
 import {
@@ -24,7 +23,6 @@ import {
 } from '../../types/wasteCollection';
 import {SyncStatus} from '../../services/syncService';
 import {TimeTrackingRecord} from '../../services/timeTrackingService';
-import {serviceTypeService} from '../../services/serviceTypeService';
 import {colors} from '../../styles/theme';
 import {styles} from './styles';
 
@@ -93,46 +91,18 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
   const isCurrentOrderCompleted = selectedOrderData
     ? isOrderCompleted(selectedOrderData.orderNumber)
     : false;
-  const [editingQuantityId, setEditingQuantityId] = useState<string | null>(
-    null,
-  );
-  const [editQuantityValue, setEditQuantityValue] = useState('');
 
   const handleDeleteMaterial = (id: string) => {
     setMaterialsSupplies(prev => prev.filter(m => m.id !== id));
   };
 
-  const handleStartEditQuantity = (id: string, currentQuantity: number) => {
-    setEditingQuantityId(id);
-    setEditQuantityValue(String(currentQuantity));
-  };
-
-  const handleSaveQuantity = (id: string) => {
-    const newQuantity = parseInt(editQuantityValue) || 1;
+  const handleAdjustQuantity = (id: string, delta: number) => {
     setMaterialsSupplies(prev =>
-      prev.map(m => (m.id === id ? {...m, quantity: newQuantity} : m)),
+      prev.map(m =>
+        m.id === id ? {...m, quantity: Math.max(1, m.quantity + delta)} : m,
+      ),
     );
-    setEditingQuantityId(null);
-    setEditQuantityValue('');
   };
-
-  /** Materials grouped by service type (using order programs as the canonical order). */
-  const materialsByServiceType = useMemo(() => {
-    const map = new Map<string, MaterialsSupply[]>();
-    if (!selectedOrderData) return map;
-    selectedOrderData.programs.forEach(stId => {
-      map.set(
-        stId,
-        materialsSupplies.filter(m => m.serviceTypeId === stId),
-      );
-    });
-    const unassigned = materialsSupplies.filter(
-      m => !m.serviceTypeId ||
-        !selectedOrderData.programs.includes(m.serviceTypeId),
-    );
-    if (unassigned.length > 0) map.set('_unassigned', unassigned);
-    return map;
-  }, [selectedOrderData, materialsSupplies]);
 
   const totalQuantity = useMemo(
     () => materialsSupplies.reduce((sum, m) => sum + m.quantity, 0),
@@ -152,40 +122,33 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
         {material.description}
       </Text>
       <View style={styles.materialsTableCell}>
-        {editingQuantityId === material.id ? (
-          <View style={styles.quantityEditContainer}>
-            <TextInput
-              style={styles.quantityEditInput}
-              value={editQuantityValue}
-              onChangeText={setEditQuantityValue}
-              keyboardType="numeric"
-              autoFocus
-            />
-            <TouchableOpacity
-              onPress={() => handleSaveQuantity(material.id)}
-              style={styles.quantityEditButton}>
-              <Icon name="check" size={20} color={colors.primaryForeground} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => {
-                setEditingQuantityId(null);
-                setEditQuantityValue('');
-              }}
-              style={styles.quantityEditButton}>
-              <Icon name="close" size={20} color={colors.foreground} />
-            </TouchableOpacity>
-          </View>
-        ) : (
+        <View style={styles.quantityEditContainer}>
           <TouchableOpacity
-            onPress={() =>
-              handleStartEditQuantity(material.id, material.quantity)
-            }
-            disabled={isCurrentOrderCompleted}>
-            <Text style={styles.materialsTableQuantity}>
-              {material.quantity}
-            </Text>
+            onPress={() => handleAdjustQuantity(material.id, -1)}
+            disabled={isCurrentOrderCompleted || material.quantity <= 1}
+            style={[
+              styles.quantityEditButton,
+              (isCurrentOrderCompleted || material.quantity <= 1) && {
+                opacity: 0.4,
+              },
+            ]}
+            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+            <Icon name="remove" size={20} color={colors.foreground} />
           </TouchableOpacity>
-        )}
+          <Text style={styles.materialsTableQuantity}>
+            {material.quantity}
+          </Text>
+          <TouchableOpacity
+            onPress={() => handleAdjustQuantity(material.id, 1)}
+            disabled={isCurrentOrderCompleted}
+            style={[
+              styles.quantityEditButton,
+              isCurrentOrderCompleted && {opacity: 0.4},
+            ]}
+            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+            <Icon name="add" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+        </View>
       </View>
       <View style={styles.materialsTableCell}>
         <Badge
@@ -207,7 +170,13 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
   const renderTableHeader = () => (
     <View style={styles.materialsTableHeader}>
       <Text style={styles.materialsTableHeaderText}>Item #</Text>
-      <Text style={styles.materialsTableHeaderText}>Description</Text>
+      <Text
+        style={[
+          styles.materialsTableHeaderText,
+          styles.materialsTableCellDescription,
+        ]}>
+        Description
+      </Text>
       <Text style={styles.materialsTableHeaderText}>Qty</Text>
       <Text style={styles.materialsTableHeaderText}>Type</Text>
       <Text style={styles.materialsTableHeaderText}>Action</Text>
@@ -247,96 +216,51 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
           keyboardShouldPersistTaps="handled"
           removeClippedSubviews={false}>
           <Card>
-            <CardHeader>
-              <CardTitle>
+            <CardHeader
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}>
+              <CardTitle style={{marginBottom: 0, flex: 1}}>
                 <CardTitleText>Materials & Supplies</CardTitleText>
               </CardTitle>
+              <Button
+                title="Add Material & Supply"
+                variant="primary"
+                size="sm"
+                disabled={isCurrentOrderCompleted}
+                onPress={() => setShowAddMaterialModal(true)}
+              />
             </CardHeader>
             <CardContent>
               <Text style={styles.cardDescription}>
-                Track materials and supplies used or left behind for this
-                order. Items are grouped by service type.
+                Track materials and supplies used or left behind for this work
+                order.
               </Text>
 
               {materialsSupplies.length > 0 ? (
-                <Text style={styles.summaryText}>
-                  {materialsSupplies.length} item
-                  {materialsSupplies.length !== 1 ? 's' : ''} •{' '}
-                  {totalQuantity} total qty across this work order
-                </Text>
-              ) : null}
-
-              {selectedOrderData.programs.map(stId => {
-                const list = materialsByServiceType.get(stId) ?? [];
-                const stName = serviceTypeService.getServiceTypeName(stId);
-                const srNumber =
-                  selectedOrderData.serviceOrderNumbers?.[stId];
-                return (
-                  <View key={stId} style={styles.containersReviewSection}>
-                    <View style={styles.containersReviewSectionHeader}>
-                      <Text style={styles.containersReviewSectionTitle}>
-                        {serviceTypeService.formatForBadge(stId)} — {stName}
-                        {srNumber ? ` • ${srNumber}` : ''}
-                      </Text>
-                      <Text style={styles.containersReviewSectionCount}>
-                        {list.length} item{list.length !== 1 ? 's' : ''}
-                      </Text>
-                    </View>
-                    {list.length === 0 ? (
-                      <Text style={styles.containersReviewEmpty}>
-                        No materials or supplies for this service type.
-                      </Text>
-                    ) : (
-                      <View style={styles.materialsTable}>
-                        {renderTableHeader()}
-                        {list.map(renderMaterialRow)}
-                      </View>
-                    )}
-                  </View>
-                );
-              })}
-
-              {(materialsByServiceType.get('_unassigned')?.length ?? 0) > 0 && (
-                <View style={styles.containersReviewSection}>
-                  <View style={styles.containersReviewSectionHeader}>
-                    <Text style={styles.containersReviewSectionTitle}>
-                      Unassigned
-                    </Text>
-                    <Text style={styles.containersReviewSectionCount}>
-                      {materialsByServiceType.get('_unassigned')!.length} item
-                      {materialsByServiceType.get('_unassigned')!.length !== 1
-                        ? 's'
-                        : ''}
-                    </Text>
-                  </View>
+                <>
+                  <Text style={styles.summaryText}>
+                    {materialsSupplies.length} item
+                    {materialsSupplies.length !== 1 ? 's' : ''} •{' '}
+                    {totalQuantity} total qty across this work order
+                  </Text>
                   <View style={styles.materialsTable}>
                     {renderTableHeader()}
-                    {materialsByServiceType
-                      .get('_unassigned')!
-                      .map(renderMaterialRow)}
+                    {materialsSupplies.map(renderMaterialRow)}
                   </View>
-                </View>
-              )}
-
-              {materialsSupplies.length === 0 && (
+                </>
+              ) : (
                 <View style={styles.emptyMaterialsState}>
                   <Text style={styles.emptyMaterialsText}>
                     No materials or supplies added yet
                   </Text>
                   <Text style={styles.emptyMaterialsSubtext}>
-                    Tap "Add Material" to get started
+                    Tap "Add Material & Supply" to get started
                   </Text>
                 </View>
               )}
-
-              <Button
-                title="Add Material & Supply"
-                variant="primary"
-                size="md"
-                disabled={isCurrentOrderCompleted}
-                onPress={() => setShowAddMaterialModal(true)}
-                style={styles.addMaterialButton}
-              />
             </CardContent>
           </Card>
         </ScrollView>

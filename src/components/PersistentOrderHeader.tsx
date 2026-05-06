@@ -34,7 +34,7 @@ interface PersistentOrderHeaderProps {
   serviceTypeBadges?: Array<{
     serviceTypeId: string;
     srNumber?: string;
-    status: 'pending' | 'in_progress' | 'noship' | 'completed';
+    status: 'pending' | 'in-progress' | 'noship' | 'completed';
   }>;
   onServiceTypeBadgePress?: (serviceTypeId: string) => void;
 }
@@ -151,7 +151,7 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
                       ? `${serviceTypeId} • ${srNumber}`
                       : serviceTypeId;
                     const isNoship = status === 'noship';
-                    const isInProgress = status === 'in_progress';
+                    const isInProgress = status === 'in-progress';
                     const isCompleted = status === 'completed';
                     const isPending = status === 'pending';
                     const badgeStyle = [
@@ -162,16 +162,26 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
                       isPending && styles.serviceTypeBadgePending,
                     ];
                     const textContent = (
-                      <Text
-                        style={[
-                          styles.serviceTypeBadgeText,
-                          isNoship && styles.serviceTypeBadgeTextNoship,
-                          isCompleted && styles.serviceTypeBadgeTextCompleted,
-                          isInProgress && styles.serviceTypeBadgeTextInProgress,
-                          isPending && styles.serviceTypeBadgeTextPending,
-                        ]}>
-                        {label}
-                      </Text>
+                      <View style={styles.serviceTypeBadgeContent}>
+                        {isCompleted && (
+                          <Icon
+                            name="check"
+                            size={14}
+                            color={colors.success}
+                            style={styles.serviceTypeBadgeIcon}
+                          />
+                        )}
+                        <Text
+                          style={[
+                            styles.serviceTypeBadgeText,
+                            isNoship && styles.serviceTypeBadgeTextNoship,
+                            isCompleted && styles.serviceTypeBadgeTextCompleted,
+                            isInProgress && styles.serviceTypeBadgeTextInProgress,
+                            isPending && styles.serviceTypeBadgeTextPending,
+                          ]}>
+                          {label}
+                        </Text>
+                      </View>
                     );
                     return onServiceTypeBadgePress ? (
                       <TouchableOpacity
@@ -593,6 +603,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.success + '22',
     borderWidth: 1,
     borderColor: colors.success,
+  },
+  serviceTypeBadgeContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  serviceTypeBadgeIcon: {
+    marginRight: spacing.xs / 2,
   },
   serviceTypeBadgeText: {
     ...typography.xs,

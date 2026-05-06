@@ -291,17 +291,35 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   // Handler for adding materials - moved to parent to prevent modal remounting
   const handleAddMaterial = useCallback(() => {
     if (!selectedMaterialItem) return;
-    const newMaterial: MaterialsSupply = {
-      id: `mat-${Date.now()}`,
-      itemNumber: selectedMaterialItem.itemNumber,
-      description: selectedMaterialItem.description,
-      quantity: parseInt(materialQuantity) || 1,
-      type: materialType,
-      serviceTypeId: activeServiceTypeTimer ?? undefined,
-    };
+    const quantity = parseInt(materialQuantity) || 1;
+    const serviceTypeId = activeServiceTypeTimer ?? undefined;
 
-    // Update materials list and reset form in the same batch
-    setMaterialsSupplies(prev => [...prev, newMaterial]);
+    setMaterialsSupplies(prev => {
+      const existing = prev.find(
+        m =>
+          m.itemNumber === selectedMaterialItem.itemNumber &&
+          m.type === materialType &&
+          m.serviceTypeId === serviceTypeId,
+      );
+      if (existing) {
+        return prev.map(m =>
+          m.id === existing.id
+            ? {...m, quantity: m.quantity + quantity}
+            : m,
+        );
+      }
+      return [
+        ...prev,
+        {
+          id: `mat-${Date.now()}`,
+          itemNumber: selectedMaterialItem.itemNumber,
+          description: selectedMaterialItem.description,
+          quantity,
+          type: materialType,
+          serviceTypeId,
+        },
+      ];
+    });
     setSelectedMaterialItem(null);
     setMaterialQuantity('1');
     setMaterialType('used');
@@ -2762,10 +2780,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       }
     };
 
-    // Calculate counts for badges — containers badge = current service type only
-    const containersCount = activeContainers.filter(
-      c => c.serviceTypeId === activeServiceTypeTimer,
-    ).length;
+    // Calculate counts for badges — containers/materials/equipment all scope to the full work order
+    const containersCount = activeContainers.length;
     const scannedDocsCount = scannedDocuments.filter(
       doc => doc.orderNumber === selectedOrderData?.orderNumber,
     ).length;
@@ -2774,11 +2790,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
     const isServiceSummaryStep = currentStep === 'order-service';
     // Once the user has progressed into the manifest-completion phase, Containers
-    // and Materials stay locked even when they side-step into equipment-ppe or
-    // materials-supplies via the bottom-row buttons.
+    // stay locked even when they side-step into equipment-ppe or materials-supplies
+    // via the bottom-row buttons.
     const containersDisabled = inManifestCompletion;
-    const materialsDisabled = inManifestCompletion;
-    // Equipment stays editable through review/manifest but locks at service summary.
+    // Materials and Equipment stay editable through review/manifest but lock at service summary.
+    const materialsDisabled = isServiceSummaryStep;
     const equipmentDisabled = isServiceSummaryStep;
     // Photos remain available throughout the manifest-completion phase.
     const photosDisabled = false;
@@ -3354,9 +3370,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
             activeContainers={activeContainers}
             setAddedContainers={setAddedContainers}
-            isServiceTypeNoShip={isServiceTypeNoShip}
-            setActiveServiceTypeTimer={setActiveServiceTypeTimer}
-            setReturnToContainersReviewAfterAdd={setReturnToContainersReviewAfterAdd}
             hasManifestForOrder={hasManifestForOrder}
             generateManifestTrackingNumber={generateManifestTrackingNumber}
             setManifestTrackingNumber={setManifestTrackingNumber}
@@ -8502,6 +8515,9 @@ export const styles = StyleSheet.create({
     flex: 1,
     ...typography.sm,
     color: colors.foreground,
+    textAlign: 'left',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
   },
   materialsTableCellDescription: {
     flex: 2,

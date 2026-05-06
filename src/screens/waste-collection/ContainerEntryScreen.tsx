@@ -275,7 +275,8 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
             </CardHeader>
             <CardContent>
               <Input
-                label="Number of Cylinders *"
+                label="Number of Cylinders"
+                required
                 value={cylinderCount}
                 onChangeText={setCylinderCount}
                 keyboardType="numeric"
@@ -436,7 +437,11 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
           title="Add Container"
           variant="primary"
           size="md"
-          disabled={isCurrentOrderCompleted || offlineStatus.isBlocked}
+          disabled={
+            isCurrentOrderCompleted ||
+            offlineStatus.isBlocked ||
+            (requiresCylinderCount && !cylinderCount.trim())
+          }
           onPress={async () => {
             if (
               selectedContainerType &&
@@ -479,10 +484,18 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                 currentContainerCount,
               );
 
+              const wasteCodes =
+                currentStream?.wasteCodes && currentStream.wasteCodes.length > 0
+                  ? currentStream.wasteCodes
+                  : currentStream?.id
+                    ? [currentStream.id]
+                    : [];
+
               const newContainer = {
                 id: `container-${Date.now()}`,
                 streamName: selectedStream,
                 streamCode: selectedStreamCode,
+                wasteCodes,
                 containerType: selectedContainerType.code,
                 containerSize: selectedContainerType.size,
                 barcode: barcode || `AUTO-${Date.now()}`,

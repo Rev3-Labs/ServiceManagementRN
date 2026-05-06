@@ -864,7 +864,8 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
               </Text>
 
               <Input
-                label="First Name *"
+                label="First Name"
+                required
                 value={customerFirstName}
                 onChangeText={setCustomerFirstName}
                 placeholder="Enter first name"
@@ -872,7 +873,8 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
               />
 
               <Input
-                label="Last Name *"
+                label="Last Name"
+                required
                 value={customerLastName}
                 onChangeText={setCustomerLastName}
                 placeholder="Enter last name"
@@ -923,6 +925,11 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
           title={allServiceTypesComplete ? "Acknowledge & Complete Order" : "Acknowledge & Complete Work Order"}
           variant="primary"
           size="md"
+          disabled={
+            !customerFirstName.trim() ||
+            !customerLastName.trim() ||
+            (hasBlockingErrors && !acknowledgeIncomplete)
+          }
           onPress={handleCompleteOrder}
         />
       </View>
