@@ -346,11 +346,6 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
               <Text style={deleteConfirmStyles.confirmInstructions}>
                 To confirm, enter the container's barcode:
               </Text>
-              <Text
-                style={deleteConfirmStyles.expectedBarcode}
-                selectable={false}>
-                {expectedBarcode || '(no barcode on file)'}
-              </Text>
               <TextInput
                 style={deleteConfirmStyles.barcodeInput}
                 value={deleteBarcodeInput}

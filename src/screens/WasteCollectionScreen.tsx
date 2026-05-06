@@ -428,10 +428,32 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return () => clearInterval(intervalId);
   }, [dashboardStartOfDay]);
 
-  // FR-3a.EXT.3.2/3.3: Active = Loaded/In-Transit (not dropped); aggregation from active only
+  // FR-3a.EXT.3.2/3.3: Active = Loaded/In-Transit (not dropped); aggregation from active only.
+  // Truck-wide list — used for Record Drop and projected-inventory aggregation.
   const activeContainers = useMemo(
     () => addedContainers.filter(c => c.status !== 'dropped'),
     [addedContainers],
+  );
+  // Per-order views: per-order screens (Container Summary, Containers Review, Order Service,
+  // Manifest Management) must only show containers tagged to the currently selected order,
+  // otherwise containers from a previously completed order leak into the next one.
+  const currentOrderActiveContainers = useMemo(
+    () =>
+      selectedOrderData
+        ? activeContainers.filter(
+            c => c.orderNumber === selectedOrderData.orderNumber,
+          )
+        : activeContainers,
+    [activeContainers, selectedOrderData],
+  );
+  const currentOrderAddedContainers = useMemo(
+    () =>
+      selectedOrderData
+        ? addedContainers.filter(
+            c => c.orderNumber === selectedOrderData.orderNumber,
+          )
+        : addedContainers,
+    [addedContainers, selectedOrderData],
   );
   const currentTotalWeight = useMemo(
     () => activeContainers.reduce((sum, c) => sum + c.netWeight, 0),
@@ -2781,7 +2803,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     };
 
     // Calculate counts for badges — containers/materials/equipment all scope to the full work order
-    const containersCount = activeContainers.length;
+    const containersCount = currentOrderActiveContainers.length;
     const scannedDocsCount = scannedDocuments.filter(
       doc => doc.orderNumber === selectedOrderData?.orderNumber,
     ).length;
@@ -3302,7 +3324,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             selectedStreamCode={selectedStreamCode}
             selectedStreamId={selectedStreamId}
             selectedContainerType={selectedContainerType}
-            addedContainers={addedContainers}
+            addedContainers={currentOrderAddedContainers}
             setAddedContainers={setAddedContainers}
             activeServiceTypeTimer={activeServiceTypeTimer}
             generateShippingLabelBarcode={generateShippingLabelBarcode}
@@ -3335,7 +3357,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleManualSync={handleManualSync}
             serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
             isOrderCompleted={isOrderCompleted}
-            activeContainers={activeContainers}
+            activeContainers={currentOrderActiveContainers}
             activeServiceTypeTimer={activeServiceTypeTimer}
             hasManifestForOrder={hasManifestForOrder}
             isOrderReadyForManifest={isOrderReadyForManifest}
@@ -3368,7 +3390,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             pendingSyncCount={pendingSyncCount}
             handleManualSync={handleManualSync}
             serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
-            activeContainers={activeContainers}
+            activeContainers={currentOrderActiveContainers}
             setAddedContainers={setAddedContainers}
             hasManifestForOrder={hasManifestForOrder}
             generateManifestTrackingNumber={generateManifestTrackingNumber}
@@ -3400,7 +3422,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleManualSync={handleManualSync}
             serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
             isOrderCompleted={isOrderCompleted}
-            addedContainers={addedContainers}
+            addedContainers={currentOrderAddedContainers}
             manifestTrackingNumber={manifestTrackingNumber}
             manifestData={manifestData}
             setManifestData={setManifestData}
@@ -3508,11 +3530,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleManualSync={handleManualSync}
             serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
             isOrderCompleted={isOrderCompleted}
-            activeContainers={activeContainers}
+            activeContainers={currentOrderActiveContainers}
             selectedPrograms={selectedPrograms}
             materialsSupplies={materialsSupplies}
             equipmentPPE={equipmentPPE}
-            addedContainers={addedContainers}
+            addedContainers={currentOrderAddedContainers}
             scannedDocuments={scannedDocuments.map(doc => ({
               ...doc,
               imageUri: doc.uri,
@@ -3652,7 +3674,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }
 
     // Check if no containers were added
-    if (addedContainers.length === 0) {
+    if (currentOrderAddedContainers.length === 0) {
       issues.push({
         id: 'no-containers',
         message: 'No containers have been added',
