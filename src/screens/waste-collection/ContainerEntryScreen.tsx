@@ -475,13 +475,22 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
               const netWeight =
                 parseInt(grossWeight || '0') - parseInt(tareWeight || '0');
 
-              // Get current container count for this order to generate sequential barcode
-              const currentContainerCount = addedContainers.length;
+              // Derive the next sequence from the highest existing shipping label,
+              // not the container count — otherwise deleting a middle container
+              // collides with the trailing barcode on the next add.
               const orderNumber =
                 selectedOrderData?.orderNumber || 'WO-2024-0000';
+              const highestExistingSequence = addedContainers.reduce(
+                (max, c) => {
+                  const match = c.shippingLabelBarcode?.match(/-(\d+)$/);
+                  const seq = match ? parseInt(match[1], 10) : 0;
+                  return seq > max ? seq : max;
+                },
+                0,
+              );
               const shippingLabelBarcode = generateShippingLabelBarcode(
                 orderNumber,
-                currentContainerCount,
+                highestExistingSequence,
               );
 
               const wasteCodes =

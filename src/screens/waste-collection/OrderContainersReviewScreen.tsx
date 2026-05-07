@@ -241,16 +241,6 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
                         : '—'}
                     </Text>
                   </View>
-                  {typeof container.cylinderCount === 'number' && (
-                    <View style={styles.containerSummaryInfoCard}>
-                      <Text style={styles.containerSummaryInfoLabel}>
-                        Cylinders
-                      </Text>
-                      <Text style={styles.containerSummaryInfoValue}>
-                        {container.cylinderCount}
-                      </Text>
-                    </View>
-                  )}
                   {container.shippingLabelBarcode ? (
                     <View style={styles.containerSummaryInfoCard}>
                       <Text style={styles.containerSummaryInfoLabel}>
@@ -344,13 +334,13 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
                 cannot be undone.
               </Text>
               <Text style={deleteConfirmStyles.confirmInstructions}>
-                To confirm, enter the container's barcode:
+                To confirm, enter the container's shipping label:
               </Text>
               <TextInput
                 style={deleteConfirmStyles.barcodeInput}
                 value={deleteBarcodeInput}
                 onChangeText={setDeleteBarcodeInput}
-                placeholder="Enter barcode"
+                placeholder="Enter shipping label"
                 placeholderTextColor={colors.mutedForeground}
                 autoCapitalize="characters"
                 autoCorrect={false}

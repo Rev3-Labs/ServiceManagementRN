@@ -242,11 +242,7 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
               </View>
 
               {/* Containers table — clean rows/columns view */}
-              {manifestContainers.length > 0 && (() => {
-                const showCylinders = manifestContainers.some(
-                  c => typeof c.cylinderCount === 'number',
-                );
-                return (
+              {manifestContainers.length > 0 && (
                 <View style={tableStyles.table}>
                   <View style={tableStyles.headerRow}>
                     <Text style={[tableStyles.headerCell, tableStyles.colNum]}>
@@ -264,16 +260,6 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
                     <Text style={[tableStyles.headerCell, tableStyles.colCodes]}>
                       Waste Code(s)
                     </Text>
-                    {showCylinders && (
-                      <Text
-                        style={[
-                          tableStyles.headerCell,
-                          tableStyles.colCylinders,
-                          tableStyles.alignRight,
-                        ]}>
-                        Cylinders
-                      </Text>
-                    )}
                     <Text
                       style={[
                         tableStyles.headerCell,
@@ -319,19 +305,6 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
                           ? c.wasteCodes.join(', ')
                           : '—'}
                       </Text>
-                      {showCylinders && (
-                        <Text
-                          style={[
-                            tableStyles.cell,
-                            tableStyles.colCylinders,
-                            tableStyles.alignRight,
-                            tableStyles.cellNumeric,
-                          ]}>
-                          {typeof c.cylinderCount === 'number'
-                            ? c.cylinderCount
-                            : '—'}
-                        </Text>
-                      )}
                       <Text
                         style={[
                           tableStyles.cell,
@@ -357,8 +330,7 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
                     </Text>
                   </View>
                 </View>
-                );
-              })()}
+              )}
 
               {(manifestData?.scannedImageUri ||
                 scannedDocuments.some(
@@ -1147,9 +1119,6 @@ const tableStyles = StyleSheet.create({
   },
   colCodes: {
     flex: 1.3,
-  },
-  colCylinders: {
-    width: 80,
   },
   colNet: {
     width: 90,
