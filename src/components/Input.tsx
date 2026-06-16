@@ -6,7 +6,9 @@ import {
   StyleSheet,
   TextInputProps,
   ViewStyle,
+  TouchableOpacity,
 } from 'react-native';
+import {Icon} from './Icon';
 import {colors, spacing, borderRadius, touchTargets, typography} from '../styles/theme';
 
 interface InputProps extends TextInputProps {
@@ -16,6 +18,9 @@ interface InputProps extends TextInputProps {
   containerStyle?: ViewStyle;
   size?: 'md' | 'lg';
   required?: boolean;
+  /** When true, shows an X button to clear the field when it has a value. */
+  clearable?: boolean;
+  onClear?: () => void;
 }
 
 export const Input = forwardRef<TextInput, InputProps>(({
@@ -26,14 +31,29 @@ export const Input = forwardRef<TextInput, InputProps>(({
   style,
   size = 'md',
   required = false,
+  clearable = false,
+  onClear,
+  value,
+  onChangeText,
   ...props
 }, ref) => {
+  const showClear =
+    clearable && String(value ?? '').length > 0;
   const inputStyle = [
     styles.input,
     size === 'lg' && styles.inputLarge,
     error && styles.inputError,
+    showClear && styles.inputWithClear,
     style,
   ];
+
+  const handleClear = () => {
+    if (onClear) {
+      onClear();
+      return;
+    }
+    onChangeText?.('');
+  };
 
   return (
     <View style={[styles.container, containerStyle]}>
@@ -43,15 +63,28 @@ export const Input = forwardRef<TextInput, InputProps>(({
           {required && <Text style={styles.requiredAsterisk}> *</Text>}
         </Text>
       )}
-      <TextInput
-        ref={ref}
-        style={inputStyle}
-        placeholderTextColor={colors.mutedForeground}
-        // Larger cursor for visibility
-        cursorColor={colors.primary}
-        selectionColor={`${colors.primary}40`}
-        {...props}
-      />
+      <View style={styles.inputWrapper}>
+        <TextInput
+          ref={ref}
+          style={inputStyle}
+          placeholderTextColor={colors.mutedForeground}
+          cursorColor={colors.primary}
+          selectionColor={`${colors.primary}40`}
+          value={value}
+          onChangeText={onChangeText}
+          {...props}
+        />
+        {showClear && (
+          <TouchableOpacity
+            onPress={handleClear}
+            style={styles.clearButton}
+            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search">
+            <Icon name="close" size={18} color={colors.mutedForeground} />
+          </TouchableOpacity>
+        )}
+      </View>
       {hint && !error && <Text style={styles.hintText}>{hint}</Text>}
       {error && <Text style={styles.errorText}>{error}</Text>}
     </View>
@@ -74,6 +107,10 @@ const styles = StyleSheet.create({
     color: colors.destructive,
     fontWeight: '700',
   },
+  inputWrapper: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
   input: {
     ...typography.base,
     minHeight: touchTargets.comfortable,
@@ -84,6 +121,18 @@ const styles = StyleSheet.create({
     borderColor: colors.input,
     borderRadius: borderRadius.md,
     color: colors.foreground,
+  },
+  inputWithClear: {
+    paddingRight: spacing.xl + spacing.sm,
+  },
+  clearButton: {
+    position: 'absolute',
+    right: spacing.sm,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: touchTargets.min,
   },
   inputLarge: {
     minHeight: touchTargets.large,

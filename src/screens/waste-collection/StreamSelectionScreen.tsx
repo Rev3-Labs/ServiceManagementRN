@@ -215,6 +215,7 @@ export const StreamSelectionScreen: React.FC<StreamSelectionScreenProps> = ({
           onFocus={handleSearchFocus}
           onBlur={handleSearchBlur}
           containerStyle={styles.searchInput}
+          clearable
         />
 
         {filteredStreams.length > 0 ? (

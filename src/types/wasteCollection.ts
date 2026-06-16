@@ -36,6 +36,12 @@ export interface OrderData {
   primaryContactPhone?: string; // Format: 10 digits or with formatting
   primaryContactEmail?: string;
   hasSecondaryContacts?: boolean; // Whether there are additional contacts available
+  secondaryContacts?: Array<{
+    name: string;
+    role?: string;
+    phone?: string;
+    email?: string;
+  }>;
   customerSpecialInstructions?: string;
   siteAccessNotes?: string;
   safetyWarnings?: string[];

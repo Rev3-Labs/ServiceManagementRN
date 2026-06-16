@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useMemo, useState} from 'react';
 import {
   View,
   Text,
@@ -102,6 +102,7 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
   const [equipmentQuantity, setEquipmentQuantity] = useState('1');
   const [showAddEquipmentSuccess, setShowAddEquipmentSuccess] =
     useState(false);
+  const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
 
   // Pre-determined equipment/PPE list
   const EQUIPMENT_PPE_CATALOG = [
@@ -155,6 +156,15 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
       ),
     );
   };
+  const filteredCatalogItems = useMemo(() => {
+    if (!catalogSearchQuery.trim()) {
+      return EQUIPMENT_PPE_CATALOG;
+    }
+    const searchLower = catalogSearchQuery.toLowerCase();
+    return EQUIPMENT_PPE_CATALOG.filter(item =>
+      item.toLowerCase().includes(searchLower),
+    );
+  }, [catalogSearchQuery]);
 
   if (!selectedOrderData) return null;
 
@@ -317,6 +327,7 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                 setShowAddEquipmentModal(false);
                 setSelectedEquipmentItem(null);
                 setEquipmentQuantity('1');
+                setCatalogSearchQuery('');
               }}
               hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
               style={styles.fullScreenModalCloseButton}>
@@ -342,28 +353,46 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                 <Text style={styles.sectionDescription}>
                   Choose equipment or PPE from the catalog
                 </Text>
+                <Input
+                  placeholder="Search equipment catalog..."
+                  value={catalogSearchQuery}
+                  onChangeText={setCatalogSearchQuery}
+                  containerStyle={styles.searchInput}
+                  clearable
+                />
                 <ScrollView
                   style={styles.modalCatalogScroll}
                   contentContainerStyle={styles.modalCatalogContent}>
-                  {EQUIPMENT_PPE_CATALOG.map(item => (
-                    <TouchableOpacity
-                      key={item}
-                      style={[
-                        styles.materialCatalogItemVertical,
-                        selectedEquipmentItem === item &&
-                          styles.materialCatalogItemSelected,
-                      ]}
-                      onPress={() => setSelectedEquipmentItem(item)}>
-                      <Text
+                  {filteredCatalogItems.length > 0 ? (
+                    filteredCatalogItems.map(item => (
+                      <TouchableOpacity
+                        key={item}
                         style={[
-                          styles.materialCatalogItemDescription,
+                          styles.materialCatalogItemVertical,
                           selectedEquipmentItem === item &&
-                            styles.materialCatalogItemDescriptionSelected,
-                        ]}>
-                        {item}
+                            styles.materialCatalogItemSelected,
+                        ]}
+                        onPress={() => setSelectedEquipmentItem(item)}>
+                        <Text
+                          style={[
+                            styles.materialCatalogItemDescription,
+                            selectedEquipmentItem === item &&
+                              styles.materialCatalogItemDescriptionSelected,
+                          ]}>
+                          {item}
+                        </Text>
+                      </TouchableOpacity>
+                    ))
+                  ) : (
+                    <View style={styles.emptyMaterialsState}>
+                      <Text style={styles.emptyMaterialsText}>
+                        No equipment found
                       </Text>
-                    </TouchableOpacity>
-                  ))}
+                      <Text style={styles.emptyMaterialsSubtext}>
+                        Try adjusting your search terms
+                      </Text>
+                    </View>
+                  )}
                 </ScrollView>
               </View>
 
@@ -420,6 +449,7 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                 setShowAddEquipmentModal(false);
                 setSelectedEquipmentItem(null);
                 setEquipmentQuantity('1');
+                setCatalogSearchQuery('');
               }}
               style={styles.fullScreenModalCancelButton}
             />

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import {Button} from './Button';
 import {Icon} from './Icon';
+import {Input} from './Input';
 import {
   colors,
   spacing,
@@ -258,14 +259,15 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
                 </TouchableOpacity>
               </View>
               <View style={styles.searchWrapper}>
-                <TextInput
-                  style={styles.searchInput}
+                <Input
                   value={locationSearchQuery}
                   onChangeText={setLocationSearchQuery}
                   placeholder="Search location"
-                  placeholderTextColor={colors.mutedForeground}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  style={styles.searchInput}
+                  containerStyle={styles.searchInputContainer}
+                  clearable
                 />
               </View>
               <FlatList
@@ -539,6 +541,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
+  },
+  searchInputContainer: {
+    marginBottom: 0,
   },
   searchInput: {
     backgroundColor: colors.card,

@@ -67,6 +67,46 @@ function formatPhoneNumber(phone: string): string {
   return phone;
 }
 
+interface OrderContactItem {
+  name: string;
+  role?: string;
+  phone?: string;
+  email?: string;
+  isPlaceholder?: boolean;
+}
+
+function buildOrderContacts(order: OrderData): OrderContactItem[] {
+  const contacts: OrderContactItem[] = [];
+
+  if (order.primaryContactName || order.primaryContactPhone || order.primaryContactEmail) {
+    contacts.push({
+      name: order.primaryContactName || 'Primary Contact',
+      role: 'Primary Contact',
+      phone: order.primaryContactPhone,
+      email: order.primaryContactEmail,
+    });
+  }
+
+  (order.secondaryContacts || []).forEach((contact) => {
+    contacts.push({
+      name: contact.name,
+      role: contact.role || 'Additional Contact',
+      phone: contact.phone,
+      email: contact.email,
+    });
+  });
+
+  if (order.hasSecondaryContacts && !order.secondaryContacts?.length) {
+    contacts.push({
+      name: 'Additional contacts are not available offline.',
+      role: 'Additional Contact',
+      isPlaceholder: true,
+    });
+  }
+
+  return contacts;
+}
+
 export interface DashboardScreenProps {
   // Data
   orders: OrderData[];
@@ -551,22 +591,20 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
 
   // Per-section expanded state. Defaults are recomputed when the selected order or
   // ack state changes (see effect below), but users can manually toggle within a state.
+  // Keep hierarchy consistent: Primary Contact -> Order Information -> Service Notes,
+  // with Service Notes collapsed by default.
   const [sectionsExpanded, setSectionsExpanded] = useState<{
     contact: boolean;
     order: boolean;
     notes: boolean;
-  }>(() =>
-    notesAcknowledged
-      ? { contact: false, order: true, notes: false }
-      : { contact: false, order: false, notes: true },
-  );
+  }>(() => ({ contact: false, order: true, notes: false }));
+  const detailPaneScrollRef = useRef<ScrollView | null>(null);
+  const notesSectionTopRef = useRef(0);
+  const [showContactsModal, setShowContactsModal] = useState(false);
+  const [contactsModalOrder, setContactsModalOrder] = useState<OrderData | null>(null);
 
   useEffect(() => {
-    setSectionsExpanded(
-      notesAcknowledged
-        ? { contact: false, order: true, notes: false }
-        : { contact: false, order: false, notes: true },
-    );
+    setSectionsExpanded({ contact: false, order: true, notes: false });
   }, [selectedOrderNumber, notesAcknowledged]);
 
   const toggleSection = (key: 'contact' | 'order' | 'notes') => {
@@ -579,6 +617,22 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     await serviceNotesAckService.acknowledge(selectedOrder.orderNumber);
     setSectionsExpanded({ contact: false, order: true, notes: false });
+  };
+  const focusServiceNotesSection = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSectionsExpanded((prev) => ({...prev, notes: true}));
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        detailPaneScrollRef.current?.scrollTo({
+          y: Math.max(0, notesSectionTopRef.current - 12),
+          animated: true,
+        });
+      }, 80);
+    });
+  };
+  const openAllContacts = (order: OrderData) => {
+    setContactsModalOrder(order);
+    setShowContactsModal(true);
   };
 
   // Get offline limit warning message for header
@@ -912,6 +966,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
         <View style={styles.detailPane}>
           {selectedOrder ? (
             <ScrollView
+              ref={detailPaneScrollRef}
               style={styles.detailPaneScroll}
               contentContainerStyle={styles.detailPaneContent}
               keyboardShouldPersistTaps="handled">
@@ -935,8 +990,8 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                 </Badge>
               </View>
 
-              {/* State-driven section layout: pre-ack -> Notes is the Action Card and renders first;
-                  post-ack -> Order Information becomes the Action Card and Notes collapses to a reference. */}
+              {/* Render detail sections in a fixed hierarchy:
+                  Primary Contact -> Order Information -> Service Notes. */}
               {(() => {
                 const contactCard = (
                   <Card
@@ -1009,10 +1064,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                               <TouchableOpacity
                                 style={styles.contactInlineItem}
                                 onPress={() => {
-                                  Alert.alert(
-                                    'All Contacts',
-                                    'Secondary contacts feature coming soon.',
-                                  );
+                                  openAllContacts(selectedOrder);
                                 }}
                                 activeOpacity={0.7}>
                                 <Text style={styles.contactInlineLink}>
@@ -1081,11 +1133,15 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                     {sectionsExpanded.order && (
                       <CardContent>
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Customer:</Text>
+                    <Text style={styles.orderInfoKeyLabel}>Customer:</Text>
                     <View style={styles.detailValueContainer}>
-                      <Text style={styles.detailValue}>
-                        {selectedOrder.customer}
-                      </Text>
+                      <View style={styles.orderInfoValuePillContainer}>
+                        <View style={styles.orderInfoValuePill}>
+                          <Text style={styles.orderInfoValueText}>
+                            {selectedOrder.customer}
+                          </Text>
+                        </View>
+                      </View>
                       {extractStoreNumber(selectedOrder.site) && (
                         <Text style={styles.storeNumber}>
                           Store #{extractStoreNumber(selectedOrder.site)}
@@ -1094,19 +1150,27 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                     </View>
                   </View>
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Site:</Text>
-                    <Text style={styles.detailValue}>
-                      {selectedOrder.site}
-                    </Text>
+                    <Text style={styles.orderInfoKeyLabel}>Site:</Text>
+                    <View style={styles.orderInfoValuePillContainer}>
+                      <View style={styles.orderInfoValuePill}>
+                        <Text style={styles.orderInfoValueText}>
+                          {selectedOrder.site}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Location:</Text>
-                    <Text style={styles.detailValue}>
+                    <Text style={styles.orderInfoKeyLabel}>Location:</Text>
+                    <View style={styles.orderInfoValuePillContainer}>
+                      <View style={styles.orderInfoValuePill}>
+                        <Text style={styles.orderInfoValueText}>
                       {selectedOrder.site}
                       {selectedOrder.city && `, ${selectedOrder.city}`}
                       {selectedOrder.state && `, ${selectedOrder.state}`}
                       {selectedOrder.zip && ` ${selectedOrder.zip}`}
-                    </Text>
+                        </Text>
+                      </View>
+                    </View>
                   </View>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Expected Date:</Text>
@@ -1164,10 +1228,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                             key={i}
                             onPress={() => {
                               if (lockedByAck) {
-                                Alert.alert(
-                                  'Acknowledge service notes',
-                                  'Please acknowledge the service notes before starting work on a service type.',
-                                );
+                                focusServiceNotesSection();
                                 return;
                               }
                               if (canEditOrder && selectedOrder) {
@@ -1272,14 +1333,18 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                 );
 
                 const notesCard = (
-                  <Card
+                  <View
                     key="notes-card"
-                    style={[
-                      styles.collapsibleCard,
-                      notesAcknowledged
-                        ? styles.referenceCard
-                        : styles.actionCard,
-                    ]}>
+                    onLayout={(event) => {
+                      notesSectionTopRef.current = event.nativeEvent.layout.y;
+                    }}>
+                    <Card
+                      style={[
+                        styles.collapsibleCard,
+                        notesAcknowledged
+                          ? styles.referenceCard
+                          : styles.actionCard,
+                      ]}>
                     <Pressable
                       onPress={() => toggleSection('notes')}
                       style={styles.collapsibleHeaderPressable}
@@ -1427,20 +1492,15 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                         )}
                       </View>
                     )}
-                  </Card>
+                    </Card>
+                  </View>
                 );
 
-                return notesAcknowledged ? (
+                return (
                   <>
                     {contactCard}
                     {orderCard}
                     {notesCard}
-                  </>
-                ) : (
-                  <>
-                    {notesCard}
-                    {contactCard}
-                    {orderCard}
                   </>
                 );
               })()}
@@ -1680,6 +1740,68 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
         </View>
       </View>
       )}
+      <Modal
+        visible={showContactsModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowContactsModal(false)}>
+        <View style={styles.jobNotesModalContainer}>
+          <View style={styles.jobNotesModalHeader}>
+            <Text style={styles.jobNotesModalTitle}>All Contacts</Text>
+            <TouchableOpacity
+              onPress={() => setShowContactsModal(false)}
+              style={styles.jobNotesModalCloseButton}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+              <Icon name="close" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            style={styles.jobNotesModalScroll}
+            contentContainerStyle={styles.jobNotesModalContent}
+            keyboardShouldPersistTaps="handled">
+            {contactsModalOrder && (
+              <>
+                <Text style={styles.allNotesOrderMeta}>
+                  {contactsModalOrder.orderNumber} - {formatCustomerWithStore(contactsModalOrder.customer, contactsModalOrder.site)}
+                </Text>
+                <View>
+                  {buildOrderContacts(contactsModalOrder).map((contact, index) => (
+                    <Card key={`${contact.name}-${index}`} style={styles.jobNotesCard}>
+                      <CardContent>
+                        <Text style={styles.jobNotesText}>{contact.name}</Text>
+                        {contact.role && (
+                          <Text style={styles.previousNoteTechnician}>{contact.role}</Text>
+                        )}
+                        {contact.phone && (
+                          <TouchableOpacity
+                            onPress={() => handlePhoneCall(contact.phone!)}
+                            activeOpacity={0.7}>
+                            <Text style={styles.contactInlineLink}>
+                              {formatPhoneNumber(contact.phone)}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                        {contact.email && (
+                          <TouchableOpacity
+                            onPress={() => handleEmail(contact.email!)}
+                            activeOpacity={0.7}>
+                            <Text style={styles.contactInlineLink}>{contact.email}</Text>
+                          </TouchableOpacity>
+                        )}
+                        {contact.isPlaceholder && (
+                          <Text style={styles.noContactText}>
+                            Connect and sync to load full contact details.
+                          </Text>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </View>
+              </>
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -1769,18 +1891,15 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     contact: boolean;
     order: boolean;
     notes: boolean;
-  }>(() =>
-    dashboardNotesAcknowledged
-      ? { contact: false, order: true, notes: false }
-      : { contact: false, order: false, notes: true },
-  );
+  }>(() => ({ contact: false, order: true, notes: false }));
+  const dashboardOrdersScrollRef = useRef<ScrollView | null>(null);
+  const dashboardNotesSectionTopRef = useRef(0);
+  const [showDashboardContactsModal, setShowDashboardContactsModal] = useState(false);
+  const [dashboardContactsModalOrder, setDashboardContactsModalOrder] =
+    useState<OrderData | null>(null);
 
   useEffect(() => {
-    setDashboardSectionsExpanded(
-      dashboardNotesAcknowledged
-        ? { contact: false, order: true, notes: false }
-        : { contact: false, order: false, notes: true },
-    );
+    setDashboardSectionsExpanded({ contact: false, order: true, notes: false });
   }, [dashboardSelectedOrderNumber, dashboardNotesAcknowledged]);
 
   const toggleDashboardSection = (key: 'contact' | 'order' | 'notes') => {
@@ -1793,6 +1912,22 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     await serviceNotesAckService.acknowledge(dashboardSelectedOrder.orderNumber);
     setDashboardSectionsExpanded({ contact: false, order: true, notes: false });
+  };
+  const focusDashboardServiceNotesSection = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setDashboardSectionsExpanded((prev) => ({...prev, notes: true}));
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        dashboardOrdersScrollRef.current?.scrollTo({
+          y: Math.max(0, dashboardNotesSectionTopRef.current - 12),
+          animated: true,
+        });
+      }, 80);
+    });
+  };
+  const openAllDashboardContacts = (order: OrderData) => {
+    setDashboardContactsModalOrder(order);
+    setShowDashboardContactsModal(true);
   };
 
   // Get offline limit warning message for header
@@ -2056,6 +2191,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
       ) : (
       <View style={styles.scrollViewContainer}>
         <ScrollView
+          ref={dashboardOrdersScrollRef}
           style={styles.scrollView}
           contentContainerStyle={[
             styles.scrollContent,
@@ -2093,8 +2229,8 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                 </Badge>
               </View>
 
-              {/* State-driven section layout: pre-ack -> Notes is the Action Card and renders first;
-                  post-ack -> Order Information becomes the Action Card and Notes collapses to a reference. */}
+              {/* Render detail sections in a fixed hierarchy:
+                  Primary Contact -> Order Information -> Service Notes. */}
               {(() => {
                 const contactCard = (
                   <Card
@@ -2167,10 +2303,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                               <TouchableOpacity
                                 style={styles.contactInlineItem}
                                 onPress={() => {
-                                  Alert.alert(
-                                    'All Contacts',
-                                    'Secondary contacts feature coming soon.',
-                                  );
+                                  openAllDashboardContacts(dashboardSelectedOrder);
                                 }}
                                 activeOpacity={0.7}>
                                 <Text style={styles.contactInlineLink}>
@@ -2239,11 +2372,15 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                     {dashboardSectionsExpanded.order && (
                       <CardContent>
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Customer:</Text>
+                    <Text style={styles.orderInfoKeyLabel}>Customer:</Text>
                     <View style={styles.detailValueContainer}>
-                      <Text style={styles.detailValue}>
-                        {dashboardSelectedOrder.customer}
-                      </Text>
+                      <View style={styles.orderInfoValuePillContainer}>
+                        <View style={styles.orderInfoValuePill}>
+                          <Text style={styles.orderInfoValueText}>
+                            {dashboardSelectedOrder.customer}
+                          </Text>
+                        </View>
+                      </View>
                       {extractStoreNumber(dashboardSelectedOrder.site) && (
                         <Text style={styles.storeNumber}>
                           Store #{extractStoreNumber(dashboardSelectedOrder.site)}
@@ -2252,19 +2389,27 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                     </View>
                   </View>
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Site:</Text>
-                    <Text style={styles.detailValue}>
-                      {dashboardSelectedOrder.site}
-                    </Text>
+                    <Text style={styles.orderInfoKeyLabel}>Site:</Text>
+                    <View style={styles.orderInfoValuePillContainer}>
+                      <View style={styles.orderInfoValuePill}>
+                        <Text style={styles.orderInfoValueText}>
+                          {dashboardSelectedOrder.site}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Location:</Text>
-                    <Text style={styles.detailValue}>
-                      {dashboardSelectedOrder.site}
-                      {dashboardSelectedOrder.city && `, ${dashboardSelectedOrder.city}`}
-                      {dashboardSelectedOrder.state && `, ${dashboardSelectedOrder.state}`}
-                      {dashboardSelectedOrder.zip && ` ${dashboardSelectedOrder.zip}`}
-                    </Text>
+                    <Text style={styles.orderInfoKeyLabel}>Location:</Text>
+                    <View style={styles.orderInfoValuePillContainer}>
+                      <View style={styles.orderInfoValuePill}>
+                        <Text style={styles.orderInfoValueText}>
+                          {dashboardSelectedOrder.site}
+                          {dashboardSelectedOrder.city && `, ${dashboardSelectedOrder.city}`}
+                          {dashboardSelectedOrder.state && `, ${dashboardSelectedOrder.state}`}
+                          {dashboardSelectedOrder.zip && ` ${dashboardSelectedOrder.zip}`}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Expected Date:</Text>
@@ -2322,10 +2467,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                             key={i}
                             onPress={() => {
                               if (lockedByAck) {
-                                Alert.alert(
-                                  'Acknowledge service notes',
-                                  'Please acknowledge the service notes before starting work on a service type.',
-                                );
+                                focusDashboardServiceNotesSection();
                                 return;
                               }
                               if (canEditOrder && dashboardSelectedOrder) {
@@ -2428,14 +2570,18 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                 );
 
                 const notesCard = (
-                  <Card
+                  <View
                     key="notes-card"
-                    style={[
-                      styles.collapsibleCard,
-                      dashboardNotesAcknowledged
-                        ? styles.referenceCard
-                        : styles.actionCard,
-                    ]}>
+                    onLayout={(event) => {
+                      dashboardNotesSectionTopRef.current = event.nativeEvent.layout.y;
+                    }}>
+                    <Card
+                      style={[
+                        styles.collapsibleCard,
+                        dashboardNotesAcknowledged
+                          ? styles.referenceCard
+                          : styles.actionCard,
+                      ]}>
                     <Pressable
                       onPress={() => toggleDashboardSection('notes')}
                       style={styles.collapsibleHeaderPressable}
@@ -2583,20 +2729,15 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                         )}
                       </View>
                     )}
-                  </Card>
+                    </Card>
+                  </View>
                 );
 
-                return dashboardNotesAcknowledged ? (
+                return (
                   <>
                     {contactCard}
                     {orderCard}
                     {notesCard}
-                  </>
-                ) : (
-                  <>
-                    {notesCard}
-                    {contactCard}
-                    {orderCard}
                   </>
                 );
               })()}
@@ -2739,6 +2880,68 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
         </ScrollView>
       </View>
       )}
+      <Modal
+        visible={showDashboardContactsModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowDashboardContactsModal(false)}>
+        <View style={styles.jobNotesModalContainer}>
+          <View style={styles.jobNotesModalHeader}>
+            <Text style={styles.jobNotesModalTitle}>All Contacts</Text>
+            <TouchableOpacity
+              onPress={() => setShowDashboardContactsModal(false)}
+              style={styles.jobNotesModalCloseButton}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+              <Icon name="close" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            style={styles.jobNotesModalScroll}
+            contentContainerStyle={styles.jobNotesModalContent}
+            keyboardShouldPersistTaps="handled">
+            {dashboardContactsModalOrder && (
+              <>
+                <Text style={styles.allNotesOrderMeta}>
+                  {dashboardContactsModalOrder.orderNumber} - {formatCustomerWithStore(dashboardContactsModalOrder.customer, dashboardContactsModalOrder.site)}
+                </Text>
+                <View>
+                  {buildOrderContacts(dashboardContactsModalOrder).map((contact, index) => (
+                    <Card key={`${contact.name}-${index}`} style={styles.jobNotesCard}>
+                      <CardContent>
+                        <Text style={styles.jobNotesText}>{contact.name}</Text>
+                        {contact.role && (
+                          <Text style={styles.previousNoteTechnician}>{contact.role}</Text>
+                        )}
+                        {contact.phone && (
+                          <TouchableOpacity
+                            onPress={() => handlePhoneCall(contact.phone!)}
+                            activeOpacity={0.7}>
+                            <Text style={styles.contactInlineLink}>
+                              {formatPhoneNumber(contact.phone)}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                        {contact.email && (
+                          <TouchableOpacity
+                            onPress={() => handleEmail(contact.email!)}
+                            activeOpacity={0.7}>
+                            <Text style={styles.contactInlineLink}>{contact.email}</Text>
+                          </TouchableOpacity>
+                        )}
+                        {contact.isPlaceholder && (
+                          <Text style={styles.noContactText}>
+                            Connect and sync to load full contact details.
+                          </Text>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </View>
+              </>
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 };

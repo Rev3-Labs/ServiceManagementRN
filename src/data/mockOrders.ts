@@ -30,6 +30,19 @@ export const MOCK_ORDERS: OrderData[] = [
     primaryContactPhone: '3035551234',
     primaryContactEmail: 'john.smith@acme.com',
     hasSecondaryContacts: true,
+    secondaryContacts: [
+      {
+        name: 'Rachel Adams',
+        role: 'Assistant Manager',
+        phone: '3035551188',
+        email: 'rachel.adams@acme.com',
+      },
+      {
+        name: 'Security Desk',
+        role: 'Site Access',
+        phone: '3035551100',
+      },
+    ],
     customerSpecialInstructions: 'All containers must be labeled with controlled substance numbers. Use back loading dock only.',
     siteAccessNotes: 'Gate code: 1234. Park in designated area. Contact security at extension 5555 upon arrival.',
     safetyWarnings: [
@@ -116,6 +129,19 @@ export const MOCK_ORDERS: OrderData[] = [
     primaryContactPhone: '3035554567',
     primaryContactEmail: 'michael.chen@target.com',
     hasSecondaryContacts: true,
+    secondaryContacts: [
+      {
+        name: 'Nina Patel',
+        role: 'Operations Supervisor',
+        phone: '3035554521',
+        email: 'nina.patel@target.com',
+      },
+      {
+        name: 'Receiving Desk',
+        role: 'Dock Coordination',
+        phone: '3035554500',
+      },
+    ],
     customerSpecialInstructions: 'Large volume order. Use dock 3 for loading. All controlled substances must be verified before pickup.',
     siteAccessNotes: 'Security badge required. Check in at main office first. Dock 3 is on the west side of building.',
     safetyWarnings: [

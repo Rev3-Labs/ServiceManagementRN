@@ -1,4 +1,4 @@
-import React, {useMemo} from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -103,11 +103,6 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
       ),
     );
   };
-
-  const totalQuantity = useMemo(
-    () => materialsSupplies.reduce((sum, m) => sum + m.quantity, 0),
-    [materialsSupplies],
-  );
 
   if (!selectedOrderData) return null;
 
@@ -244,7 +239,8 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
                   <Text style={styles.summaryText}>
                     {materialsSupplies.length} item
                     {materialsSupplies.length !== 1 ? 's' : ''} •{' '}
-                    {totalQuantity} total qty across this work order
+                    {materialsSupplies.reduce((sum, m) => sum + m.quantity, 0)} total
+                    qty across this work order
                   </Text>
                   <View style={styles.materialsTable}>
                     {renderTableHeader()}

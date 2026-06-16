@@ -373,6 +373,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       value={truckSearchQuery}
                       onChangeText={setTruckSearchQuery}
                       style={styles.searchInput}
+                      clearable
                     />
                   </View>
                   <FlatList
@@ -426,6 +427,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       value={trailerSearchQuery}
                       onChangeText={setTrailerSearchQuery}
                       style={styles.searchInput}
+                      clearable
                     />
                   </View>
                   <FlatList

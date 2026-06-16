@@ -286,6 +286,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [materialType, setMaterialType] = useState<'used' | 'left_behind'>(
     'used',
   );
+  const [materialCatalogSearchQuery, setMaterialCatalogSearchQuery] =
+    useState('');
   const [showAddMaterialSuccess, setShowAddMaterialSuccess] = useState(false);
   
   // Handler for adding materials - moved to parent to prevent modal remounting
@@ -3391,6 +3393,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleManualSync={handleManualSync}
             serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
             activeContainers={currentOrderActiveContainers}
+            activeServiceTypeTimer={activeServiceTypeTimer}
             setAddedContainers={setAddedContainers}
             hasManifestForOrder={hasManifestForOrder}
             generateManifestTrackingNumber={generateManifestTrackingNumber}
@@ -5740,6 +5743,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 setSelectedMaterialItem(null);
                 setMaterialQuantity('1');
                 setMaterialType('used');
+                setMaterialCatalogSearchQuery('');
               }}
               hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
               style={styles.fullScreenModalCloseButton}>
@@ -5765,10 +5769,26 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 <Text style={styles.sectionDescription}>
                   Choose a material or supply from the catalog
                 </Text>
+                <Input
+                  placeholder="Search materials catalog..."
+                  value={materialCatalogSearchQuery}
+                  onChangeText={setMaterialCatalogSearchQuery}
+                  containerStyle={styles.searchInput}
+                  clearable
+                />
                 <FlatList
                   style={styles.modalCatalogScroll}
                   contentContainerStyle={styles.modalCatalogContent}
-                  data={MATERIALS_CATALOG}
+                  data={MATERIALS_CATALOG.filter(item => {
+                    if (!materialCatalogSearchQuery.trim()) {
+                      return true;
+                    }
+                    const searchLower = materialCatalogSearchQuery.toLowerCase();
+                    return (
+                      item.itemNumber.toLowerCase().includes(searchLower) ||
+                      item.description.toLowerCase().includes(searchLower)
+                    );
+                  })}
                   keyExtractor={(item) => item.itemNumber}
                   keyboardShouldPersistTaps="handled"
                   removeClippedSubviews={false}
@@ -5911,6 +5931,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 setSelectedMaterialItem(null);
                 setMaterialQuantity('1');
                 setMaterialType('used');
+                setMaterialCatalogSearchQuery('');
               }}
               style={styles.fullScreenModalCancelButton}
             />
@@ -7651,11 +7672,100 @@ export const styles = StyleSheet.create({
   summaryText: {
     ...typography.base,
     color: colors.mutedForeground,
+    marginBottom: spacing.sm,
   },
   cardDescription: {
     ...typography.sm,
     color: colors.mutedForeground,
     marginTop: spacing.sm,
+  },
+  containerServiceGroup: {
+    marginBottom: spacing.sm,
+  },
+  containerServiceGroupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.primary,
+    marginBottom: spacing.sm,
+    // subtle shadow
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  containerServiceGroupHeaderLeft: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'center',
+    paddingRight: spacing.sm,
+  },
+  containerServiceGroupTitle: {
+    ...typography.lg,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  containerServiceGroupMeta: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  serviceTypeBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs / 2,
+    borderRadius: borderRadius.full,
+    alignSelf: 'flex-start',
+  },
+  serviceTypeBadgePending: {
+    backgroundColor: colors.warning + '22',
+    borderWidth: 1,
+    borderColor: colors.warning,
+  },
+  serviceTypeBadgeInProgress: {
+    backgroundColor: colors.info + '22',
+    borderWidth: 1,
+    borderColor: colors.info,
+  },
+  serviceTypeBadgeNoship: {
+    backgroundColor: colors.muted,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  serviceTypeBadgeCompleted: {
+    backgroundColor: colors.success + '22',
+    borderWidth: 1,
+    borderColor: colors.success,
+  },
+  serviceTypeBadgeText: {
+    ...typography.xs,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  serviceTypeBadgeTextPending: {
+    color: colors.warning,
+  },
+  serviceTypeBadgeTextInProgress: {
+    color: colors.info,
+  },
+  serviceTypeBadgeTextNoship: {
+    color: colors.mutedForeground,
+  },
+  serviceTypeBadgeTextCompleted: {
+    color: colors.success,
+  },
+  containerServiceGroupBody: {
+    paddingLeft: spacing.sm,
+    gap: spacing.sm,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.border,
+    marginLeft: spacing.md,
   },
   containerSummaryCard: {
     marginBottom: spacing.sm,
@@ -9281,6 +9391,31 @@ export const styles = StyleSheet.create({
     color: colors.foreground,
     fontWeight: '600',
     flex: 2,
+    textAlign: 'right',
+  },
+  // Order Information emphasis: technician-friendly scanning (Customer/Site/Location)
+  orderInfoKeyLabel: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    fontWeight: '700',
+    flex: 1,
+  },
+  orderInfoValuePillContainer: {
+    flex: 2,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  orderInfoValuePill: {
+    // backgroundColor: colors.muted,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    alignSelf: 'stretch',
+  },
+  orderInfoValueText: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '800',
     textAlign: 'right',
   },
   detailValueContainer: {
