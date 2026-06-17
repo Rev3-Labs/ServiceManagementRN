@@ -69,28 +69,17 @@ function formatPhoneNumber(phone: string): string {
 
 interface OrderContactItem {
   name: string;
-  role?: string;
   phone?: string;
   email?: string;
   isPlaceholder?: boolean;
 }
 
-function buildOrderContacts(order: OrderData): OrderContactItem[] {
+function getAdditionalContacts(order: OrderData): OrderContactItem[] {
   const contacts: OrderContactItem[] = [];
-
-  if (order.primaryContactName || order.primaryContactPhone || order.primaryContactEmail) {
-    contacts.push({
-      name: order.primaryContactName || 'Primary Contact',
-      role: 'Primary Contact',
-      phone: order.primaryContactPhone,
-      email: order.primaryContactEmail,
-    });
-  }
 
   (order.secondaryContacts || []).forEach((contact) => {
     contacts.push({
       name: contact.name,
-      role: contact.role || 'Additional Contact',
       phone: contact.phone,
       email: contact.email,
     });
@@ -99,12 +88,136 @@ function buildOrderContacts(order: OrderData): OrderContactItem[] {
   if (order.hasSecondaryContacts && !order.secondaryContacts?.length) {
     contacts.push({
       name: 'Additional contacts are not available offline.',
-      role: 'Additional Contact',
       isPlaceholder: true,
     });
   }
 
   return contacts;
+}
+
+interface ContactInlineDisplayProps {
+  name?: string;
+  phone?: string;
+  email?: string;
+  onPhoneCall: (phone: string) => void;
+  onEmail: (email: string) => void;
+}
+
+function ContactInlineDisplay({
+  name,
+  phone,
+  email,
+  onPhoneCall,
+  onEmail,
+}: ContactInlineDisplayProps) {
+  return (
+    <View style={styles.contactInlineRow}>
+      {name ? (
+        <View style={styles.contactInlineItem}>
+          <Icon
+            name="person"
+            size={16}
+            color={colors.mutedForeground}
+            style={styles.contactInlineIcon}
+          />
+          <Text style={styles.contactInlineValue}>{name}</Text>
+        </View>
+      ) : null}
+      {phone ? (
+        <TouchableOpacity
+          style={styles.contactInlineItem}
+          onPress={() => onPhoneCall(phone)}
+          activeOpacity={0.7}>
+          <Icon
+            name="phone"
+            size={16}
+            color={colors.primary}
+            style={styles.contactInlineIcon}
+          />
+          <Text style={styles.contactInlineLink}>
+            {formatPhoneNumber(phone)}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+      {email ? (
+        <TouchableOpacity
+          style={styles.contactInlineItem}
+          onPress={() => onEmail(email)}
+          activeOpacity={0.7}>
+          <Icon
+            name="email"
+            size={16}
+            color={colors.primary}
+            style={styles.contactInlineIcon}
+          />
+          <Text style={styles.contactInlineLink}>{email}</Text>
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
+}
+
+interface AdditionalContactsSectionProps {
+  order: OrderData;
+  expanded: boolean;
+  onToggle: () => void;
+  onPhoneCall: (phone: string) => void;
+  onEmail: (email: string) => void;
+}
+
+function AdditionalContactsSection({
+  order,
+  expanded,
+  onToggle,
+  onPhoneCall,
+  onEmail,
+}: AdditionalContactsSectionProps) {
+  if (!order.hasSecondaryContacts) {
+    return null;
+  }
+
+  const additionalContacts = getAdditionalContacts(order);
+
+  return (
+    <View style={styles.additionalContactsSection}>
+      <TouchableOpacity
+        style={styles.additionalContactsToggle}
+        onPress={onToggle}
+        activeOpacity={0.7}>
+        <Icon
+          name={expanded ? 'expand-less' : 'expand-more'}
+          size={16}
+          color={colors.primary}
+          style={styles.contactInlineIcon}
+        />
+        <Text style={styles.contactInlineLink}>
+          {expanded ? 'Hide additional contacts' : 'View all contacts'}
+        </Text>
+      </TouchableOpacity>
+      {expanded && (
+        <View style={styles.additionalContactsList}>
+          {additionalContacts.map((contact, index) =>
+            contact.isPlaceholder ? (
+              <Text
+                key={`placeholder-${index}`}
+                style={styles.noContactText}>
+                Connect and sync to load full contact details.
+              </Text>
+            ) : (
+              <ContactInlineDisplay
+                key={`${contact.name}-${index}`}
+                name={contact.name}
+                phone={contact.phone}
+                email={contact.email}
+                onPhoneCall={onPhoneCall}
+                onEmail={onEmail}
+              />
+            ),
+          )}
+        </View>
+      )}
+    </View>
+  );
 }
 
 export interface DashboardScreenProps {
@@ -175,6 +288,8 @@ export interface DashboardScreenProps {
   handleEmail: (email: string) => void;
   selectedOrderData: OrderData | null;
   orderStatuses: Record<string, string>;
+  checkCanWorkOnOrder: (orderNumber: string) => boolean;
+  isOrderWorkBlocked: (orderNumber: string) => boolean;
 
   // No-ship reason state
   noShipReasonOrderNumber: string | null;
@@ -549,6 +664,8 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     setSelectedServiceTypeToStart,
     handlePhoneCall,
     handleEmail,
+    checkCanWorkOnOrder,
+    isOrderWorkBlocked,
   } = props;
 
   const allOrders = MOCK_ORDERS || orders || [];
@@ -600,11 +717,11 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
   }>(() => ({ contact: false, order: true, notes: false }));
   const detailPaneScrollRef = useRef<ScrollView | null>(null);
   const notesSectionTopRef = useRef(0);
-  const [showContactsModal, setShowContactsModal] = useState(false);
-  const [contactsModalOrder, setContactsModalOrder] = useState<OrderData | null>(null);
+  const [allContactsExpanded, setAllContactsExpanded] = useState(false);
 
   useEffect(() => {
     setSectionsExpanded({ contact: false, order: true, notes: false });
+    setAllContactsExpanded(false);
   }, [selectedOrderNumber, notesAcknowledged]);
 
   const toggleSection = (key: 'contact' | 'order' | 'notes') => {
@@ -614,6 +731,9 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
 
   const handleAcknowledgeServiceNotes = async () => {
     if (!selectedOrder) return;
+    if (!checkCanWorkOnOrder(selectedOrder.orderNumber)) {
+      return;
+    }
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     await serviceNotesAckService.acknowledge(selectedOrder.orderNumber);
     setSectionsExpanded({ contact: false, order: true, notes: false });
@@ -630,9 +750,9 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
       }, 80);
     });
   };
-  const openAllContacts = (order: OrderData) => {
-    setContactsModalOrder(order);
-    setShowContactsModal(true);
+  const toggleAllContacts = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setAllContactsExpanded((prev) => !prev);
   };
 
   // Get offline limit warning message for header
@@ -1010,69 +1130,22 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                       {selectedOrder.primaryContactName ||
                       selectedOrder.primaryContactPhone ||
                       selectedOrder.primaryContactEmail ? (
-                          <View style={styles.contactInlineRow}>
-                            {selectedOrder.primaryContactName && (
-                              <View style={styles.contactInlineItem}>
-                                <Icon
-                                  name="person"
-                                  size={16}
-                                  color={colors.mutedForeground}
-                                  style={styles.contactInlineIcon}
-                                />
-                                <Text style={styles.contactInlineValue}>
-                                  {selectedOrder.primaryContactName}
-                                </Text>
-                              </View>
-                            )}
-                            {selectedOrder.primaryContactPhone && (
-                              <TouchableOpacity
-                                style={styles.contactInlineItem}
-                                onPress={() =>
-                                  handlePhoneCall(selectedOrder.primaryContactPhone!)
-                                }
-                                activeOpacity={0.7}>
-                                <Icon
-                                  name="phone"
-                                  size={16}
-                                  color={colors.primary}
-                                  style={styles.contactInlineIcon}
-                                />
-                                <Text style={styles.contactInlineLink}>
-                                  {formatPhoneNumber(selectedOrder.primaryContactPhone)}
-                                </Text>
-                              </TouchableOpacity>
-                            )}
-                            {selectedOrder.primaryContactEmail && (
-                              <TouchableOpacity
-                                style={styles.contactInlineItem}
-                                onPress={() =>
-                                  handleEmail(selectedOrder.primaryContactEmail!)
-                                }
-                                activeOpacity={0.7}>
-                                <Icon
-                                  name="email"
-                                  size={16}
-                                  color={colors.primary}
-                                  style={styles.contactInlineIcon}
-                                />
-                                <Text style={styles.contactInlineLink}>
-                                  {selectedOrder.primaryContactEmail}
-                                </Text>
-                              </TouchableOpacity>
-                            )}
-                            {selectedOrder.hasSecondaryContacts && (
-                              <TouchableOpacity
-                                style={styles.contactInlineItem}
-                                onPress={() => {
-                                  openAllContacts(selectedOrder);
-                                }}
-                                activeOpacity={0.7}>
-                                <Text style={styles.contactInlineLink}>
-                                  + View all contacts
-                                </Text>
-                              </TouchableOpacity>
-                            )}
-                          </View>
+                          <>
+                          <ContactInlineDisplay
+                            name={selectedOrder.primaryContactName}
+                            phone={selectedOrder.primaryContactPhone}
+                            email={selectedOrder.primaryContactEmail}
+                            onPhoneCall={handlePhoneCall}
+                            onEmail={handleEmail}
+                          />
+                          <AdditionalContactsSection
+                            order={selectedOrder}
+                            expanded={allContactsExpanded}
+                            onToggle={toggleAllContacts}
+                            onPhoneCall={handlePhoneCall}
+                            onEmail={handleEmail}
+                          />
+                          </>
                         ) : (
                           <View style={styles.noContactContainer}>
                             <Text style={styles.noContactText}>
@@ -1228,6 +1301,13 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                             key={i}
                             onPress={() => {
                               if (lockedByAck) {
+                                if (
+                                  selectedOrder &&
+                                  isOrderWorkBlocked(selectedOrder.orderNumber)
+                                ) {
+                                  checkCanWorkOnOrder(selectedOrder.orderNumber);
+                                  return;
+                                }
                                 focusServiceNotesSection();
                                 return;
                               }
@@ -1481,6 +1561,11 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                                 variant="primary"
                                 size="lg"
                                 style={styles.acknowledgeButton}
+                                disabled={
+                                  selectedOrder
+                                    ? isOrderWorkBlocked(selectedOrder.orderNumber)
+                                    : false
+                                }
                                 onPress={handleAcknowledgeServiceNotes}
                               />
                             )}
@@ -1740,68 +1825,6 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
         </View>
       </View>
       )}
-      <Modal
-        visible={showContactsModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowContactsModal(false)}>
-        <View style={styles.jobNotesModalContainer}>
-          <View style={styles.jobNotesModalHeader}>
-            <Text style={styles.jobNotesModalTitle}>All Contacts</Text>
-            <TouchableOpacity
-              onPress={() => setShowContactsModal(false)}
-              style={styles.jobNotesModalCloseButton}
-              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-              <Icon name="close" size={20} color={colors.foreground} />
-            </TouchableOpacity>
-          </View>
-          <ScrollView
-            style={styles.jobNotesModalScroll}
-            contentContainerStyle={styles.jobNotesModalContent}
-            keyboardShouldPersistTaps="handled">
-            {contactsModalOrder && (
-              <>
-                <Text style={styles.allNotesOrderMeta}>
-                  {contactsModalOrder.orderNumber} - {formatCustomerWithStore(contactsModalOrder.customer, contactsModalOrder.site)}
-                </Text>
-                <View>
-                  {buildOrderContacts(contactsModalOrder).map((contact, index) => (
-                    <Card key={`${contact.name}-${index}`} style={styles.jobNotesCard}>
-                      <CardContent>
-                        <Text style={styles.jobNotesText}>{contact.name}</Text>
-                        {contact.role && (
-                          <Text style={styles.previousNoteTechnician}>{contact.role}</Text>
-                        )}
-                        {contact.phone && (
-                          <TouchableOpacity
-                            onPress={() => handlePhoneCall(contact.phone!)}
-                            activeOpacity={0.7}>
-                            <Text style={styles.contactInlineLink}>
-                              {formatPhoneNumber(contact.phone)}
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-                        {contact.email && (
-                          <TouchableOpacity
-                            onPress={() => handleEmail(contact.email!)}
-                            activeOpacity={0.7}>
-                            <Text style={styles.contactInlineLink}>{contact.email}</Text>
-                          </TouchableOpacity>
-                        )}
-                        {contact.isPlaceholder && (
-                          <Text style={styles.noContactText}>
-                            Connect and sync to load full contact details.
-                          </Text>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))}
-                </View>
-              </>
-            )}
-          </ScrollView>
-        </View>
-      </Modal>
     </View>
   );
 };
@@ -1854,6 +1877,8 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     handlePhoneCall,
     handleEmail,
     selectedOrderData,
+    checkCanWorkOnOrder,
+    isOrderWorkBlocked,
   } = props;
 
   // Use MOCK_ORDERS directly to ensure it's accessible
@@ -1894,12 +1919,12 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
   }>(() => ({ contact: false, order: true, notes: false }));
   const dashboardOrdersScrollRef = useRef<ScrollView | null>(null);
   const dashboardNotesSectionTopRef = useRef(0);
-  const [showDashboardContactsModal, setShowDashboardContactsModal] = useState(false);
-  const [dashboardContactsModalOrder, setDashboardContactsModalOrder] =
-    useState<OrderData | null>(null);
+  const [dashboardAllContactsExpanded, setDashboardAllContactsExpanded] =
+    useState(false);
 
   useEffect(() => {
     setDashboardSectionsExpanded({ contact: false, order: true, notes: false });
+    setDashboardAllContactsExpanded(false);
   }, [dashboardSelectedOrderNumber, dashboardNotesAcknowledged]);
 
   const toggleDashboardSection = (key: 'contact' | 'order' | 'notes') => {
@@ -1909,6 +1934,9 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
 
   const handleAcknowledgeDashboardServiceNotes = async () => {
     if (!dashboardSelectedOrder) return;
+    if (!checkCanWorkOnOrder(dashboardSelectedOrder.orderNumber)) {
+      return;
+    }
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     await serviceNotesAckService.acknowledge(dashboardSelectedOrder.orderNumber);
     setDashboardSectionsExpanded({ contact: false, order: true, notes: false });
@@ -1925,9 +1953,9 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
       }, 80);
     });
   };
-  const openAllDashboardContacts = (order: OrderData) => {
-    setDashboardContactsModalOrder(order);
-    setShowDashboardContactsModal(true);
+  const toggleDashboardAllContacts = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setDashboardAllContactsExpanded((prev) => !prev);
   };
 
   // Get offline limit warning message for header
@@ -2249,69 +2277,22 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                       {dashboardSelectedOrder.primaryContactName ||
                         dashboardSelectedOrder.primaryContactPhone ||
                         dashboardSelectedOrder.primaryContactEmail ? (
-                          <View style={styles.contactInlineRow}>
-                            {dashboardSelectedOrder.primaryContactName && (
-                              <View style={styles.contactInlineItem}>
-                                <Icon
-                                  name="person"
-                                  size={16}
-                                  color={colors.mutedForeground}
-                                  style={styles.contactInlineIcon}
-                                />
-                                <Text style={styles.contactInlineValue}>
-                                  {dashboardSelectedOrder.primaryContactName}
-                                </Text>
-                              </View>
-                            )}
-                            {dashboardSelectedOrder.primaryContactPhone && (
-                              <TouchableOpacity
-                                style={styles.contactInlineItem}
-                                onPress={() =>
-                                  handlePhoneCall(dashboardSelectedOrder.primaryContactPhone!)
-                                }
-                                activeOpacity={0.7}>
-                                <Icon
-                                  name="phone"
-                                  size={16}
-                                  color={colors.primary}
-                                  style={styles.contactInlineIcon}
-                                />
-                                <Text style={styles.contactInlineLink}>
-                                  {formatPhoneNumber(dashboardSelectedOrder.primaryContactPhone)}
-                                </Text>
-                              </TouchableOpacity>
-                            )}
-                            {dashboardSelectedOrder.primaryContactEmail && (
-                              <TouchableOpacity
-                                style={styles.contactInlineItem}
-                                onPress={() =>
-                                  handleEmail(dashboardSelectedOrder.primaryContactEmail!)
-                                }
-                                activeOpacity={0.7}>
-                                <Icon
-                                  name="email"
-                                  size={16}
-                                  color={colors.primary}
-                                  style={styles.contactInlineIcon}
-                                />
-                                <Text style={styles.contactInlineLink}>
-                                  {dashboardSelectedOrder.primaryContactEmail}
-                                </Text>
-                              </TouchableOpacity>
-                            )}
-                            {dashboardSelectedOrder.hasSecondaryContacts && (
-                              <TouchableOpacity
-                                style={styles.contactInlineItem}
-                                onPress={() => {
-                                  openAllDashboardContacts(dashboardSelectedOrder);
-                                }}
-                                activeOpacity={0.7}>
-                                <Text style={styles.contactInlineLink}>
-                                  + View all contacts
-                                </Text>
-                              </TouchableOpacity>
-                            )}
-                          </View>
+                          <>
+                          <ContactInlineDisplay
+                            name={dashboardSelectedOrder.primaryContactName}
+                            phone={dashboardSelectedOrder.primaryContactPhone}
+                            email={dashboardSelectedOrder.primaryContactEmail}
+                            onPhoneCall={handlePhoneCall}
+                            onEmail={handleEmail}
+                          />
+                          <AdditionalContactsSection
+                            order={dashboardSelectedOrder}
+                            expanded={dashboardAllContactsExpanded}
+                            onToggle={toggleDashboardAllContacts}
+                            onPhoneCall={handlePhoneCall}
+                            onEmail={handleEmail}
+                          />
+                          </>
                         ) : (
                           <View style={styles.noContactContainer}>
                             <Text style={styles.noContactText}>
@@ -2467,6 +2448,12 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                             key={i}
                             onPress={() => {
                               if (lockedByAck) {
+                                if (
+                                  isOrderWorkBlocked(dashboardSelectedOrder.orderNumber)
+                                ) {
+                                  checkCanWorkOnOrder(dashboardSelectedOrder.orderNumber);
+                                  return;
+                                }
                                 focusDashboardServiceNotesSection();
                                 return;
                               }
@@ -2718,6 +2705,13 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                                 variant="primary"
                                 size="lg"
                                 style={styles.acknowledgeButton}
+                                disabled={
+                                  dashboardSelectedOrder
+                                    ? isOrderWorkBlocked(
+                                        dashboardSelectedOrder.orderNumber,
+                                      )
+                                    : false
+                                }
                                 onPress={handleAcknowledgeDashboardServiceNotes}
                               />
                             )}
@@ -2880,68 +2874,6 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
         </ScrollView>
       </View>
       )}
-      <Modal
-        visible={showDashboardContactsModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowDashboardContactsModal(false)}>
-        <View style={styles.jobNotesModalContainer}>
-          <View style={styles.jobNotesModalHeader}>
-            <Text style={styles.jobNotesModalTitle}>All Contacts</Text>
-            <TouchableOpacity
-              onPress={() => setShowDashboardContactsModal(false)}
-              style={styles.jobNotesModalCloseButton}
-              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-              <Icon name="close" size={20} color={colors.foreground} />
-            </TouchableOpacity>
-          </View>
-          <ScrollView
-            style={styles.jobNotesModalScroll}
-            contentContainerStyle={styles.jobNotesModalContent}
-            keyboardShouldPersistTaps="handled">
-            {dashboardContactsModalOrder && (
-              <>
-                <Text style={styles.allNotesOrderMeta}>
-                  {dashboardContactsModalOrder.orderNumber} - {formatCustomerWithStore(dashboardContactsModalOrder.customer, dashboardContactsModalOrder.site)}
-                </Text>
-                <View>
-                  {buildOrderContacts(dashboardContactsModalOrder).map((contact, index) => (
-                    <Card key={`${contact.name}-${index}`} style={styles.jobNotesCard}>
-                      <CardContent>
-                        <Text style={styles.jobNotesText}>{contact.name}</Text>
-                        {contact.role && (
-                          <Text style={styles.previousNoteTechnician}>{contact.role}</Text>
-                        )}
-                        {contact.phone && (
-                          <TouchableOpacity
-                            onPress={() => handlePhoneCall(contact.phone!)}
-                            activeOpacity={0.7}>
-                            <Text style={styles.contactInlineLink}>
-                              {formatPhoneNumber(contact.phone)}
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-                        {contact.email && (
-                          <TouchableOpacity
-                            onPress={() => handleEmail(contact.email!)}
-                            activeOpacity={0.7}>
-                            <Text style={styles.contactInlineLink}>{contact.email}</Text>
-                          </TouchableOpacity>
-                        )}
-                        {contact.isPlaceholder && (
-                          <Text style={styles.noContactText}>
-                            Connect and sync to load full contact details.
-                          </Text>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))}
-                </View>
-              </>
-            )}
-          </ScrollView>
-        </View>
-      </Modal>
     </View>
   );
 };

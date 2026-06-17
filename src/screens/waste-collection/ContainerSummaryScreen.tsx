@@ -284,7 +284,7 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
         <View style={styles.containerSummaryBody}>
           <View style={styles.containerSummaryInfoGrid}>
             <View style={styles.containerSummaryInfoCard}>
-              <Text style={styles.containerSummaryInfoLabel}>Service Type</Text>
+              <Text style={styles.containerSummaryInfoLabel}>Service Request</Text>
               <Text style={styles.containerSummaryInfoValue}>
                 {container.serviceTypeId
                   ? formatServiceRequestLabel(
@@ -377,7 +377,7 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}>
           <Input
-            placeholder="Search containers..."
+            placeholder="Search container by shipping label..."
             value={containerSearchQuery}
             onChangeText={setContainerSearchQuery}
             containerStyle={styles.searchInput}

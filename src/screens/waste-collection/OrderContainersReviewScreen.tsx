@@ -330,7 +330,7 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}>
         <Input
-          placeholder="Search containers..."
+          placeholder="Search container by shipping label..."
           value={containerSearchQuery}
           onChangeText={setContainerSearchQuery}
           containerStyle={styles.searchInput}

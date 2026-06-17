@@ -206,10 +206,10 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                 alignItems: 'center',
               }}>
               <CardTitle style={{marginBottom: 0, flex: 1}}>
-                <CardTitleText>Equipment & PPE</CardTitleText>
+                <CardTitleText>Equipment</CardTitleText>
               </CardTitle>
               <Button
-                title="Add Equipment & PPE"
+                title="Add Equipment"
                 variant="primary"
                 size="sm"
                 onPress={() => setShowAddEquipmentModal(true)}
@@ -217,7 +217,7 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
             </CardHeader>
             <CardContent>
               <Text style={styles.cardDescription}>
-                Track equipment and PPE items used during service completion
+                Track equipment items used during service completion
               </Text>
 
               {equipmentPPE.length > 0 ? (
@@ -282,7 +282,7 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
               ) : (
                 <View style={styles.emptyMaterialsState}>
                   <Text style={styles.emptyMaterialsText}>
-                    No equipment or PPE added yet
+                    No equipment added yet
                   </Text>
                   <Text style={styles.emptyMaterialsSubtext}>
                     Tap "Add Equipment" to get started
@@ -320,7 +320,7 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
         <View style={styles.fullScreenModalContainer}>
           <View style={styles.fullScreenModalHeader}>
             <Text style={styles.fullScreenModalTitle}>
-              Add Equipment & PPE
+              Add Equipment
             </Text>
             <TouchableOpacity
               onPress={() => {
@@ -349,9 +349,9 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                   styles.modalCatalogPane,
                   isTablet() && styles.modalCatalogPaneTablet,
                 ]}>
-                <Text style={styles.sectionTitle}>Select Equipment</Text>
+                <Text style={styles.sectionTitle}>Select Item</Text>
                 <Text style={styles.sectionDescription}>
-                  Choose equipment or PPE from the catalog
+                  Choose an item below
                 </Text>
                 <Input
                   placeholder="Search equipment catalog..."

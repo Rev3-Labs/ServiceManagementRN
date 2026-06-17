@@ -162,12 +162,12 @@ export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
         <View style={styles.buttonContent}>
           <Icon name="camera-alt" size={24} color={iconColor} />
           <Text style={styles.buttonLabel}>Photos</Text>
-          {photoCount > 0 && (
-            <View style={styles.buttonBadge}>
-              <Text style={styles.buttonBadgeText}>{photoCount}</Text>
-            </View>
-          )}
         </View>
+        {photoCount > 0 && (
+          <View style={styles.buttonBadge}>
+            <Text style={styles.buttonBadgeText}>{photoCount}</Text>
+          </View>
+        )}
       </TouchableOpacity>
 
       {/* Quick Actions Menu */}
@@ -305,7 +305,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    position: 'relative',
   },
   buttonLabel: {
     ...typography.base,
@@ -317,16 +316,16 @@ const styles = StyleSheet.create({
   },
   buttonBadge: {
     position: 'absolute',
-    top: -4,
-    right: -4,
+    top: -6,
+    right: -6,
     backgroundColor: colors.primary,
-    borderRadius: 16,
-    minWidth: 32,
-    height: 32,
-    paddingHorizontal: 8,
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: 7,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
+    borderWidth: 2,
     borderColor: colors.background,
     zIndex: 1,
   },
@@ -334,7 +333,8 @@ const styles = StyleSheet.create({
     ...typography.base,
     fontWeight: '700',
     color: colors.primaryForeground,
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 16,
   },
   menuOverlay: {
     flex: 1,

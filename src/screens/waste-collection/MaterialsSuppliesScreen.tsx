@@ -1,9 +1,11 @@
-import React from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
+  Pressable,
+  StyleSheet,
 } from 'react-native';
 import {Button} from '../../components/Button';
 import {
@@ -25,6 +27,11 @@ import {SyncStatus} from '../../services/syncService';
 import {TimeTrackingRecord} from '../../services/timeTrackingService';
 import {colors} from '../../styles/theme';
 import {styles} from './styles';
+import {
+  formatServiceRequestLabel,
+  getDefaultExpandedServiceTypeId,
+  groupMaterialsByServiceRequest,
+} from './containerGrouping';
 
 export interface MaterialsSuppliesScreenProps {
   // PersistentOrderHeader props
@@ -104,6 +111,50 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
     );
   };
 
+  const groupedMaterials = useMemo(
+    () =>
+      groupMaterialsByServiceRequest(
+        materialsSupplies,
+        selectedOrderData?.programs ?? [],
+      ),
+    [materialsSupplies, selectedOrderData?.programs],
+  );
+
+  const serviceTypeStatusById = useMemo(
+    () =>
+      new Map(
+        serviceTypeBadgesForHeader.map(b => [b.serviceTypeId, b.status] as const),
+      ),
+    [serviceTypeBadgesForHeader],
+  );
+
+  const [expandedServiceTypeId, setExpandedServiceTypeId] = useState<string | null>(
+    () =>
+      getDefaultExpandedServiceTypeId(
+        groupMaterialsByServiceRequest(
+          materialsSupplies,
+          selectedOrderData?.programs ?? [],
+        ),
+        activeServiceTypeTimer,
+      ),
+  );
+
+  useEffect(() => {
+    const defaultGroups = groupMaterialsByServiceRequest(
+      materialsSupplies,
+      selectedOrderData?.programs ?? [],
+    );
+    setExpandedServiceTypeId(
+      getDefaultExpandedServiceTypeId(defaultGroups, activeServiceTypeTimer),
+    );
+  }, [selectedOrderData?.orderNumber, activeServiceTypeTimer]);
+
+  const handleToggleServiceRequestGroup = (serviceTypeId: string) => {
+    setExpandedServiceTypeId(prev =>
+      prev === serviceTypeId ? null : serviceTypeId,
+    );
+  };
+
   if (!selectedOrderData) return null;
 
   const renderMaterialRow = (material: MaterialsSupply) => (
@@ -178,6 +229,11 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
     </View>
   );
 
+  const totalQuantity = materialsSupplies.reduce(
+    (sum, material) => sum + material.quantity,
+    0,
+  );
+
   return (
     <View style={styles.container}>
       <PersistentOrderHeader
@@ -221,7 +277,7 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
                 <CardTitleText>Materials & Supplies</CardTitleText>
               </CardTitle>
               <Button
-                title="Add Material & Supply"
+                title="Add Materials & Supplies"
                 variant="primary"
                 size="sm"
                 disabled={isCurrentOrderCompleted}
@@ -238,14 +294,88 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
                 <>
                   <Text style={styles.summaryText}>
                     {materialsSupplies.length} item
-                    {materialsSupplies.length !== 1 ? 's' : ''} •{' '}
-                    {materialsSupplies.reduce((sum, m) => sum + m.quantity, 0)} total
-                    qty across this work order
+                    {materialsSupplies.length !== 1 ? 's' : ''} • {totalQuantity}{' '}
+                    total qty across this work order
                   </Text>
-                  <View style={styles.materialsTable}>
-                    {renderTableHeader()}
-                    {materialsSupplies.map(renderMaterialRow)}
-                  </View>
+
+                  {groupedMaterials.map(group => {
+                    const isExpanded = expandedServiceTypeId === group.serviceTypeId;
+                    const groupQuantity = group.materials.reduce(
+                      (sum, material) => sum + material.quantity,
+                      0,
+                    );
+
+                    return (
+                      <View
+                        key={group.serviceTypeId}
+                        style={styles.containerServiceGroup}>
+                        <Pressable
+                          onPress={() =>
+                            handleToggleServiceRequestGroup(group.serviceTypeId)
+                          }
+                          style={styles.containerServiceGroupHeader}
+                          accessibilityRole="button"
+                          accessibilityState={{expanded: isExpanded}}>
+                          <View style={styles.containerServiceGroupHeaderLeft}>
+                            <Badge
+                              variant="outline"
+                              style={StyleSheet.flatten([
+                                styles.serviceTypeBadge,
+                                serviceTypeStatusById.get(group.serviceTypeId) ===
+                                  'noship' && styles.serviceTypeBadgeNoship,
+                                serviceTypeStatusById.get(group.serviceTypeId) ===
+                                  'completed' && styles.serviceTypeBadgeCompleted,
+                                serviceTypeStatusById.get(group.serviceTypeId) ===
+                                  'in-progress' &&
+                                  styles.serviceTypeBadgeInProgress,
+                                (!serviceTypeStatusById.get(group.serviceTypeId) ||
+                                  serviceTypeStatusById.get(group.serviceTypeId) ===
+                                    'pending') &&
+                                  styles.serviceTypeBadgePending,
+                              ])}
+                              textStyle={StyleSheet.flatten([
+                                styles.serviceTypeBadgeText,
+                                serviceTypeStatusById.get(group.serviceTypeId) ===
+                                  'noship' && styles.serviceTypeBadgeTextNoship,
+                                serviceTypeStatusById.get(group.serviceTypeId) ===
+                                  'completed' &&
+                                  styles.serviceTypeBadgeTextCompleted,
+                                serviceTypeStatusById.get(group.serviceTypeId) ===
+                                  'in-progress' &&
+                                  styles.serviceTypeBadgeTextInProgress,
+                                (!serviceTypeStatusById.get(group.serviceTypeId) ||
+                                  serviceTypeStatusById.get(group.serviceTypeId) ===
+                                    'pending') &&
+                                  styles.serviceTypeBadgeTextPending,
+                              ])}>
+                              {formatServiceRequestLabel(
+                                group.serviceTypeId,
+                                selectedOrderData,
+                              )}
+                            </Badge>
+                            <Text style={styles.containerServiceGroupMeta}>
+                              {group.materials.length} item
+                              {group.materials.length !== 1 ? 's' : ''} •{' '}
+                              {groupQuantity} qty
+                            </Text>
+                          </View>
+                          <Icon
+                            name={isExpanded ? 'expand-less' : 'expand-more'}
+                            size={22}
+                            color={colors.mutedForeground}
+                          />
+                        </Pressable>
+                        {isExpanded && (
+                          <View style={styles.containerServiceGroupBody}>
+                            <View style={styles.materialsTable}>
+                              {renderTableHeader()}
+                              {group.materials.map(renderMaterialRow)}
+                            </View>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
                 </>
               ) : (
                 <View style={styles.emptyMaterialsState}>
@@ -253,7 +383,7 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
                     No materials or supplies added yet
                   </Text>
                   <Text style={styles.emptyMaterialsSubtext}>
-                    Tap "Add Material & Supply" to get started
+                    Tap "Add Materials & Supplies" to get started
                   </Text>
                 </View>
               )}

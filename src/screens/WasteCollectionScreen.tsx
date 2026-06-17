@@ -892,6 +892,77 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     [completedOrders],
   );
 
+  /** True when a work order has been started but not fully completed. */
+  const isWorkOrderInProgress = useCallback(
+    (orderNumber: string): boolean => {
+      if (completedOrders.includes(orderNumber)) {
+        return false;
+      }
+
+      const status =
+        orderStatuses[orderNumber] ||
+        (orders || MOCK_ORDERS || []).find(o => o.orderNumber === orderNumber)
+          ?.status;
+      if (status === 'Partial' || status === 'In Progress') {
+        return true;
+      }
+
+      if (
+        activeTimeTracking?.orderNumber === orderNumber &&
+        !activeTimeTracking.endTime
+      ) {
+        return true;
+      }
+
+      const order = (orders || MOCK_ORDERS || []).find(
+        o => o.orderNumber === orderNumber,
+      );
+      if (!order) {
+        return false;
+      }
+
+      return order.programs.some(stId => {
+        const entry = serviceTypeTimeService.getTimeEntry(orderNumber, stId);
+        return entry?.startTime != null;
+      });
+    },
+    [completedOrders, orderStatuses, orders, activeTimeTracking],
+  );
+
+  const getInProgressWorkOrderNumber = useCallback((): string | null => {
+    const allOrders = MOCK_ORDERS || orders || [];
+    for (const order of allOrders) {
+      if (isWorkOrderInProgress(order.orderNumber)) {
+        return order.orderNumber;
+      }
+    }
+    return null;
+  }, [orders, isWorkOrderInProgress]);
+
+  const checkCanWorkOnOrder = useCallback(
+    (targetOrderNumber: string): boolean => {
+      const inProgressOrder = getInProgressWorkOrderNumber();
+      if (!inProgressOrder || inProgressOrder === targetOrderNumber) {
+        return true;
+      }
+
+      Alert.alert(
+        'Work Order In Progress',
+        `Work order ${inProgressOrder} is currently in progress. Finish that work order before working on another order.`,
+      );
+      return false;
+    },
+    [getInProgressWorkOrderNumber],
+  );
+
+  const isOrderWorkBlocked = useCallback(
+    (targetOrderNumber: string): boolean => {
+      const inProgressOrder = getInProgressWorkOrderNumber();
+      return Boolean(inProgressOrder && inProgressOrder !== targetOrderNumber);
+    },
+    [getInProgressWorkOrderNumber],
+  );
+
   const hasOrderNotes = useCallback((order: OrderData): boolean => {
     return Boolean(
       order.customerSpecialInstructions ||
@@ -1008,6 +1079,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
   // Proceed with starting service after acknowledgment
   const proceedWithStartService = useCallback(async (order: OrderData) => {
+    if (!checkCanWorkOnOrder(order.orderNumber)) {
+      return;
+    }
+
     try {
       // Start order-level time tracking (overall order time)
       await startTimeTracking(order.orderNumber, truckId, username);
@@ -1075,7 +1150,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       setCurrentStep('stream-selection');
       setShowJobNotesModal(false);
     }
-  }, [truckId, username, selectedOrderData?.orderNumber]);
+  }, [truckId, username, selectedOrderData?.orderNumber, checkCanWorkOnOrder]);
 
   // Check if actions are blocked due to offline limit
   const checkOfflineBlock = useCallback((): boolean => {
@@ -1093,6 +1168,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       return;
     }
 
+    if (!checkCanWorkOnOrder(order.orderNumber)) {
+      return;
+    }
+
     // Check if order has multiple service types - show selection modal first
     const serviceTypes = order.programs || [];
     if (serviceTypes.length > 1) {
@@ -1105,13 +1184,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     
     // Single service type or no service types - proceed with normal flow
     await proceedWithStartService(order);
-  }, [truckId, username, proceedWithStartService, offlineStatus.isBlocked, checkOfflineBlock]);
+  }, [truckId, username, proceedWithStartService, offlineStatus.isBlocked, checkOfflineBlock, checkCanWorkOnOrder]);
 
   // Start a specific service type and navigate to stream-selection (used when user taps "Start service" from badge)
   const startServiceTypeAndNavigate = useCallback(
     async (order: OrderData, program: string) => {
       if (!username) return;
       if (checkOfflineBlock()) return;
+      if (!checkCanWorkOnOrder(order.orderNumber)) return;
       try {
         await startTimeTracking(order.orderNumber, truckId, username);
         const active = await getActiveTimeTracking();
@@ -1157,17 +1237,21 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       getElapsedTimeDisplay,
       checkOfflineBlock,
       selectedOrderData?.orderNumber,
+      checkCanWorkOnOrder,
     ],
   );
 
   // Prompt Start / Edit when user taps a service type badge on the dashboard (master-detail or full-screen)
   const handleDashboardServiceTypeBadgePress = useCallback(
     (order: OrderData, program: string, pending: boolean, noship: boolean) => {
+      if (pending && !checkCanWorkOnOrder(order.orderNumber)) {
+        return;
+      }
       setBadgePromptPayload({ order, program, pending, noship });
       setBadgePromptNoShipMode(false);
       setShowBadgeStartEditModal(true);
     },
-    [],
+    [checkCanWorkOnOrder],
   );
 
   const handleBadgePromptEdit = useCallback(() => {
@@ -1184,10 +1268,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const handleBadgePromptStart = useCallback(async () => {
     if (!badgePromptPayload) return;
     const { order, program } = badgePromptPayload;
+    if (!checkCanWorkOnOrder(order.orderNumber)) {
+      return;
+    }
     setShowBadgeStartEditModal(false);
     setBadgePromptPayload(null);
     await startServiceTypeAndNavigate(order, program);
-  }, [badgePromptPayload, startServiceTypeAndNavigate]);
+  }, [badgePromptPayload, startServiceTypeAndNavigate, checkCanWorkOnOrder]);
 
   // No-Ship helpers (FR-3a.UI.8.3)
   const isServiceTypeNoShip = useCallback(
@@ -2493,6 +2580,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     handleEmail,
     selectedOrderData,
     orderStatuses,
+    checkCanWorkOnOrder,
+    isOrderWorkBlocked,
     noShipReasonOrderNumber,
     noShipReasonServiceTypeId,
     noShipReasonCode,
@@ -2845,14 +2934,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           <View style={styles.quickActionContent}>
             <Icon name="assignment" size={24} color={FOOTER_NAV_ICON_COLOR} />
             <Text style={styles.quickActionLabel}>Containers</Text>
-            {containersCount > 0 && (
-              <View style={styles.quickActionBadge}>
-                <Text style={styles.quickActionBadgeText}>
-                  {containersCount}
-                </Text>
-              </View>
-            )}
           </View>
+          {containersCount > 0 && (
+            <View style={styles.quickActionBadge}>
+              <Text style={styles.quickActionBadgeText}>
+                {containersCount}
+              </Text>
+            </View>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -2872,14 +2961,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               adjustsFontSizeToFit>
               Materials
             </Text>
-            {materialsCount > 0 && (
-              <View style={styles.quickActionBadge}>
-                <Text style={styles.quickActionBadgeText}>
-                  {materialsCount}
-                </Text>
-              </View>
-            )}
           </View>
+          {materialsCount > 0 && (
+            <View style={styles.quickActionBadge}>
+              <Text style={styles.quickActionBadgeText}>
+                {materialsCount}
+              </Text>
+            </View>
+          )}
         </TouchableOpacity>
         <TouchableOpacity
           style={[
@@ -2898,14 +2987,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               adjustsFontSizeToFit>
               Equipment
             </Text>
-            {equipmentCount > 0 && (
-              <View style={styles.quickActionBadge}>
-                <Text style={styles.quickActionBadgeText}>
-                  {equipmentCount}
-                </Text>
-              </View>
-            )}
           </View>
+          {equipmentCount > 0 && (
+            <View style={styles.quickActionBadge}>
+              <Text style={styles.quickActionBadgeText}>
+                {equipmentCount}
+              </Text>
+            </View>
+          )}
         </TouchableOpacity>
 
         {/* Photo Capture Button */}
@@ -5735,7 +5824,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         <View style={styles.fullScreenModalContainer}>
           <View style={styles.fullScreenModalHeader}>
             <Text style={styles.fullScreenModalTitle}>
-              Add Material & Supply
+              Add Materials & Supplies
             </Text>
             <TouchableOpacity
               onPress={() => {
@@ -5767,10 +5856,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 ]}>
                 <Text style={styles.sectionTitle}>Select Item</Text>
                 <Text style={styles.sectionDescription}>
-                  Choose a material or supply from the catalog
+                  Choose an item below
                 </Text>
                 <Input
-                  placeholder="Search materials catalog..."
+                  placeholder="Search materials & supplies catalog..."
                   value={materialCatalogSearchQuery}
                   onChangeText={setMaterialCatalogSearchQuery}
                   containerStyle={styles.searchInput}
@@ -5936,7 +6025,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               style={styles.fullScreenModalCancelButton}
             />
             <Button
-              title="Add Material"
+              title="Add Item"
               variant="primary"
               size="lg"
               disabled={!selectedMaterialItem}
@@ -9350,6 +9439,20 @@ export const styles = StyleSheet.create({
     fontWeight: '500',
     textDecorationLine: 'underline',
   },
+  additionalContactsSection: {
+    marginTop: spacing.md,
+  },
+  additionalContactsToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  additionalContactsList: {
+    marginTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.sm,
+    gap: spacing.md,
+  },
   detailNotesSection: {
     marginBottom: spacing.lg,
     borderRadius: borderRadius.lg,
@@ -9748,15 +9851,16 @@ export const styles = StyleSheet.create({
   },
   quickActionBadge: {
     position: 'absolute',
-    right: 4,
+    top: -6,
+    right: -6,
     backgroundColor: colors.primary,
-    borderRadius: 16,
-    minWidth: 32,
-    height: 32,
-    paddingHorizontal: 8,
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: 7,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
+    borderWidth: 2,
     borderColor: colors.background,
     zIndex: 1,
   },
@@ -9764,8 +9868,8 @@ export const styles = StyleSheet.create({
     ...typography.base,
     fontWeight: '700',
     color: '#FFFFFF',
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 16,
   },
   quickActionButtonTablet: {
     // maxWidth: 200,
