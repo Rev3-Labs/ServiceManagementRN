@@ -136,6 +136,7 @@ export const PhotoCaptureFAB: React.FC<PhotoCaptureFABProps> = ({
   };
 
   const photoCategories: {category: PhotoCategory; label: string; icon: string}[] = [
+    {category: 'before-service', label: 'Before Service', icon: 'camera-alt'},
     {category: 'waste-item', label: 'Waste Item', icon: 'inventory'},
     {category: 'site-condition', label: 'Site Condition', icon: 'home'},
     {category: 'safety-issue', label: 'Safety Issue', icon: 'warning'},

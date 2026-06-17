@@ -95,6 +95,7 @@ import {safeAsyncStorage} from '../utils/storage';
 import {MATERIALS_CATALOG} from '../data/materialsCatalog';
 import {PersistentOrderHeader} from '../components/PersistentOrderHeader';
 import {PhotoCaptureButton} from '../components/PhotoCaptureButton';
+import {BeforeServicePhotoModal} from '../components/BeforeServicePhotoModal';
 import {photoService} from '../services/photoService';
 import {pListedAuthorizationService, PListedCode} from '../services/pListedAuthorizationService';
 import {serviceTypeService} from '../services/serviceTypeService';
@@ -126,6 +127,10 @@ import {CaptureMethodSelectionModal} from '../components/modals/CaptureMethodSel
 const {width, height} = Dimensions.get('window');
 const gridColumns = getGridColumns();
 const cardWidth = (width - spacing.lg * (gridColumns + 1)) / gridColumns;
+
+type PendingStartService =
+  | {type: 'proceed'; order: OrderData}
+  | {type: 'serviceType'; order: OrderData; program: string};
 
 const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   username,
@@ -204,6 +209,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [badgePromptNoShipMode, setBadgePromptNoShipMode] = useState(false);
   const [badgeNoShipReasonCode, setBadgeNoShipReasonCode] = useState<NoShipReasonCode | ''>('');
   const [badgeNoShipReasonNotes, setBadgeNoShipReasonNotes] = useState('');
+  const [beforeServicePhotoGate, setBeforeServicePhotoGate] =
+    useState<PendingStartService | null>(null);
   const [editingServiceTypeId, setEditingServiceTypeId] = useState<string | null>(null);
   const [editingTimeField, setEditingTimeField] = useState<'start' | 'end' | null>(null);
   const [editingTimeValue, setEditingTimeValue] = useState({hours: '12', minutes: '00', ampm: 'AM'});
@@ -1161,31 +1168,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return false;
   }, [offlineStatus.isBlocked]);
 
-  // Handle starting service - shows service type selection first if multiple service types
-  const handleStartService = useCallback(async (order: OrderData) => {
-    // Check if blocked due to offline limit
-    if (checkOfflineBlock()) {
-      return;
-    }
-
-    if (!checkCanWorkOnOrder(order.orderNumber)) {
-      return;
-    }
-
-    // Check if order has multiple service types - show selection modal first
-    const serviceTypes = order.programs || [];
-    if (serviceTypes.length > 1) {
-      // Show service type selection modal on dashboard (FR-3a.UI.8.2)
-      setPendingOrderForServiceTypeSelection(order);
-      setSelectedServiceTypeToStart(null);
-      setShowServiceTypeSelectionModal(true);
-      return;
-    }
-    
-    // Single service type or no service types - proceed with normal flow
-    await proceedWithStartService(order);
-  }, [truckId, username, proceedWithStartService, offlineStatus.isBlocked, checkOfflineBlock, checkCanWorkOnOrder]);
-
   // Start a specific service type and navigate to stream-selection (used when user taps "Start service" from badge)
   const startServiceTypeAndNavigate = useCallback(
     async (order: OrderData, program: string) => {
@@ -1241,6 +1223,49 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     ],
   );
 
+  const executeStartService = useCallback(
+    async (pending: PendingStartService) => {
+      if (pending.type === 'proceed') {
+        await proceedWithStartService(pending.order);
+      } else {
+        await startServiceTypeAndNavigate(pending.order, pending.program);
+      }
+    },
+    [proceedWithStartService, startServiceTypeAndNavigate],
+  );
+
+  const beginStartService = useCallback(
+    (pending: PendingStartService) => {
+      if (photoService.hasBeforeServicePhoto(pending.order.orderNumber)) {
+        void executeStartService(pending);
+        return;
+      }
+      setBeforeServicePhotoGate(pending);
+    },
+    [executeStartService],
+  );
+
+  // Handle starting service - shows service type selection first if multiple service types
+  const handleStartService = useCallback(async (order: OrderData) => {
+    if (checkOfflineBlock()) {
+      return;
+    }
+
+    if (!checkCanWorkOnOrder(order.orderNumber)) {
+      return;
+    }
+
+    const serviceTypes = order.programs || [];
+    if (serviceTypes.length > 1) {
+      setPendingOrderForServiceTypeSelection(order);
+      setSelectedServiceTypeToStart(null);
+      setShowServiceTypeSelectionModal(true);
+      return;
+    }
+
+    beginStartService({type: 'proceed', order});
+  }, [beginStartService, checkOfflineBlock, checkCanWorkOnOrder]);
+
   // Prompt Start / Edit when user taps a service type badge on the dashboard (master-detail or full-screen)
   const handleDashboardServiceTypeBadgePress = useCallback(
     (order: OrderData, program: string, pending: boolean, noship: boolean) => {
@@ -1273,8 +1298,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }
     setShowBadgeStartEditModal(false);
     setBadgePromptPayload(null);
-    await startServiceTypeAndNavigate(order, program);
-  }, [badgePromptPayload, startServiceTypeAndNavigate, checkCanWorkOnOrder]);
+    beginStartService({type: 'serviceType', order, program});
+  }, [badgePromptPayload, beginStartService, checkCanWorkOnOrder]);
 
   // No-Ship helpers (FR-3a.UI.8.3)
   const isServiceTypeNoShip = useCallback(
@@ -4542,6 +4567,22 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             </View>
           </View>
         </View>
+      )}
+
+      {/* Before Service Photo Gate */}
+      {beforeServicePhotoGate && (
+        <BeforeServicePhotoModal
+          visible
+          orderNumber={beforeServicePhotoGate.order.orderNumber}
+          onPhotoCaptured={() => {
+            const pending = beforeServicePhotoGate;
+            setBeforeServicePhotoGate(null);
+            if (pending) {
+              void executeStartService(pending);
+            }
+          }}
+          onCancel={() => setBeforeServicePhotoGate(null)}
+        />
       )}
 
       {/* Photo Gallery Modal */}

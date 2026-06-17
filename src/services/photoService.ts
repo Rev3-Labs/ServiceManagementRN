@@ -3,6 +3,7 @@ import {safeAsyncStorage} from '../utils/storage';
 const PHOTOS_KEY = '@order_photos';
 
 export type PhotoCategory = 
+  | 'before-service'
   | 'waste-item'
   | 'site-condition'
   | 'safety-issue'
@@ -75,6 +76,12 @@ class PhotoService {
    */
   getPhotoCount(orderNumber: string): number {
     return this.getPhotosForOrder(orderNumber).length;
+  }
+
+  hasBeforeServicePhoto(orderNumber: string): boolean {
+    return this.getPhotosForOrder(orderNumber).some(
+      p => p.category === 'before-service',
+    );
   }
 
   /**
@@ -182,6 +189,7 @@ class PhotoService {
    */
   getCategoryLabel(category: PhotoCategory): string {
     const labels: Record<PhotoCategory, string> = {
+      'before-service': 'Before Service',
       'waste-item': 'Waste Item',
       'site-condition': 'Site Condition',
       'safety-issue': 'Safety Issue',
