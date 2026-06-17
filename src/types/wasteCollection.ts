@@ -9,6 +9,7 @@ export type FlowStep =
   | 'manifest-management'
   | 'materials-supplies'
   | 'equipment-ppe'
+  | 'order-photos'
   | 'order-service';
 
 export interface OrderData {

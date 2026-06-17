@@ -1,4 +1,4 @@
-import React, {useState, useMemo} from 'react';
+import React, {useState, useMemo, useEffect} from 'react';
 import {
   View,
   Text,
@@ -30,6 +30,7 @@ import {syncService} from '../../services/syncService';
 import {TimeTrackingRecord, stopTimeTracking} from '../../services/timeTrackingService';
 import {serviceTypeTimeService, ServiceTypeTimeEntry} from '../../services/serviceTypeTimeService';
 import {serviceTypeService} from '../../services/serviceTypeService';
+import {photoService, OrderPhoto} from '../../services/photoService';
 import {colors} from '../../styles/theme';
 import {styles} from './styles';
 
@@ -181,21 +182,57 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
   const [customerLastName, setCustomerLastName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [acknowledgeIncomplete, setAcknowledgeIncomplete] = useState(false);
+  const [orderPhotos, setOrderPhotos] = useState<OrderPhoto[]>([]);
+
+  useEffect(() => {
+    if (!selectedOrderData?.orderNumber) {
+      setOrderPhotos([]);
+      return;
+    }
+    return photoService.onPhotosChange(
+      selectedOrderData.orderNumber,
+      setOrderPhotos,
+    );
+  }, [selectedOrderData?.orderNumber]);
 
   // Compute incomplete reasons for this order
   const incompleteReasons = useMemo(() => {
-    const reasons: Array<{id: string; reason: string; severity: 'warning' | 'error'}> = [];
+    const reasons: Array<{
+      id: string;
+      reason: string;
+      severity: 'warning' | 'error';
+      waivable?: boolean;
+    }> = [];
 
-    // Check for scanned manifest - simulate missing for WO-2024-1234
-    const hasScannedManifest = scannedDocuments.some(
-      doc => doc.orderNumber === selectedOrderData?.orderNumber && doc.documentType === 'manifest'
-    );
-    if (!hasScannedManifest || selectedOrderData?.orderNumber === 'WO-2024-1234') {
-      reasons.push({
-        id: 'missing-manifest',
-        reason: 'Scanned manifest document is missing',
-        severity: 'error',
-      });
+    if (selectedOrderData?.orderNumber) {
+      photoService
+        .getMissingCloseoutPhotoCategories(selectedOrderData.orderNumber)
+        .forEach(category => {
+          const label = photoService.getCategoryLabel(category);
+          const isShippingDoc =
+            photoService.getShippingDocumentCategories().includes(category);
+          reasons.push({
+            id: `missing-photo-${category}`,
+            reason: isShippingDoc
+              ? `${label} photo required (capture at least one page)`
+              : `${label} photo required`,
+            severity: 'error',
+            waivable: false,
+          });
+        });
+
+      photoService
+        .getMissingServiceMilestonePhotoCategories(
+          selectedOrderData.orderNumber,
+        )
+        .forEach(category => {
+          const label = photoService.getCategoryLabel(category);
+          reasons.push({
+            id: `missing-milestone-photo-${category}`,
+            reason: `${label} photo not captured`,
+            severity: 'warning',
+          });
+        });
     }
 
     // Check if no containers were added
@@ -220,9 +257,14 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
     }
 
     return reasons;
-  }, [scannedDocuments, selectedOrderData, addedContainers, selectedPrograms]);
+  }, [selectedOrderData, addedContainers, selectedPrograms, orderPhotos]);
 
-  const hasBlockingErrors = incompleteReasons.some(r => r.severity === 'error');
+  const hasHardBlockingErrors = incompleteReasons.some(
+    r => r.severity === 'error' && r.waivable === false,
+  );
+  const hasWaivableBlockingErrors = incompleteReasons.some(
+    r => r.severity === 'error' && r.waivable !== false,
+  );
 
   const handleCompleteOrder = async () => {
     if (!customerFirstName.trim() || !customerLastName.trim()) {
@@ -234,7 +276,23 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
     }
 
     // Check for blocking errors that haven't been acknowledged
-    if (hasBlockingErrors && !acknowledgeIncomplete) {
+    if (hasHardBlockingErrors) {
+      const missing = selectedOrderData
+        ? photoService.getMissingCloseoutPhotoCategories(
+            selectedOrderData.orderNumber,
+          )
+        : [];
+      const labels = missing.map(c => photoService.getCategoryLabel(c));
+      Alert.alert(
+        'Required photos missing',
+        labels.length > 0
+          ? `Capture at least one photo for each before completing:\n\n${labels.map(l => `• ${l}`).join('\n')}`
+          : 'Required photos must be captured before completing this order.',
+      );
+      return;
+    }
+
+    if (hasWaivableBlockingErrors && !acknowledgeIncomplete) {
       Alert.alert(
         'Incomplete Order',
         'This order has incomplete items that must be acknowledged before completing. Please review the warnings above and check the acknowledgment box.',
@@ -244,18 +302,101 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
 
     if (!selectedOrderData) return;
 
-    // Store the service type that's being completed (before ending it)
-    const completingServiceTypeId = activeServiceTypeTimer;
+    const performCompletion = async () => {
+      // Store the service type that's being completed (before ending it)
+      const completingServiceTypeId = activeServiceTypeTimer;
 
-    // If there's an active service type timer, end it first
-    if (activeServiceTypeTimer) {
-      try {
-        await serviceTypeTimeService.endServiceType(
-          selectedOrderData.orderNumber,
-          activeServiceTypeTimer,
-        );
+      // If there's an active service type timer, end it first
+      if (activeServiceTypeTimer) {
+        try {
+          await serviceTypeTimeService.endServiceType(
+            selectedOrderData.orderNumber,
+            activeServiceTypeTimer,
+          );
 
-        // Reload service type time entries
+          // Reload service type time entries
+          const entries = new Map<string, ServiceTypeTimeEntry>();
+          selectedOrderData.programs.forEach(stId => {
+            const entry = serviceTypeTimeService.getTimeEntry(
+              selectedOrderData.orderNumber,
+              stId,
+            );
+            if (entry) {
+              entries.set(stId, entry);
+            }
+          });
+          setServiceTypeTimeEntries(entries);
+          setActiveServiceTypeTimer(null);
+        } catch (error) {
+          console.error('Error ending service type time tracking:', error);
+          Alert.alert('Error', 'Failed to end service type time tracking');
+          return;
+        }
+      }
+
+      // Check if all service types are complete
+      const allServiceTypesCompleteNow = selectedOrderData.programs.every(serviceTypeId => {
+        const entry = serviceTypeTimeEntries.get(serviceTypeId);
+        return entry?.startTime != null && entry?.endTime != null;
+      });
+
+      if (allServiceTypesCompleteNow) {
+        // All service types are complete - complete the entire order
+        // Queue order completion for sync
+        await syncService.addPendingOperation('order', {
+          orderNumber: selectedOrderData.orderNumber,
+          completed: true,
+          containers: addedContainers,
+          programs: selectedPrograms,
+          materialsSupplies,
+          equipmentPPE,
+          totalNetWeight,
+          programsToShip,
+          customerAcknowledgment: {
+            firstName: customerFirstName,
+            lastName: customerLastName,
+            email: customerEmail || undefined,
+            acknowledgedAt: new Date().toISOString(),
+          },
+        });
+
+        // Stop overall order time tracking
+        try {
+          await stopTimeTracking(selectedOrderData.orderNumber);
+          // Clear active tracking if this was the active order
+          if (activeTimeTracking?.orderNumber === selectedOrderData.orderNumber) {
+            setActiveTimeTracking(null);
+          }
+          // Clear current order tracking
+          if (currentOrderTimeTracking?.orderNumber === selectedOrderData.orderNumber) {
+            setCurrentOrderTimeTracking(null);
+            setElapsedTimeDisplay('');
+          }
+        } catch (error) {
+          console.error('Error stopping time tracking:', error);
+        }
+
+        // Mark order as completed
+        setCompletedOrders(prev => [...prev, selectedOrderData.orderNumber]);
+        // Update order status
+        setOrderStatuses(prev => ({
+          ...prev,
+          [selectedOrderData.orderNumber]: 'Completed',
+        }));
+        // Reset state and clear selected order so user cannot open manifest/service types for completed order
+        setSelectedOrderData(null);
+        setDashboardSelectedOrder(null);
+        // Keep addedContainers — they persist on truck until user marks and confirms drop in Record Drop flow
+        setSelectedPrograms({});
+        setMaterialsSupplies([]);
+        setEquipmentPPE([]);
+        setBarcode('');
+        setTareWeight('45');
+        setGrossWeight('285');
+        setCurrentStep('dashboard');
+      } else {
+        // Not all service types are complete - just complete the current service type
+        // Reload service type time entries to reflect the updated state
         const entries = new Map<string, ServiceTypeTimeEntry>();
         selectedOrderData.programs.forEach(stId => {
           const entry = serviceTypeTimeService.getTimeEntry(
@@ -267,100 +408,40 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
           }
         });
         setServiceTypeTimeEntries(entries);
-        setActiveServiceTypeTimer(null);
-      } catch (error) {
-        console.error('Error ending service type time tracking:', error);
-        Alert.alert('Error', 'Failed to end service type time tracking');
-        return;
+
+        // Update order status to "Partial" (not all service types complete yet)
+        setOrderStatuses(prev => ({
+          ...prev,
+          [selectedOrderData.orderNumber]: 'Partial',
+        }));
+
+        // Navigate to dashboard after completing service type
+        setCurrentStep('dashboard');
+        // Keep the order selected so user can start the next service type
+        // Don't clear selectedOrderData - let user see the order and start next service type
       }
+    };
+
+    const missingMilestonePhotos =
+      photoService.getMissingServiceMilestonePhotoCategories(
+        selectedOrderData.orderNumber,
+      );
+    if (missingMilestonePhotos.length > 0) {
+      const labels = missingMilestonePhotos.map(category =>
+        photoService.getCategoryLabel(category),
+      );
+      Alert.alert(
+        'Service Photos Missing',
+        `This order is missing the following recommended photo${labels.length > 1 ? 's' : ''}:\n\n${labels.map(label => `• ${label}`).join('\n')}\n\nYou can continue without them, but capturing service photos is recommended.`,
+        [
+          {text: 'Go Back', style: 'cancel'},
+          {text: 'Continue', onPress: () => void performCompletion()},
+        ],
+      );
+      return;
     }
 
-    // Check if all service types are complete
-    const allServiceTypesCompleteNow = selectedOrderData.programs.every(serviceTypeId => {
-      const entry = serviceTypeTimeEntries.get(serviceTypeId);
-      return entry?.startTime != null && entry?.endTime != null;
-    });
-
-    if (allServiceTypesCompleteNow) {
-      // All service types are complete - complete the entire order
-      // Queue order completion for sync
-      await syncService.addPendingOperation('order', {
-        orderNumber: selectedOrderData.orderNumber,
-        completed: true,
-        containers: addedContainers,
-        programs: selectedPrograms,
-        materialsSupplies,
-        equipmentPPE,
-        totalNetWeight,
-        programsToShip,
-        customerAcknowledgment: {
-          firstName: customerFirstName,
-          lastName: customerLastName,
-          email: customerEmail || undefined,
-          acknowledgedAt: new Date().toISOString(),
-        },
-      });
-
-      // Stop overall order time tracking
-      try {
-        await stopTimeTracking(selectedOrderData.orderNumber);
-        // Clear active tracking if this was the active order
-        if (activeTimeTracking?.orderNumber === selectedOrderData.orderNumber) {
-          setActiveTimeTracking(null);
-        }
-        // Clear current order tracking
-        if (currentOrderTimeTracking?.orderNumber === selectedOrderData.orderNumber) {
-          setCurrentOrderTimeTracking(null);
-          setElapsedTimeDisplay('');
-        }
-      } catch (error) {
-        console.error('Error stopping time tracking:', error);
-      }
-
-      // Mark order as completed
-      setCompletedOrders(prev => [...prev, selectedOrderData.orderNumber]);
-      // Update order status
-      setOrderStatuses(prev => ({
-        ...prev,
-        [selectedOrderData.orderNumber]: 'Completed',
-      }));
-      // Reset state and clear selected order so user cannot open manifest/service types for completed order
-      setSelectedOrderData(null);
-      setDashboardSelectedOrder(null);
-      // Keep addedContainers — they persist on truck until user marks and confirms drop in Record Drop flow
-      setSelectedPrograms({});
-      setMaterialsSupplies([]);
-      setEquipmentPPE([]);
-      setBarcode('');
-      setTareWeight('45');
-      setGrossWeight('285');
-      setCurrentStep('dashboard');
-    } else {
-      // Not all service types are complete - just complete the current service type
-      // Reload service type time entries to reflect the updated state
-      const entries = new Map<string, ServiceTypeTimeEntry>();
-      selectedOrderData.programs.forEach(stId => {
-        const entry = serviceTypeTimeService.getTimeEntry(
-          selectedOrderData.orderNumber,
-          stId,
-        );
-        if (entry) {
-          entries.set(stId, entry);
-        }
-      });
-      setServiceTypeTimeEntries(entries);
-
-      // Update order status to "Partial" (not all service types complete yet)
-      setOrderStatuses(prev => ({
-        ...prev,
-        [selectedOrderData.orderNumber]: 'Partial',
-      }));
-
-      // Navigate to dashboard after completing service type
-      setCurrentStep('dashboard');
-      // Keep the order selected so user can start the next service type
-      // Don't clear selectedOrderData - let user see the order and start next service type
-    }
+    await performCompletion();
   };
 
   // Customer Acknowledgment View
@@ -819,9 +900,16 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
                         ]}>
                           {item.reason}
                         </Text>
-                        {item.id === 'missing-manifest' && (
+                        {item.id.startsWith('missing-photo-') && (
                           <Text style={styles.incompleteReasonHint}>
-                            Use the "Scan Documents" quick action to capture the signed manifest
+                            Open Photos from the quick actions bar to capture
+                            required documents
+                          </Text>
+                        )}
+                        {item.id.startsWith('missing-milestone-photo-') && (
+                          <Text style={styles.incompleteReasonHint}>
+                            Open Photos from the quick actions bar to capture
+                            service milestone photos
                           </Text>
                         )}
                       </View>
@@ -829,7 +917,7 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
                   ))}
                 </View>
 
-                {hasBlockingErrors && (
+                {hasWaivableBlockingErrors && (
                   <TouchableOpacity
                     style={styles.acknowledgeCheckboxRow}
                     onPress={() => setAcknowledgeIncomplete(!acknowledgeIncomplete)}
@@ -928,7 +1016,8 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
           disabled={
             !customerFirstName.trim() ||
             !customerLastName.trim() ||
-            (hasBlockingErrors && !acknowledgeIncomplete)
+            hasHardBlockingErrors ||
+            (hasWaivableBlockingErrors && !acknowledgeIncomplete)
           }
           onPress={handleCompleteOrder}
         />

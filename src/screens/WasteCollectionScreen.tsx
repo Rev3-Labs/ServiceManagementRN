@@ -94,7 +94,6 @@ import {MOCK_ORDERS} from '../data/mockOrders';
 import {safeAsyncStorage} from '../utils/storage';
 import {MATERIALS_CATALOG} from '../data/materialsCatalog';
 import {PersistentOrderHeader} from '../components/PersistentOrderHeader';
-import {PhotoCaptureButton} from '../components/PhotoCaptureButton';
 import {BeforeServicePhotoModal} from '../components/BeforeServicePhotoModal';
 import {photoService} from '../services/photoService';
 import {pListedAuthorizationService, PListedCode} from '../services/pListedAuthorizationService';
@@ -109,7 +108,7 @@ import {
   type NoShipReasonCode,
   type NoShipRecord,
 } from '../constants/noShipReasons';
-import {DASHBOARD_INVENTORY_COLUMNS, SIMULATED_CONTAINERS_BY_ORDER_INDEX, CONTAINER_CODE_TO_PROJECTED_COLUMN, BUSINESS_TYPE_CONFIG, getBusinessTypeStyle, INVENTORY_SUMMARY_STORAGE_KEY, DEFAULT_INVENTORY_SUMMARY, ROUTE_IDS, DEFAULT_ROUTE_ID, APPROVED_TRANSFER_LOCATIONS, FOOTER_NAV_ICON_COLOR} from './waste-collection/constants';
+import {DASHBOARD_INVENTORY_COLUMNS, DASHBOARD_INVENTORY_TABLE_MIN_WIDTH, SIMULATED_CONTAINERS_BY_ORDER_INDEX, CONTAINER_CODE_TO_PROJECTED_COLUMN, BUSINESS_TYPE_CONFIG, getBusinessTypeStyle, INVENTORY_SUMMARY_STORAGE_KEY, DEFAULT_INVENTORY_SUMMARY, ROUTE_IDS, DEFAULT_ROUTE_ID, APPROVED_TRANSFER_LOCATIONS, FOOTER_NAV_ICON_COLOR} from './waste-collection/constants';
 import {DashboardScreen as ExtDashboardScreen, DashboardScreenMasterDetail as ExtDashboardScreenMasterDetail} from './waste-collection/DashboardScreen';
 import {StreamSelectionScreen as ExtStreamSelectionScreen} from './waste-collection/StreamSelectionScreen';
 import {ContainerSelectionScreen as ExtContainerSelectionScreen} from './waste-collection/ContainerSelectionScreen';
@@ -119,6 +118,7 @@ import {OrderContainersReviewScreen as ExtOrderContainersReviewScreen} from './w
 import {ManifestManagementScreen as ExtManifestManagementScreen} from './waste-collection/ManifestManagementScreen';
 import {MaterialsSuppliesScreen as ExtMaterialsSuppliesScreen} from './waste-collection/MaterialsSuppliesScreen';
 import {EquipmentPPEScreen as ExtEquipmentPPEScreen} from './waste-collection/EquipmentPPEScreen';
+import {OrderPhotosScreen as ExtOrderPhotosScreen} from './waste-collection/OrderPhotosScreen';
 import {OrderServiceScreen as ExtOrderServiceScreen} from './waste-collection/OrderServiceScreen';
 import {InventoryOnTruckCell} from './waste-collection/InventoryOnTruckCell';
 import {DocumentTypeSelectionModal} from '../components/modals/DocumentTypeSelectionModal';
@@ -169,19 +169,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [showServiceCenterModal, setShowServiceCenterModal] = useState(false);
   const [showServiceCenterUpdateNotification, setShowServiceCenterUpdateNotification] = useState(false);
   const [updatedServiceCenterName, setUpdatedServiceCenterName] = useState<string>('');
-  const [showPhotoGallery, setShowPhotoGallery] = useState(false);
   const [orderPhotos, setOrderPhotos] = useState(
     selectedOrderData ? photoService.getPhotosForOrder(selectedOrderData.orderNumber) : []
   );
-  const [photoNoteEdit, setPhotoNoteEdit] = useState<{
-    photoId: string;
-    caption: string;
-  } | null>(null);
-  const [photoConfirm, setPhotoConfirm] = useState<{
-    type: 'deleteNote' | 'removePhoto';
-    orderNumber: string;
-    photoId: string;
-  } | null>(null);
+  const [photosReturnStep, setPhotosReturnStep] = useState<FlowStep>('stream-selection');
   const [showPListedAuthModal, setShowPListedAuthModal] = useState(false);
   const [pListedAuthAcknowledged, setPListedAuthAcknowledged] = useState(false);
   const [pListedAuthResult, setPListedAuthResult] = useState<{
@@ -405,7 +396,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
   // Drive `inManifestCompletion` from currentStep transitions. Pre-review flow
   // steps clear it; reaching review/manifest/service-summary sets it. The
-  // shared side-quest steps (equipment-ppe, materials-supplies) leave it
+  // shared side-quest steps (equipment-ppe, materials-supplies, order-photos) leave it
   // untouched so the lock persists when reached from the manifest phase.
   useEffect(() => {
     if (
@@ -2925,6 +2916,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     ).length;
     const materialsCount = materialsSupplies.length;
     const equipmentCount = equipmentPPE.length;
+    const photosCount = orderPhotos.length;
+
+    const openOrderPhotosScreen = () => {
+      setPhotosReturnStep(currentStep);
+      setCurrentStep('order-photos');
+    };
 
     const isServiceSummaryStep = currentStep === 'order-service';
     // Once the user has progressed into the manifest-completion phase, Containers
@@ -3022,32 +3019,32 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           )}
         </TouchableOpacity>
 
-        {/* Photo Capture Button */}
+        {/* Photos */}
         {selectedOrderData && (
-          <View
-            style={[{ flex: 1 }, photosDisabled && { opacity: 0.5 }]}
-            pointerEvents={photosDisabled ? 'none' : 'auto'}>
-            <PhotoCaptureButton
-              orderNumber={selectedOrderData.orderNumber}
-              iconColor={FOOTER_NAV_ICON_COLOR}
-              onPhotoAdded={() => {
-                // Photo added successfully
-              }}
-              onViewPhotos={() => setShowPhotoGallery(true)}
-              onScanDocument={() => {
-                // Navigate to document scanning (existing functionality)
-                if (scannedDocsCount > 0) {
-                  setShowDocumentOptionsMenu(true);
-                } else {
-                  setShowDocumentTypeSelector(true);
-                }
-              }}
-              style={[
-                styles.quickActionButton,
-                isTablet() && styles.quickActionButtonTablet,
-              ]}
-            />
-          </View>
+          <TouchableOpacity
+            style={[
+              styles.quickActionButton,
+              isTablet() && styles.quickActionButtonTablet,
+              photosDisabled && {opacity: 0.5},
+            ]}
+            onPress={() => !photosDisabled && openOrderPhotosScreen()}
+            activeOpacity={0.7}
+            disabled={photosDisabled}>
+            <View style={styles.quickActionContent}>
+              <Icon name="camera-alt" size={24} color={FOOTER_NAV_ICON_COLOR} />
+              <Text
+                style={styles.quickActionLabel}
+                numberOfLines={1}
+                adjustsFontSizeToFit>
+                Photos
+              </Text>
+            </View>
+            {photosCount > 0 && (
+              <View style={styles.quickActionBadge}>
+                <Text style={styles.quickActionBadgeText}>{photosCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
         )}
 
         {/* Document Options Menu - Bottom Sheet */}
@@ -3621,6 +3618,33 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             setEquipmentPPE={setEquipmentPPE}
             activeServiceTypeTimer={activeServiceTypeTimer}
             handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
+            inManifestCompletion={inManifestCompletion}
+          />
+        );
+      case 'order-photos':
+        return (
+          <ExtOrderPhotosScreen
+            selectedOrderData={selectedOrderData}
+            isOrderHeaderCollapsed={isOrderHeaderCollapsed}
+            setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
+            setCurrentStep={setCurrentStep}
+            elapsedTimeDisplay={elapsedTimeDisplay}
+            currentOrderTimeTracking={currentOrderTimeTracking}
+            handleRequestPause={handleRequestPause}
+            handleResumeTracking={handleResumeTracking}
+            setShowJobNotesModal={setShowJobNotesModal}
+            validationState={validationState}
+            setShowValidationModal={setShowValidationModal}
+            setShowServiceCenterModal={setShowServiceCenterModal}
+            selectedTruck={selectedTruck}
+            truckId={truckId}
+            selectedTrailer={selectedTrailer}
+            syncStatus={syncStatus}
+            pendingSyncCount={pendingSyncCount}
+            handleManualSync={handleManualSync}
+            serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
+            isOrderCompleted={isOrderCompleted}
+            onBack={() => setCurrentStep(photosReturnStep)}
             inManifestCompletion={inManifestCompletion}
           />
         );
@@ -4581,242 +4605,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               void executeStartService(pending);
             }
           }}
+          onSkip={() => {
+            const pending = beforeServicePhotoGate;
+            setBeforeServicePhotoGate(null);
+            if (pending) {
+              void executeStartService(pending);
+            }
+          }}
           onCancel={() => setBeforeServicePhotoGate(null)}
         />
-      )}
-
-      {/* Photo Gallery Modal */}
-      {selectedOrderData && (
-        <Modal
-          visible={showPhotoGallery}
-          animationType="slide"
-          presentationStyle="pageSheet"
-          onRequestClose={() => setShowPhotoGallery(false)}>
-          <SafeAreaView style={styles.photoGalleryModalContainer}>
-            <View style={styles.photoGalleryModalHeader}>
-              <Text style={styles.photoGalleryModalTitle}>
-                Order Photos ({orderPhotos.length})
-              </Text>
-              <TouchableOpacity
-                onPress={() => setShowPhotoGallery(false)}
-                style={styles.photoGalleryModalCloseButton}
-                hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-                <Icon name="close" size={20} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              style={styles.photoGalleryScroll}
-              contentContainerStyle={styles.photoGalleryContent}>
-              {orderPhotos.length === 0 ? (
-                <View style={styles.photoGalleryEmpty}>
-                  <Icon name="camera-alt" size={64} color={colors.mutedForeground} />
-                  <Text style={styles.photoGalleryEmptyText}>
-                    No photos captured yet
-                  </Text>
-                  <Text style={styles.photoGalleryEmptySubtext}>
-                    Use the camera button to capture photos
-                  </Text>
-                </View>
-              ) : (
-                orderPhotos.map((photo) => (
-                  <Card key={photo.id} style={styles.photoCard}>
-                    <CardContent>
-                      <View style={styles.photoCardHeader}>
-                        <View style={styles.photoCardInfo}>
-                          <Text style={styles.photoCardCategory}>
-                            {photoService.getCategoryLabel(photo.category)}
-                          </Text>
-                          <Text style={styles.photoCardTimestamp}>
-                            {new Date(photo.timestamp).toLocaleString()}
-                          </Text>
-                        </View>
-                        <View style={styles.photoCardActions}>
-                          <TouchableOpacity
-                            style={styles.photoCardActionButton}
-                            onPress={() =>
-                              setPhotoNoteEdit({
-                                photoId: photo.id,
-                                caption: photo.caption ?? '',
-                              })
-                            }
-                            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
-                            <Icon name="edit" size={18} color={colors.primary} />
-                            <Text style={styles.photoCardActionText}>Edit note</Text>
-                          </TouchableOpacity>
-                          {(photo.caption ?? '').length > 0 && (
-                            <TouchableOpacity
-                              style={styles.photoCardActionButton}
-                              onPress={() => {
-                                const orderNumber = selectedOrderData?.orderNumber;
-                                if (orderNumber) {
-                                  setPhotoConfirm({
-                                    type: 'deleteNote',
-                                    orderNumber,
-                                    photoId: photo.id,
-                                  });
-                                }
-                              }}
-                              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
-                              <Icon name="delete-outline" size={18} color={colors.destructive} />
-                              <Text style={[styles.photoCardActionText, {color: colors.destructive}]}>
-                                Delete note
-                              </Text>
-                            </TouchableOpacity>
-                          )}
-                          <TouchableOpacity
-                            style={styles.photoCardActionButton}
-                            onPress={() => {
-                              const orderNumber = selectedOrderData?.orderNumber;
-                              if (orderNumber) {
-                                setPhotoConfirm({
-                                  type: 'removePhoto',
-                                  orderNumber,
-                                  photoId: photo.id,
-                                });
-                              }
-                            }}
-                            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
-                            <Icon name="delete" size={18} color={colors.destructive} />
-                            <Text style={[styles.photoCardActionText, {color: colors.destructive}]}>
-                              Remove photo
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                      {photo.caption ? (
-                        <View style={styles.photoCardCaptionRow}>
-                          <Text style={styles.photoCardCaptionLabel}>Comment:</Text>
-                          <Text style={styles.photoCardCaption}>{photo.caption}</Text>
-                        </View>
-                      ) : (
-                        <View style={styles.photoCardCaptionRow}>
-                          <Text style={styles.photoCardCaptionLabelMuted}>No comment</Text>
-                        </View>
-                      )}
-                      {/* Note: In a real app, you'd display the actual image here */}
-                      <View style={styles.photoPlaceholder}>
-                        <Icon name="camera-alt" size={48} color={colors.mutedForeground} />
-                        <Text style={styles.photoPlaceholderText}>Photo: {photo.uri}</Text>
-                      </View>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </ScrollView>
-          </SafeAreaView>
-        </Modal>
-      )}
-
-      {/* Edit Photo Note Modal */}
-      {photoNoteEdit && selectedOrderData && (
-        <Modal
-          visible={!!photoNoteEdit}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setPhotoNoteEdit(null)}>
-          <View style={styles.editNoteModalOverlay}>
-            <View style={styles.editNoteModalContainer}>
-              <View style={styles.editNoteModalHeader}>
-                <Text style={styles.editNoteModalTitle}>Edit comment</Text>
-                <TouchableOpacity
-                  onPress={() => setPhotoNoteEdit(null)}
-                  style={styles.editNoteModalCloseButton}
-                  hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-                  <Icon name="close" size={20} color={colors.foreground} />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.editNoteModalContent}>
-                <Input
-                  label="Comment"
-                  placeholder="Add a note about this photo (optional)"
-                  value={photoNoteEdit.caption}
-                  onChangeText={(text) =>
-                    setPhotoNoteEdit((prev) => (prev ? {...prev, caption: text} : null))
-                  }
-                  multiline
-                  numberOfLines={3}
-                />
-                <View style={styles.editNoteModalActions}>
-                  <TouchableOpacity
-                    style={styles.editNoteModalCancelButton}
-                    onPress={() => setPhotoNoteEdit(null)}
-                    activeOpacity={0.7}>
-                    <Text style={styles.editNoteModalCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.editNoteModalSaveButton}
-                    onPress={() => {
-                      photoService.updatePhoto(
-                        selectedOrderData.orderNumber,
-                        photoNoteEdit.photoId,
-                        {caption: photoNoteEdit.caption.trim() || undefined},
-                      );
-                      setPhotoNoteEdit(null);
-                    }}
-                    activeOpacity={0.7}>
-                    <Text style={styles.editNoteModalSaveText}>Save</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      )}
-
-      {/* Delete note / Remove photo confirmation modal */}
-      {photoConfirm && (
-        <Modal
-          visible={!!photoConfirm}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setPhotoConfirm(null)}>
-          <View style={styles.editNoteModalOverlay}>
-            <View style={styles.editNoteModalContainer}>
-              <View style={styles.editNoteModalHeader}>
-                <Text style={styles.editNoteModalTitle}>
-                  {photoConfirm.type === 'deleteNote' ? 'Delete note' : 'Remove photo'}
-                </Text>
-                <TouchableOpacity
-                  onPress={() => setPhotoConfirm(null)}
-                  style={styles.editNoteModalCloseButton}
-                  hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-                  <Icon name="close" size={20} color={colors.foreground} />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.editNoteModalContent}>
-                <Text style={styles.editNoteModalCancelText}>
-                  {photoConfirm.type === 'deleteNote'
-                    ? 'Remove the comment from this photo?'
-                    : 'Delete this photo from the order?'}
-                </Text>
-                <View style={styles.editNoteModalActions}>
-                  <TouchableOpacity
-                    style={styles.editNoteModalCancelButton}
-                    onPress={() => setPhotoConfirm(null)}
-                    activeOpacity={0.7}>
-                    <Text style={styles.editNoteModalCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.editNoteModalSaveButton, {backgroundColor: colors.destructive}]}
-                    onPress={async () => {
-                      const {type, orderNumber, photoId} = photoConfirm;
-                      setPhotoConfirm(null);
-                      if (type === 'deleteNote') {
-                        await photoService.updatePhoto(orderNumber, photoId, {caption: ''});
-                      } else {
-                        await photoService.deletePhoto(orderNumber, photoId);
-                      }
-                      setOrderPhotos([...photoService.getPhotosForOrder(orderNumber)]);
-                    }}
-                    activeOpacity={0.7}>
-                    <Text style={styles.editNoteModalSaveText}>Delete</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </View>
-        </Modal>
       )}
 
       {/* P-Listed Authorization Modal */}
@@ -6693,9 +6490,13 @@ export const styles = StyleSheet.create({
   dashboardContentRow: {
     flex: 1,
     backgroundColor: colors.background,
+    // @ts-ignore - web-specific style
+    minHeight: 0,
   },
   dashboardRightScroll: {
     flex: 1,
+    // @ts-ignore - web-specific style
+    minHeight: 0,
   },
   dashboardRightContent: {
     flexGrow: 1,
@@ -6712,9 +6513,13 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
   },
   dashboardCardTitle: {
     marginBottom: 0,
+    flexShrink: 1,
+    minWidth: 0,
   },
   dashboardSectionBadge: {
     ...typography.sm,
@@ -6731,11 +6536,20 @@ export const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     overflow: 'hidden',
     backgroundColor: colors.background,
+  },
+  dashboardTableHorizontalScroll: {
     width: '100%',
-
+    flexGrow: 0,
+    // @ts-ignore - web-specific style
+    maxWidth: '100%',
+    // @ts-ignore - web-specific style
+    overflowX: 'auto',
+    // @ts-ignore - web-specific style
+    WebkitOverflowScrolling: 'touch',
   },
   dashboardTableInHorizontalScroll: {
     alignSelf: 'flex-start',
+    minWidth: DASHBOARD_INVENTORY_TABLE_MIN_WIDTH,
   },
   dashboardTableHeaderRow: {
     flexDirection: 'row',
@@ -6758,7 +6572,6 @@ export const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     minHeight: touchTargets.min,
-    width: '100%',
   },
   dashboardTableCell: {
     ...typography.base,
@@ -6775,8 +6588,9 @@ export const styles = StyleSheet.create({
     flexShrink: 0,
   },
   dashboardTableColCustomer: {
-    flex: 1,
+    width: 180,
     minWidth: 180,
+    flexShrink: 0,
   },
   dashboardTableColCity: {
     width: 180,
@@ -6847,9 +6661,7 @@ export const styles = StyleSheet.create({
     textAlign: 'center',
   },
   dashboardTableScrollContent: {
-    alignSelf: 'flex-start',
-    width: '100%',
-
+    flexGrow: 0,
   },
   dashboardInventorySubtitle: {
     ...typography.sm,
@@ -8784,6 +8596,9 @@ export const styles = StyleSheet.create({
   materialsTableCellDescription: {
     flex: 2,
   },
+  materialsTableCellServiceRequest: {
+    flex: 1.5,
+  },
   materialsTableQuantity: {
     ...typography.base,
     fontWeight: '600',
@@ -8820,6 +8635,63 @@ export const styles = StyleSheet.create({
     ...typography.sm,
     color: colors.destructive,
     fontWeight: '600',
+  },
+  materialCardList: {
+    gap: spacing.sm,
+  },
+  materialCard: {
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  materialCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  materialCardHeaderLeft: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  materialCardServiceRequest: {
+    ...typography.xs,
+    fontWeight: '600',
+    color: colors.mutedForeground,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  materialCardItemNumber: {
+    ...typography.sm,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  materialCardDescription: {
+    ...typography.sm,
+    color: colors.foreground,
+  },
+  materialCardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  materialCardQtyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  materialCardQtyLabel: {
+    ...typography.xs,
+    fontWeight: '600',
+    color: colors.mutedForeground,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   emptyMaterialsState: {
     alignItems: 'center',

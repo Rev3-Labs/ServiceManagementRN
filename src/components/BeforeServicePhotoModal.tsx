@@ -6,6 +6,9 @@ import {
   StyleSheet,
   Platform,
   ActivityIndicator,
+  ScrollView,
+  SafeAreaView,
+  useWindowDimensions,
 } from 'react-native';
 import {
   launchCamera,
@@ -21,6 +24,7 @@ interface BeforeServicePhotoModalProps {
   visible: boolean;
   orderNumber: string;
   onPhotoCaptured: () => void;
+  onSkip: () => void;
   onCancel: () => void;
 }
 
@@ -30,6 +34,7 @@ export const BeforeServicePhotoModal: React.FC<BeforeServicePhotoModalProps> = (
   visible,
   orderNumber,
   onPhotoCaptured,
+  onSkip,
   onCancel,
 }) => {
   const [status, setStatus] = useState<CaptureStatus>('opening');
@@ -38,6 +43,11 @@ export const BeforeServicePhotoModal: React.FC<BeforeServicePhotoModalProps> = (
   const webContainerRef = useRef<View | null>(null);
   const webVideoRef = useRef<HTMLVideoElement | null>(null);
   const webStreamRef = useRef<MediaStream | null>(null);
+  const {width: windowWidth, height: windowHeight} = useWindowDimensions();
+  const landscape = windowWidth > windowHeight;
+  const previewHeight = landscape
+    ? Math.min(windowHeight * 0.42, 280)
+    : Math.min(windowHeight * 0.4, 360);
 
   const stopWebCamera = useCallback(() => {
     webStreamRef.current?.getTracks().forEach(track => track.stop());
@@ -82,7 +92,7 @@ export const BeforeServicePhotoModal: React.FC<BeforeServicePhotoModalProps> = (
         return;
       }
       if (response.didCancel) {
-        setErrorMessage('A before-service photo is required to start work.');
+        setErrorMessage('No photo captured. Try again or skip for now.');
         setStatus('retry');
         return;
       }
@@ -206,94 +216,125 @@ export const BeforeServicePhotoModal: React.FC<BeforeServicePhotoModalProps> = (
       animationType="slide"
       presentationStyle="fullScreen"
       onRequestClose={() => {}}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Icon name="camera-alt" size={28} color={colors.primary} />
-          <Text style={styles.title}>Before Service Photo Required</Text>
-          <Text style={styles.subtitle}>
-            Capture a photo of the work area before beginning service tasks.
-          </Text>
-        </View>
-
-        {Platform.OS === 'web' && (
-          <View
-            ref={webContainerRef}
-            style={[
-              styles.webPreviewContainer,
-              !showWebPreview && styles.webPreviewHidden,
-            ]}
-          />
-        )}
-
-        {status === 'opening' && !showRetry && (
-          <View style={styles.statusBlock}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.statusText}>Opening camera...</Text>
+      <SafeAreaView style={styles.safeArea}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          bounces={false}>
+          <View style={[styles.header, landscape && styles.headerLandscape]}>
+            <Icon name="camera-alt" size={28} color={colors.primary} />
+            <Text style={styles.title}>Before Service Photo</Text>
+            <Text style={styles.subtitle}>
+              Capture a photo of the work area before beginning service tasks. You
+              can skip this step and add photos later.
+            </Text>
           </View>
-        )}
 
-        {showSaving && (
-          <View style={styles.statusBlock}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.statusText}>Saving photo...</Text>
-          </View>
-        )}
-
-        {showRetry && errorMessage && (
-          <View style={styles.errorBlock}>
-            <Icon name="warning" size={24} color={colors.warning} />
-            <Text style={styles.errorText}>{errorMessage}</Text>
-          </View>
-        )}
-
-        <View style={styles.actions}>
-          {showWebPreview && (
-            <Button
-              title="Capture Photo"
-              variant="primary"
-              size="lg"
-              fullWidth
-              onPress={captureWebPhoto}
+          {Platform.OS === 'web' && (
+            <View
+              ref={webContainerRef}
+              style={[
+                styles.webPreviewContainer,
+                {height: showWebPreview ? previewHeight : 0},
+                !showWebPreview && styles.webPreviewHidden,
+              ]}
             />
           )}
-          {showRetry && (
+
+          {status === 'opening' && !showRetry && (
+            <View style={styles.statusBlock}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={styles.statusText}>Opening camera...</Text>
+            </View>
+          )}
+
+          {showSaving && (
+            <View style={styles.statusBlock}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={styles.statusText}>Saving photo...</Text>
+            </View>
+          )}
+
+          {showRetry && errorMessage && (
+            <View style={styles.errorBlock}>
+              <Icon name="warning" size={24} color={colors.warning} />
+              <Text style={styles.errorText}>{errorMessage}</Text>
+            </View>
+          )}
+
+          <View style={styles.actions}>
+            {showWebPreview && (
+              <Button
+                title="Capture Photo"
+                variant="primary"
+                size="lg"
+                fullWidth
+                onPress={captureWebPhoto}
+              />
+            )}
+            {showRetry && (
+              <Button
+                title="Open Camera"
+                variant="primary"
+                size="lg"
+                fullWidth
+                onPress={beginCapture}
+              />
+            )}
             <Button
-              title="Open Camera"
-              variant="primary"
+              title="Skip for Now"
+              variant="outline"
               size="lg"
               fullWidth
-              onPress={beginCapture}
+              onPress={() => {
+                cameraSessionRef.current += 1;
+                stopWebCamera();
+                onSkip();
+              }}
+              disabled={showSaving}
             />
-          )}
-          <Button
-            title="Cancel Start"
-            variant="outline"
-            size="lg"
-            fullWidth
-            onPress={() => {
-              cameraSessionRef.current += 1;
-              stopWebCamera();
-              onCancel();
-            }}
-            disabled={showSaving}
-          />
-        </View>
-      </View>
+            <Button
+              title="Cancel Start"
+              variant="outline"
+              size="lg"
+              fullWidth
+              onPress={() => {
+                cameraSessionRef.current += 1;
+                stopWebCamera();
+                onCancel();
+              }}
+              disabled={showSaving}
+            />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     padding: spacing.lg,
-    justifyContent: 'space-between',
+    paddingBottom: spacing.xl,
   },
   header: {
     alignItems: 'center',
     gap: spacing.sm,
     paddingTop: spacing.xl,
+    marginBottom: spacing.md,
+  },
+  headerLandscape: {
+    paddingTop: spacing.sm,
+    marginBottom: spacing.sm,
   },
   title: {
     ...typography.xl,
@@ -308,36 +349,33 @@ const styles = StyleSheet.create({
     maxWidth: 420,
   },
   webPreviewContainer: {
-    flex: 1,
-    marginVertical: spacing.lg,
+    marginBottom: spacing.md,
     borderRadius: borderRadius.lg,
     overflow: 'hidden',
     backgroundColor: '#000',
-    minHeight: 280,
   },
   webPreviewHidden: {
     opacity: 0,
-    position: 'absolute',
-    width: 1,
-    height: 1,
     overflow: 'hidden',
   },
   statusBlock: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.md,
+    paddingVertical: spacing.xl,
+    minHeight: 120,
   },
   statusText: {
     ...typography.base,
     color: colors.mutedForeground,
   },
   errorBlock: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    minHeight: 100,
   },
   errorText: {
     ...typography.base,
@@ -346,6 +384,6 @@ const styles = StyleSheet.create({
   },
   actions: {
     gap: spacing.md,
-    paddingBottom: spacing.lg,
+    marginTop: spacing.md,
   },
 });

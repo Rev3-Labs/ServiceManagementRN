@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Pressable,
   StyleSheet,
+  useWindowDimensions,
 } from 'react-native';
 import {Button} from '../../components/Button';
 import {
@@ -95,6 +96,9 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
   activeServiceTypeTimer,
   handleMarkServiceTypeComplete,
 }) => {
+  const {width: windowWidth} = useWindowDimensions();
+  const useCompactMaterialsLayout = windowWidth < 1000;
+
   const isCurrentOrderCompleted = selectedOrderData
     ? isOrderCompleted(selectedOrderData.orderNumber)
     : false;
@@ -157,8 +161,88 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
 
   if (!selectedOrderData) return null;
 
-  const renderMaterialRow = (material: MaterialsSupply) => (
+  const renderQuantityControls = (material: MaterialsSupply) => (
+    <View style={styles.quantityEditContainer}>
+      <TouchableOpacity
+        onPress={() => handleAdjustQuantity(material.id, -1)}
+        disabled={isCurrentOrderCompleted || material.quantity <= 1}
+        style={[
+          styles.quantityEditButton,
+          (isCurrentOrderCompleted || material.quantity <= 1) && {
+            opacity: 0.4,
+          },
+        ]}
+        hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+        <Icon name="remove" size={20} color={colors.foreground} />
+      </TouchableOpacity>
+      <Text style={styles.materialsTableQuantity}>{material.quantity}</Text>
+      <TouchableOpacity
+        onPress={() => handleAdjustQuantity(material.id, 1)}
+        disabled={isCurrentOrderCompleted}
+        style={[
+          styles.quantityEditButton,
+          isCurrentOrderCompleted && {opacity: 0.4},
+        ]}
+        hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+        <Icon name="add" size={20} color={colors.foreground} />
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderDeleteButton = (materialId: string) => (
+    <TouchableOpacity
+      onPress={() => handleDeleteMaterial(materialId)}
+      disabled={isCurrentOrderCompleted}
+      style={styles.deleteMaterialButton}>
+      <Text style={styles.deleteMaterialButtonText}>Delete</Text>
+    </TouchableOpacity>
+  );
+
+  const renderTypeBadge = (material: MaterialsSupply) => (
+    <Badge variant={material.type === 'used' ? 'default' : 'secondary'}>
+      {material.type === 'used' ? 'Used' : 'Left Behind'}
+    </Badge>
+  );
+
+  const renderMaterialCard = (
+    material: MaterialsSupply,
+    serviceTypeId: string,
+  ) => (
+    <View key={material.id} style={styles.materialCard}>
+      <View style={styles.materialCardHeader}>
+        <View style={styles.materialCardHeaderLeft}>
+          <Text style={styles.materialCardServiceRequest}>
+            {formatServiceRequestLabel(serviceTypeId, selectedOrderData)}
+          </Text>
+          <Text style={styles.materialCardItemNumber}>{material.itemNumber}</Text>
+          <Text style={styles.materialCardDescription}>
+            {material.description}
+          </Text>
+        </View>
+        {renderTypeBadge(material)}
+      </View>
+      <View style={styles.materialCardFooter}>
+        <View style={styles.materialCardQtyRow}>
+          <Text style={styles.materialCardQtyLabel}>Qty</Text>
+          {renderQuantityControls(material)}
+        </View>
+        {renderDeleteButton(material.id)}
+      </View>
+    </View>
+  );
+
+  const renderMaterialRow = (
+    material: MaterialsSupply,
+    serviceTypeId: string,
+  ) => (
     <View key={material.id} style={styles.materialsTableRow}>
+      <Text
+        style={[
+          styles.materialsTableCell,
+          styles.materialsTableCellServiceRequest,
+        ]}>
+        {formatServiceRequestLabel(serviceTypeId, selectedOrderData)}
+      </Text>
       <Text style={styles.materialsTableCell}>{material.itemNumber}</Text>
       <Text
         style={[
@@ -168,53 +252,24 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
         {material.description}
       </Text>
       <View style={styles.materialsTableCell}>
-        <View style={styles.quantityEditContainer}>
-          <TouchableOpacity
-            onPress={() => handleAdjustQuantity(material.id, -1)}
-            disabled={isCurrentOrderCompleted || material.quantity <= 1}
-            style={[
-              styles.quantityEditButton,
-              (isCurrentOrderCompleted || material.quantity <= 1) && {
-                opacity: 0.4,
-              },
-            ]}
-            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
-            <Icon name="remove" size={20} color={colors.foreground} />
-          </TouchableOpacity>
-          <Text style={styles.materialsTableQuantity}>
-            {material.quantity}
-          </Text>
-          <TouchableOpacity
-            onPress={() => handleAdjustQuantity(material.id, 1)}
-            disabled={isCurrentOrderCompleted}
-            style={[
-              styles.quantityEditButton,
-              isCurrentOrderCompleted && {opacity: 0.4},
-            ]}
-            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
-            <Icon name="add" size={20} color={colors.foreground} />
-          </TouchableOpacity>
-        </View>
+        {renderQuantityControls(material)}
       </View>
+      <View style={styles.materialsTableCell}>{renderTypeBadge(material)}</View>
       <View style={styles.materialsTableCell}>
-        <Badge
-          variant={material.type === 'used' ? 'default' : 'secondary'}>
-          {material.type === 'used' ? 'Used' : 'Left Behind'}
-        </Badge>
-      </View>
-      <View style={styles.materialsTableCell}>
-        <TouchableOpacity
-          onPress={() => handleDeleteMaterial(material.id)}
-          disabled={isCurrentOrderCompleted}
-          style={styles.deleteMaterialButton}>
-          <Text style={styles.deleteMaterialButtonText}>Delete</Text>
-        </TouchableOpacity>
+        {renderDeleteButton(material.id)}
       </View>
     </View>
   );
 
   const renderTableHeader = () => (
     <View style={styles.materialsTableHeader}>
+      <Text
+        style={[
+          styles.materialsTableHeaderText,
+          styles.materialsTableCellServiceRequest,
+        ]}>
+        Service Request
+      </Text>
       <Text style={styles.materialsTableHeaderText}>Item #</Text>
       <Text
         style={[
@@ -367,10 +422,26 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
                         </Pressable>
                         {isExpanded && (
                           <View style={styles.containerServiceGroupBody}>
-                            <View style={styles.materialsTable}>
-                              {renderTableHeader()}
-                              {group.materials.map(renderMaterialRow)}
-                            </View>
+                            {useCompactMaterialsLayout ? (
+                              <View style={styles.materialCardList}>
+                                {group.materials.map(material =>
+                                  renderMaterialCard(
+                                    material,
+                                    group.serviceTypeId,
+                                  ),
+                                )}
+                              </View>
+                            ) : (
+                              <View style={styles.materialsTable}>
+                                {renderTableHeader()}
+                                {group.materials.map(material =>
+                                  renderMaterialRow(
+                                    material,
+                                    group.serviceTypeId,
+                                  ),
+                                )}
+                              </View>
+                            )}
                           </View>
                         )}
                       </View>

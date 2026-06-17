@@ -396,7 +396,13 @@ export function renderDashboardTabContent(
             <Text style={styles.dashboardSectionNote}>Based on prior service data for each customer</Text>
           </CardHeader>
           <CardContent>
-            <ScrollView horizontal showsHorizontalScrollIndicator={true} contentContainerStyle={styles.dashboardTableScrollContent}>
+            <ScrollView
+              horizontal
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator={true}
+              style={styles.dashboardTableHorizontalScroll}
+              contentContainerStyle={styles.dashboardTableScrollContent}
+              keyboardShouldPersistTaps="handled">
               <View style={[styles.dashboardTable, styles.dashboardTableInHorizontalScroll]}>
                 <View style={styles.dashboardTableHeaderRow}>
                   <Text style={[styles.dashboardTableHeaderCell, styles.dashboardTableColCustomer]}>&nbsp;</Text>

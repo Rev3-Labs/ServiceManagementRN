@@ -10,7 +10,7 @@ import {
 import {Icon} from './Icon';
 import {colors, spacing, typography, borderRadius, touchTargets} from '../styles/theme';
 import {Input} from './Input';
-import {photoService, PhotoCategory} from '../services/photoService';
+import {photoService, PhotoCategory, PHOTO_CATEGORY_OPTIONS} from '../services/photoService';
 import {launchCamera, ImagePickerResponse, CameraOptions} from 'react-native-image-picker';
 
 interface PhotoCaptureFABProps {
@@ -135,15 +135,11 @@ export const PhotoCaptureFAB: React.FC<PhotoCaptureFABProps> = ({
     }
   };
 
-  const photoCategories: {category: PhotoCategory; label: string; icon: string}[] = [
-    {category: 'before-service', label: 'Before Service', icon: 'camera-alt'},
-    {category: 'waste-item', label: 'Waste Item', icon: 'inventory'},
-    {category: 'site-condition', label: 'Site Condition', icon: 'home'},
-    {category: 'safety-issue', label: 'Safety Issue', icon: 'warning'},
-    {category: 'equipment', label: 'Equipment', icon: 'security'},
-    {category: 'customer-document', label: 'Customer Document', icon: 'description'},
-    {category: 'other', label: 'Other', icon: 'folder'},
-  ];
+  const photoCategories = PHOTO_CATEGORY_OPTIONS.map(({category, label, icon}) => ({
+    category,
+    label,
+    icon,
+  }));
 
   return (
     <>

@@ -2,6 +2,19 @@ import {ViewStyle} from 'react-native';
 
 export const DASHBOARD_INVENTORY_COLUMNS = ['55DF', '55DM', '30DF', '30DM', 'Tote', '18DF', '8DF', 'Other'];
 
+const DASHBOARD_INVENTORY_CUSTOMER_COL_WIDTH = 180;
+const DASHBOARD_INVENTORY_CELL_WIDTH = 96;
+const DASHBOARD_INVENTORY_OTHER_COL_WIDTH = 180;
+
+/** Minimum table width so all inventory columns stay visible via horizontal scroll on narrow screens. */
+export const DASHBOARD_INVENTORY_TABLE_MIN_WIDTH =
+  DASHBOARD_INVENTORY_CUSTOMER_COL_WIDTH +
+  DASHBOARD_INVENTORY_COLUMNS.reduce(
+    (sum, col) =>
+      sum + (col === 'Other' ? DASHBOARD_INVENTORY_OTHER_COL_WIDTH : DASHBOARD_INVENTORY_CELL_WIDTH),
+    0,
+  );
+
 export const SIMULATED_CONTAINERS_BY_ORDER_INDEX: Record<string, number>[] = [
   { '55DF': 2, '55DM': 0, '30DF': 1, '30DM': 0, 'Tote': 0, '18DF': 1, '8DF': 0, 'Other': 0 },
   { '55DF': 0, '55DM': 1, '30DF': 2, '30DM': 0, 'Tote': 1, '18DF': 0, '8DF': 0, 'Other': 1 },
