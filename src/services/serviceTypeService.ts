@@ -15,49 +15,51 @@ export interface ServiceType {
  * Per UI requirements: use these codes as the IDs everywhere.
  */
 export const SERVICE_TYPES: Record<string, ServiceType> = {
-  RX: {
-    id: 'RX',
-    name: 'Regulated Medical Waste',
+  WCS: {
+    id: 'WCS',
+    name: 'Waste Container Service',
+    description: 'Container exchange, delivery, and related container service work',
+  },
+  WS: {
+    id: 'WS',
+    name: 'Waste Services',
+    description: 'General waste collection and disposal services',
+  },
+  HCS: {
+    id: 'HCS',
+    name: 'Healthcare Collection Service',
     description:
-      'Collection and disposal of regulated medical waste (biohazard, sharps, pathological)',
+      'Healthcare waste collection including regulated medical, pharmaceutical, and biohazard waste',
   },
-  HZ: {
-    id: 'HZ',
-    name: 'Hazardous Waste',
-    description: 'General hazardous waste pickup and disposal',
-  },
-  CX: {
-    id: 'CX',
-    name: 'Chemotherapy Waste',
-    description: 'Hazardous pharmaceutical/chemotherapy waste',
-  },
-  HD: {
-    id: 'HD',
-    name: 'High-Difficulty / Specialty Handling',
+  SDO: {
+    id: 'SDO',
+    name: 'Supplies Drop Off',
     description:
-      'Special handling workflows (e.g., lab pack, emergency response, specialty pickups)',
-  },
-  FC: {
-    id: 'FC',
-    name: 'Facility Cleanup / Container Service',
-    description: 'Sharps/container exchange and related container service work',
-  },
-  PH: {
-    id: 'PH',
-    name: 'Pharmaceutical Waste',
-    description: 'Non-controlled pharmaceutical waste collection',
-  },
-  DE: {
-    id: 'DE',
-    name: 'DEA / Controlled Substances',
-    description: 'DEA-regulated controlled substance destruction',
-  },
-  RE: {
-    id: 'RE',
-    name: 'Retail Waste Services',
-    description: 'Retail location waste management services',
+      'Deliver materials and equipment to the customer site; containers track supplies only',
   },
 };
+
+export const SUPPLIES_DROP_OFF_SERVICE_TYPE_ID = 'SDO';
+
+export function isSuppliesDropOffServiceType(serviceTypeId: string): boolean {
+  return serviceTypeId === SUPPLIES_DROP_OFF_SERVICE_TYPE_ID;
+}
+
+export function getServiceEntryStep(
+  serviceTypeId: string,
+  isNoShip = false,
+): 'container-summary' | 'stream-selection' {
+  return isSuppliesDropOffServiceType(serviceTypeId) || isNoShip
+    ? 'container-summary'
+    : 'stream-selection';
+}
+
+export function shouldSkipContainerEntryFlow(
+  serviceTypeId: string,
+  isNoShip = false,
+): boolean {
+  return getServiceEntryStep(serviceTypeId, isNoShip) === 'container-summary';
+}
 
 class ServiceTypeService {
   /**

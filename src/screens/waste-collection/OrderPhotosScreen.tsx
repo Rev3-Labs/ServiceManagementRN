@@ -28,7 +28,9 @@ import {
   OrderPhoto,
   PhotoCategory,
   PhotoCategoryDefinition,
+  PhotoDocumentGroupWithPhotos,
   PHOTO_CATEGORY_DEFINITIONS,
+  isShippingDocumentCategory,
 } from '../../services/photoService';
 import {colors, spacing, typography, borderRadius, touchTargets} from '../../styles/theme';
 import {isLandscape} from '../../utils/responsive';
@@ -102,6 +104,15 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
   const [viewerEditingNote, setViewerEditingNote] = useState(false);
   const [viewerNoteText, setViewerNoteText] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingGroupId, setPendingGroupId] = useState<string | null>(null);
+  const [addPagePrompt, setAddPagePrompt] = useState<{
+    groupId: string;
+    category: PhotoCategory;
+  } | null>(null);
+  const [editingGroup, setEditingGroup] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
 
   const orderNumber = selectedOrderData?.orderNumber ?? '';
   const isCurrentOrderCompleted = selectedOrderData
@@ -136,8 +147,32 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
 
   const filteredPhotos = useMemo(() => {
     if (activeFilter === 'all') return sortedPhotos;
+    if (isShippingDocumentCategory(activeFilter)) {
+      const groups = photoService.getDocumentGroupsForOrder(
+        orderNumber,
+        activeFilter,
+      );
+      const ordered: OrderPhoto[] = [];
+      groups.forEach(group => {
+        ordered.push(...photoService.getPhotosInGroup(orderNumber, group.id));
+      });
+      return ordered;
+    }
     return sortedPhotos.filter(p => p.category === activeFilter);
-  }, [sortedPhotos, activeFilter]);
+  }, [sortedPhotos, activeFilter, orderNumber, photos]);
+
+  const isShippingFilter =
+    activeFilter !== 'all' && isShippingDocumentCategory(activeFilter);
+
+  const shippingDocumentGroups = useMemo((): PhotoDocumentGroupWithPhotos[] => {
+    if (!isShippingFilter) return [];
+    return photoService
+      .getDocumentGroupsForOrder(orderNumber, activeFilter)
+      .map(group =>
+        photoService.getDocumentGroupWithPhotos(orderNumber, group.id),
+      )
+      .filter((group): group is PhotoDocumentGroupWithPhotos => group != null);
+  }, [photos, activeFilter, orderNumber, isShippingFilter]);
 
   const activeFilterMeta =
     activeFilter !== 'all'
@@ -162,7 +197,7 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
   };
 
   const openCamera = useCallback(
-    (presetCategory: PhotoCategory) => {
+    (presetCategory: PhotoCategory, groupId?: string) => {
       if (!photoService.canAddPhotoToCategory(orderNumber, presetCategory)) {
         const max = photoService.getMaxPhotosForCategory(presetCategory);
         const label = photoService.getCategoryLabel(presetCategory);
@@ -192,6 +227,7 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
 
         setPendingPhotoUri(uri);
         setPendingPhotoCategory(presetCategory);
+        setPendingGroupId(groupId ?? null);
         setPhotoCaption('');
         setShowCaptionModal(true);
       });
@@ -202,6 +238,7 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
   const resetPendingPhoto = () => {
     setPendingPhotoUri(null);
     setPendingPhotoCategory(null);
+    setPendingGroupId(null);
     setPhotoCaption('');
     setShowCaptionModal(false);
   };
@@ -211,14 +248,25 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
 
     try {
       const caption = photoCaption.trim() || undefined;
-      await photoService.addPhoto(
+      const saved = await photoService.addPhoto(
         orderNumber,
         pendingPhotoUri,
         pendingPhotoCategory,
         caption,
+        pendingGroupId ?? undefined,
       );
       setActiveFilter(pendingPhotoCategory);
       resetPendingPhoto();
+
+      if (
+        isShippingDocumentCategory(pendingPhotoCategory) &&
+        saved.groupId
+      ) {
+        setAddPagePrompt({
+          groupId: saved.groupId,
+          category: pendingPhotoCategory,
+        });
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to save photo';
@@ -273,6 +321,26 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
       caption: viewerNoteText.trim() || undefined,
     });
     setViewerEditingNote(false);
+  };
+
+  const openEditGroupTitle = (group: PhotoDocumentGroupWithPhotos) => {
+    const currentLabel =
+      group.label ?? photoService.getCategoryLabel(group.category);
+    setEditingGroup({id: group.id, label: currentLabel});
+  };
+
+  const handleSaveGroupTitle = async () => {
+    if (!editingGroup || !orderNumber) return;
+    try {
+      await photoService.updateDocumentGroup(orderNumber, editingGroup.id, {
+        label: editingGroup.label,
+      });
+      setEditingGroup(null);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to update title';
+      Alert.alert('Error', message);
+    }
   };
 
   if (!selectedOrderData) return null;
@@ -336,6 +404,29 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
     </View>
   );
 
+  const getPhotoBadgeLabel = (photo: OrderPhoto) => {
+    const label = photoService.getCategoryLabel(photo.category);
+    if (photo.groupId && photo.pageIndex != null) {
+      return `${label} · p${photo.pageIndex}`;
+    }
+    return label;
+  };
+
+  const getViewerTitle = (photo: OrderPhoto) => {
+    if (photo.groupId && photo.pageIndex != null) {
+      const groupLabel = photoService.getDocumentGroupDisplayLabel(
+        orderNumber,
+        photo.groupId,
+      );
+      const groupPages = photoService.getPhotosInGroup(
+        orderNumber,
+        photo.groupId,
+      );
+      return `${groupLabel} · Page ${photo.pageIndex} of ${groupPages.length}`;
+    }
+    return photoService.getCategoryLabel(photo.category);
+  };
+
   const renderThumbnail = (photo: OrderPhoto, index: number) => (
     <TouchableOpacity
       key={photo.id}
@@ -349,10 +440,94 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
       />
       <View style={localStyles.thumbnailBadge}>
         <Text style={localStyles.thumbnailBadgeText} numberOfLines={1}>
-          {photoService.getCategoryLabel(photo.category)}
+          {getPhotoBadgeLabel(photo)}
         </Text>
       </View>
     </TouchableOpacity>
+  );
+
+  const pageThumbSize = 88;
+
+  const renderDocumentCard = (group: PhotoDocumentGroupWithPhotos) => {
+    const label = photoService.getDocumentGroupDisplayLabel(
+      orderNumber,
+      group.id,
+    );
+    return (
+      <View key={group.id} style={localStyles.documentCard}>
+        <View style={localStyles.documentCardHeader}>
+          <View style={localStyles.documentCardTitleRow}>
+            <Text style={localStyles.documentCardTitle}>{label}</Text>
+            {!isCurrentOrderCompleted && (
+              <TouchableOpacity
+                onPress={() => openEditGroupTitle(group)}
+                style={localStyles.documentCardEditButton}
+                hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                activeOpacity={0.7}>
+                <Icon name="edit" size={20} color={colors.primary} />
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={localStyles.documentCardMeta}>
+            {group.photos.length} page{group.photos.length !== 1 ? 's' : ''}
+          </Text>
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={localStyles.pageStrip}>
+          {group.photos.map(photo => {
+            const index = filteredPhotos.findIndex(p => p.id === photo.id);
+            return (
+              <TouchableOpacity
+                key={photo.id}
+                style={localStyles.pageThumb}
+                onPress={() => openViewer(index)}
+                activeOpacity={0.8}>
+                <Image
+                  source={{uri: photo.uri}}
+                  style={[
+                    localStyles.pageThumbImage,
+                    {width: pageThumbSize, height: pageThumbSize},
+                  ]}
+                  resizeMode="cover"
+                />
+                <Text style={localStyles.pageThumbLabel}>
+                  p{photo.pageIndex}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+          {!isCurrentOrderCompleted && activeFilter !== 'all' && (
+            <TouchableOpacity
+              style={[
+                localStyles.pageAddThumb,
+                {width: pageThumbSize, height: pageThumbSize},
+              ]}
+              onPress={() => openCamera(activeFilter, group.id)}
+              activeOpacity={0.7}>
+              <Icon name="add-a-photo" size={28} color={colors.primary} />
+              <Text style={localStyles.pageAddLabel}>Add page</Text>
+            </TouchableOpacity>
+          )}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  const renderDocumentCardList = () => (
+    <View style={localStyles.documentList}>
+      {shippingDocumentGroups.map(renderDocumentCard)}
+      {!isCurrentOrderCompleted && activeFilterMeta && (
+        <Button
+          title={`Capture new ${activeFilterMeta.label}`}
+          variant="outline"
+          size="md"
+          onPress={() => openCamera(activeFilter as PhotoCategory)}
+          style={localStyles.newDocumentButton}
+        />
+      )}
+    </View>
   );
 
   const renderAddTile = () => {
@@ -421,7 +596,31 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
           removeClippedSubviews={false}>
           {renderFilterChips()}
 
-          {filteredPhotos.length === 0 ? (
+          {isShippingFilter ? (
+            shippingDocumentGroups.length === 0 ? (
+              <View style={styles.emptyMaterialsState}>
+                <Icon
+                  name="photo-library"
+                  size={48}
+                  color={colors.mutedForeground}
+                />
+                <Text style={styles.emptyMaterialsText}>
+                  {`No ${activeFilterMeta?.label ?? 'document'} photos yet`}
+                </Text>
+                {!isCurrentOrderCompleted && activeFilterMeta && (
+                  <Button
+                    title={`Capture ${activeFilterMeta.label}`}
+                    variant="primary"
+                    size="md"
+                    onPress={() => openCamera(activeFilter)}
+                    style={localStyles.emptyCaptureButton}
+                  />
+                )}
+              </View>
+            ) : (
+              renderDocumentCardList()
+            )
+          ) : filteredPhotos.length === 0 ? (
             <View style={styles.emptyMaterialsState}>
               <Icon name="photo-library" size={48} color={colors.mutedForeground} />
               <Text style={styles.emptyMaterialsText}>
@@ -464,7 +663,7 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
             {viewerPhoto && (
               <View style={localStyles.viewerHeaderCenter}>
                 <Text style={localStyles.viewerCategory}>
-                  {photoService.getCategoryLabel(viewerPhoto.category)}
+                  {getViewerTitle(viewerPhoto)}
                 </Text>
                 <Text style={localStyles.viewerTimestamp}>
                   {new Date(viewerPhoto.timestamp).toLocaleString()}
@@ -520,7 +719,7 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
                 {viewerEditingNote ? (
                   <View style={localStyles.viewerNoteEdit}>
                     <Input
-                      label="Comment"
+                      label="Note"
                       placeholder="Add a note (optional)"
                       value={viewerNoteText}
                       onChangeText={setViewerNoteText}
@@ -549,7 +748,7 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
                   <Text style={localStyles.viewerCaption}>
                     {viewerPhoto.caption?.trim()
                       ? viewerPhoto.caption
-                      : 'No comment'}
+                      : 'No note'}
                   </Text>
                 )}
               </View>
@@ -608,6 +807,82 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
       </Modal>
 
       <Modal
+        visible={editingGroup != null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditingGroup(null)}>
+        <View style={localStyles.captionModalOverlay}>
+          <View style={localStyles.captionModalContainer}>
+            <View style={localStyles.modalHeader}>
+              <Text style={localStyles.modalTitle}>Document title</Text>
+              <TouchableOpacity
+                onPress={() => setEditingGroup(null)}
+                style={localStyles.modalCloseButton}>
+                <Icon name="close" size={20} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+            <View style={localStyles.captionModalContent}>
+              <Input
+                label="Title"
+                placeholder="Enter a title for this document"
+                value={editingGroup?.label ?? ''}
+                onChangeText={text =>
+                  setEditingGroup(prev =>
+                    prev ? {...prev, label: text} : prev,
+                  )
+                }
+                autoFocus
+              />
+              <Button
+                title="Save"
+                variant="primary"
+                size="lg"
+                onPress={handleSaveGroupTitle}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={addPagePrompt != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAddPagePrompt(null)}>
+        <View style={localStyles.captionModalOverlay}>
+          <View style={localStyles.addPagePromptBox}>
+            <Text style={localStyles.addPagePromptTitle}>
+              Add another page?
+            </Text>
+            <Text style={localStyles.addPagePromptMessage}>
+              {addPagePrompt
+                ? `You can capture additional pages for this ${photoService.getCategoryLabel(addPagePrompt.category)}.`
+                : ''}
+            </Text>
+            <View style={localStyles.addPagePromptActions}>
+              <Button
+                title="Done"
+                variant="outline"
+                size="md"
+                onPress={() => setAddPagePrompt(null)}
+              />
+              <Button
+                title="Add page"
+                variant="primary"
+                size="md"
+                onPress={() => {
+                  if (!addPagePrompt) return;
+                  const {groupId, category} = addPagePrompt;
+                  setAddPagePrompt(null);
+                  openCamera(category, groupId);
+                }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={showCaptionModal}
         transparent
         animationType="slide"
@@ -615,7 +890,11 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
         <View style={localStyles.captionModalOverlay}>
           <View style={localStyles.captionModalContainer}>
             <View style={localStyles.modalHeader}>
-              <Text style={localStyles.modalTitle}>Add Photo Comment</Text>
+              <Text style={localStyles.modalTitle}>
+                {pendingGroupId && pendingPhotoCategory
+                  ? `Add ${photoService.getCategoryLabel(pendingPhotoCategory)} page`
+                  : 'Add Note'}
+              </Text>
               <TouchableOpacity
                 onPress={resetPendingPhoto}
                 style={localStyles.modalCloseButton}>
@@ -624,7 +903,7 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
             </View>
             <View style={localStyles.captionModalContent}>
               <Input
-                label="Comment"
+                label="Note"
                 placeholder="Add a note about this photo (optional)"
                 value={photoCaption}
                 onChangeText={setPhotoCaption}
@@ -937,5 +1216,101 @@ const localStyles = StyleSheet.create({
   captionModalContent: {
     padding: spacing.lg,
     gap: spacing.md,
+  },
+  documentList: {
+    gap: spacing.md,
+  },
+  documentCard: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  documentCardHeader: {
+    gap: 2,
+  },
+  documentCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  documentCardTitle: {
+    ...typography.base,
+    fontWeight: '700',
+    color: colors.foreground,
+    flex: 1,
+  },
+  documentCardEditButton: {
+    minWidth: touchTargets.min,
+    minHeight: touchTargets.min,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  documentCardMeta: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  pageStrip: {
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  pageThumb: {
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+    backgroundColor: colors.muted,
+  },
+  pageThumbImage: {
+    borderRadius: borderRadius.md,
+  },
+  pageThumbLabel: {
+    ...typography.xs,
+    fontWeight: '600',
+    color: colors.mutedForeground,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  pageAddThumb: {
+    borderRadius: borderRadius.md,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    borderStyle: 'dashed',
+    backgroundColor: colors.primary + '10',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  pageAddLabel: {
+    ...typography.xs,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  newDocumentButton: {
+    marginTop: spacing.xs,
+  },
+  addPagePromptBox: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  addPagePromptTitle: {
+    ...typography.lg,
+    fontWeight: '700',
+    color: colors.foreground,
+    textAlign: 'center',
+  },
+  addPagePromptMessage: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+  },
+  addPagePromptActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
   },
 });

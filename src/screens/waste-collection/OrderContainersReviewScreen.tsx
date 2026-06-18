@@ -5,8 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Pressable,
-  Modal,
-  TextInput,
   StyleSheet,
 } from 'react-native';
 import {colors, spacing, borderRadius, typography} from '../../styles/theme';
@@ -25,6 +23,7 @@ import {
   getDefaultExpandedServiceTypeId,
   groupContainersByServiceRequest,
 } from './containerGrouping';
+import {DeleteContainerConfirmModal} from './DeleteContainerConfirmModal';
 
 export interface OrderContainersReviewScreenProps {
   // Order state
@@ -131,6 +130,9 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
   const containerToDelete = deleteConfirm
     ? activeContainers.find(c => c.id === deleteConfirm.id)
     : null;
+  const containerToDeleteNumber = containerToDelete
+    ? activeContainers.findIndex(c => c.id === containerToDelete.id) + 1
+    : undefined;
   const expectedBarcode = (
     containerToDelete?.shippingLabelBarcode ||
     containerToDelete?.barcode ||
@@ -461,102 +463,18 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
         />
       </View>
 
-      {/* Bottom Sheet Delete Confirmation (Tablet-Optimized) */}
-      <Modal
+      <DeleteContainerConfirmModal
         visible={!!deleteConfirm}
-        transparent
-        animationType="slide"
-        onRequestClose={closeDeleteConfirm}>
-        <TouchableOpacity
-          style={styles.bottomSheetOverlay}
-          activeOpacity={1}
-          onPress={closeDeleteConfirm}>
-          <TouchableOpacity
-            style={styles.bottomSheetContent}
-            activeOpacity={1}
-            onPress={e => e.stopPropagation()}>
-            <View style={styles.bottomSheetHandle} />
-
-            <View style={styles.bottomSheetHeader}>
-              <Text style={styles.bottomSheetTitle}>Delete Container</Text>
-            </View>
-
-            <View style={styles.bottomSheetBody}>
-              <Text style={styles.bottomSheetMessage}>
-                Are you sure you want to delete this container? This action
-                cannot be undone.
-              </Text>
-              <Text style={deleteConfirmStyles.confirmInstructions}>
-                To confirm, enter the container's shipping label:
-              </Text>
-              <TextInput
-                style={deleteConfirmStyles.barcodeInput}
-                value={deleteBarcodeInput}
-                onChangeText={setDeleteBarcodeInput}
-                placeholder="Enter shipping label"
-                placeholderTextColor={colors.mutedForeground}
-                autoCapitalize="characters"
-                autoCorrect={false}
-                editable={expectedBarcode.length > 0}
-              />
-            </View>
-
-            <View style={styles.bottomSheetFooter}>
-              <Button
-                title="Cancel"
-                variant="outline"
-                size="lg"
-                onPress={closeDeleteConfirm}
-                style={styles.bottomSheetCancelButton}
-              />
-              <Button
-                title="Delete"
-                variant="destructive"
-                size="lg"
-                disabled={!isBarcodeMatch}
-                onPress={() =>
-                  deleteConfirm &&
-                  handleDeleteFromReview(deleteConfirm.id)
-                }
-                style={styles.bottomSheetDeleteButton}
-              />
-            </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        container={containerToDelete ?? null}
+        orderData={selectedOrderData}
+        containerNumber={containerToDeleteNumber}
+        barcodeInput={deleteBarcodeInput}
+        onBarcodeChange={setDeleteBarcodeInput}
+        onCancel={closeDeleteConfirm}
+        onConfirm={() =>
+          deleteConfirm && handleDeleteFromReview(deleteConfirm.id)
+        }
+      />
     </View>
   );
 };
-
-const deleteConfirmStyles = StyleSheet.create({
-  confirmInstructions: {
-    ...typography.sm,
-    color: colors.mutedForeground,
-    marginTop: spacing.sm,
-  },
-  expectedBarcode: {
-    ...typography.lg,
-    fontFamily: 'monospace',
-    fontWeight: '700',
-    color: colors.foreground,
-    backgroundColor: colors.muted,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
-    textAlign: 'center',
-    letterSpacing: 1,
-  },
-  barcodeInput: {
-    backgroundColor: colors.inputBackground,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    minHeight: 48,
-    ...typography.base,
-    color: colors.foreground,
-    fontFamily: 'monospace',
-    letterSpacing: 1,
-  },
-});

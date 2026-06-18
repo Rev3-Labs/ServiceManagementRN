@@ -45,8 +45,14 @@ import {Switch} from '../components/Switch';
 import {Icon} from '../components/Icon';
 import {syncService, SyncStatus} from '../services/syncService';
 import {recordContainerDrop} from '../services/dropWasteService';
-import {getUserTruckId, getUserTruck, getUserTrailer} from '../services/userSettingsService';
-import {vehicleService} from '../services/vehicleService';
+import {
+  getUserTruckId,
+  getUserTruck,
+  getUserTrailer,
+  saveUserTruck,
+  saveUserTrailer,
+} from '../services/userSettingsService';
+import {vehicleService, Truck, Trailer} from '../services/vehicleService';
 import {offlineTrackingService, OfflineStatus} from '../services/offlineTrackingService';
 import {
   getPersistedIssues,
@@ -95,9 +101,10 @@ import {safeAsyncStorage} from '../utils/storage';
 import {MATERIALS_CATALOG} from '../data/materialsCatalog';
 import {PersistentOrderHeader} from '../components/PersistentOrderHeader';
 import {BeforeServicePhotoModal} from '../components/BeforeServicePhotoModal';
+import {VehicleSelectionModal} from '../components/VehicleSelectionModal';
 import {photoService} from '../services/photoService';
 import {pListedAuthorizationService, PListedCode} from '../services/pListedAuthorizationService';
-import {serviceTypeService} from '../services/serviceTypeService';
+import {serviceTypeService, getServiceEntryStep} from '../services/serviceTypeService';
 import {serviceTypeTimeService, ServiceTypeTimeEntry} from '../services/serviceTypeTimeService';
 import {
   NO_SHIP_REASON_CODES,
@@ -148,7 +155,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
    */
   const [inManifestCompletion, setInManifestCompletion] = useState(false);
   const [showPostLoginSyncOverlay, setShowPostLoginSyncOverlay] = useState(false);
+  const [postLoginSyncPhase, setPostLoginSyncPhase] = useState<'syncing' | 'error' | null>(null);
+  const [postLoginInitialFlowComplete, setPostLoginInitialFlowComplete] = useState(false);
   const postLoginOverlayShownAtRef = useRef<number | null>(null);
+  const postLoginSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [checklistAnswers, setChecklistAnswers] = useState<ChecklistAnswer[] | null>(null);
   const [selectedOrderData, setSelectedOrderData] = useState<OrderData | null>(
@@ -202,6 +212,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [badgeNoShipReasonNotes, setBadgeNoShipReasonNotes] = useState('');
   const [beforeServicePhotoGate, setBeforeServicePhotoGate] =
     useState<PendingStartService | null>(null);
+  const [showVehicleSelectionGate, setShowVehicleSelectionGate] = useState(false);
+  const [vehicleSelectionConfirmed, setVehicleSelectionConfirmed] = useState(false);
+  const [pendingAfterVehicleSelection, setPendingAfterVehicleSelection] =
+    useState<PendingStartService | null>(null);
+  const postLoginVehiclePromptShownRef = useRef(false);
   const [editingServiceTypeId, setEditingServiceTypeId] = useState<string | null>(null);
   const [editingTimeField, setEditingTimeField] = useState<'start' | 'end' | null>(null);
   const [editingTimeValue, setEditingTimeValue] = useState({hours: '12', minutes: '00', ampm: 'AM'});
@@ -693,10 +708,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }
   }, []);
 
-  // Default vehicle when user has none saved (e.g. first login)
-  const DEFAULT_TRUCK_NUMBER = 'TRK-1045';
-  const DEFAULT_TRAILER_NUMBER = 'TRL-0893';
-
   // Load truck, trailer, and truck ID for the user (dashboard header and settings)
   const loadTruckId = useCallback(async () => {
     if (!username) return;
@@ -706,33 +717,37 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         getUserTruck(username),
         getUserTrailer(username),
       ]);
-      if (id) setTruckId(id);
       if (truck) {
+        setTruckId(truck.number);
         setSelectedTruck({ number: truck.number, description: truck.description });
       } else if (id) {
+        setTruckId(id);
         const truckByNumber = vehicleService.getTruckByNumber(id);
         if (truckByNumber) {
           setSelectedTruck({ number: truckByNumber.number, description: truckByNumber.description });
         }
-      } else {
-        const defaultTruck = vehicleService.getTruckByNumber(DEFAULT_TRUCK_NUMBER);
-        if (defaultTruck) {
-          setTruckId(defaultTruck.number);
-          setSelectedTruck({ number: defaultTruck.number, description: defaultTruck.description });
-        }
       }
       if (trailer) {
         setSelectedTrailer({ number: trailer.number, description: trailer.description });
-      } else {
-        const defaultTrailer = vehicleService.getTrailerByNumber(DEFAULT_TRAILER_NUMBER);
-        if (defaultTrailer) {
-          setSelectedTrailer({ number: defaultTrailer.number, description: defaultTrailer.description });
-        }
       }
     } catch (error) {
       console.error('Error loading truck/trailer:', error);
     }
   }, [username]);
+
+  const resolveInitialTruckForModal = useCallback((): Truck | null => {
+    if (selectedTruck) {
+      return vehicleService.getTruckByNumber(selectedTruck.number);
+    }
+    return null;
+  }, [selectedTruck]);
+
+  const resolveInitialTrailerForModal = useCallback((): Trailer | null => {
+    if (selectedTrailer) {
+      return vehicleService.getTrailerByNumber(selectedTrailer.number);
+    }
+    return null;
+  }, [selectedTrailer]);
 
   const getElapsedTimeDisplay = useCallback((record?: TimeTrackingRecord | null) => {
     if (!record) return '';
@@ -1036,16 +1051,33 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     };
   }, []);
 
-  // Post-login sync overlay: show when landing after login, dismiss when sync completes (with minimum display time)
+  // Post-login sync overlay: simulate a brief sync, then a minor network error with Retry
   useEffect(() => {
     if (isPostLogin && !showPostLoginSyncOverlay && postLoginOverlayShownAtRef.current === null) {
       setShowPostLoginSyncOverlay(true);
       postLoginOverlayShownAtRef.current = Date.now();
+      setPostLoginSyncPhase('syncing');
+      syncService.setSyncStatus('syncing');
+      postLoginSyncTimerRef.current = setTimeout(() => {
+        setPostLoginSyncPhase('error');
+        syncService.setSyncStatus('error');
+      }, 3000);
     }
   }, [isPostLogin, showPostLoginSyncOverlay]);
 
   useEffect(() => {
+    return () => {
+      if (postLoginSyncTimerRef.current) {
+        clearTimeout(postLoginSyncTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!showPostLoginSyncOverlay || postLoginOverlayShownAtRef.current === null) return;
+    // Post-login flow must complete via Retry Sync, not auto-dismiss
+    if (isPostLogin && !postLoginInitialFlowComplete) return;
+    if (postLoginSyncPhase !== null) return;
     const syncDone = syncStatus === 'synced' || syncStatus === 'pending';
     const syncFailedOrOffline = syncStatus === 'error' || !offlineStatus.isOnline;
     const shouldDismiss = syncDone || syncFailedOrOffline;
@@ -1058,10 +1090,56 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       const timer = setTimeout(() => setShowPostLoginSyncOverlay(false), minDisplayMs - elapsed);
       return () => clearTimeout(timer);
     }
-  }, [showPostLoginSyncOverlay, syncStatus, offlineStatus.isOnline]);
+  }, [
+    showPostLoginSyncOverlay,
+    syncStatus,
+    offlineStatus.isOnline,
+    postLoginSyncPhase,
+    isPostLogin,
+    postLoginInitialFlowComplete,
+  ]);
+
+  const handlePostLoginRetrySync = useCallback(() => {
+    if (postLoginSyncTimerRef.current) {
+      clearTimeout(postLoginSyncTimerRef.current);
+      postLoginSyncTimerRef.current = null;
+    }
+    setPostLoginSyncPhase('syncing');
+    syncService.setSyncStatus('syncing');
+    postLoginSyncTimerRef.current = setTimeout(() => {
+      postLoginSyncTimerRef.current = null;
+      setPostLoginSyncPhase(null);
+      syncService.setSyncStatus('synced');
+      setShowPostLoginSyncOverlay(false);
+      setPostLoginInitialFlowComplete(true);
+    }, 2500);
+  }, []);
+
+  // After post-login sync + retry completes, prompt for vehicle selection
+  useEffect(() => {
+    if (
+      isPostLogin &&
+      postLoginInitialFlowComplete &&
+      !vehicleSelectionConfirmed &&
+      !postLoginVehiclePromptShownRef.current
+    ) {
+      postLoginVehiclePromptShownRef.current = true;
+      setShowVehicleSelectionGate(true);
+    }
+  }, [
+    isPostLogin,
+    postLoginInitialFlowComplete,
+    vehicleSelectionConfirmed,
+  ]);
+
+  const handleVehicleSelectionCancel = useCallback(() => {
+    setShowVehicleSelectionGate(false);
+    setPendingAfterVehicleSelection(null);
+  }, []);
 
   // Handle manual sync (from header Sync button); show overlay, close after 10s (real sync runs in background)
   const handleManualSync = useCallback(async () => {
+    setPostLoginSyncPhase(null);
     setShowPostLoginSyncOverlay(true);
     postLoginOverlayShownAtRef.current = Date.now();
     setTimeout(() => setShowPostLoginSyncOverlay(false), 10 * 1000);
@@ -1082,6 +1160,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     }
 
     try {
+      const serviceTypes = order.programs || [];
       // Start order-level time tracking (overall order time)
       await startTimeTracking(order.orderNumber, truckId, username);
       
@@ -1097,7 +1176,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       }
       
       // Start the service type (should already be selected at this point)
-      const serviceTypes = order.programs || [];
       if (serviceTypes.length === 1 && username) {
         // Single service type - start it immediately
         await serviceTypeTimeService.startServiceType(
@@ -1131,7 +1209,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       
       // Set selected order and navigate to stream selection
       setSelectedOrderData(order);
-      setCurrentStep('stream-selection');
+      const firstServiceType = serviceTypes[0] ?? '';
+      setCurrentStep(
+        getServiceEntryStep(
+          firstServiceType,
+          Boolean(noshipByOrderAndServiceType[order.orderNumber]?.[firstServiceType]),
+        ),
+      );
       
       // Update order status to "Partial" when starting
       setOrderStatuses(prev => ({
@@ -1145,10 +1229,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       console.error('Error starting time tracking:', error);
       // Still allow navigation even if tracking fails
       setSelectedOrderData(order);
-      setCurrentStep('stream-selection');
+      const firstServiceType = order.programs[0] ?? '';
+      setCurrentStep(
+        getServiceEntryStep(
+          firstServiceType,
+          Boolean(noshipByOrderAndServiceType[order.orderNumber]?.[firstServiceType]),
+        ),
+      );
       setShowJobNotesModal(false);
     }
-  }, [truckId, username, selectedOrderData?.orderNumber, checkCanWorkOnOrder]);
+  }, [truckId, username, selectedOrderData?.orderNumber, checkCanWorkOnOrder, noshipByOrderAndServiceType]);
 
   // Check if actions are blocked due to offline limit
   const checkOfflineBlock = useCallback((): boolean => {
@@ -1194,7 +1284,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         }
         setSelectedOrderData(order);
         setDashboardSelectedOrder(null);
-        setCurrentStep('stream-selection');
+        setCurrentStep(
+          getServiceEntryStep(
+            program,
+            Boolean(noshipByOrderAndServiceType[order.orderNumber]?.[program]),
+          ),
+        );
         setOrderStatuses(prev => ({
           ...prev,
           [order.orderNumber]: 'Partial',
@@ -1211,6 +1306,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       checkOfflineBlock,
       selectedOrderData?.orderNumber,
       checkCanWorkOnOrder,
+      noshipByOrderAndServiceType,
     ],
   );
 
@@ -1225,7 +1321,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     [proceedWithStartService, startServiceTypeAndNavigate],
   );
 
-  const beginStartService = useCallback(
+  const proceedStartServiceFlow = useCallback(
     (pending: PendingStartService) => {
       if (photoService.hasBeforeServicePhoto(pending.order.orderNumber)) {
         void executeStartService(pending);
@@ -1234,6 +1330,44 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       setBeforeServicePhotoGate(pending);
     },
     [executeStartService],
+  );
+
+  const handleVehicleSelectionConfirm = useCallback(
+    async (truck: Truck, trailer: Trailer | null) => {
+      if (!username) {
+        throw new Error('Username not available');
+      }
+      await saveUserTruck(username, truck);
+      await saveUserTrailer(username, trailer);
+      setTruckId(truck.number);
+      setSelectedTruck({number: truck.number, description: truck.description});
+      setSelectedTrailer(
+        trailer
+          ? {number: trailer.number, description: trailer.description}
+          : null,
+      );
+      setVehicleSelectionConfirmed(true);
+      setShowVehicleSelectionGate(false);
+
+      const pending = pendingAfterVehicleSelection;
+      setPendingAfterVehicleSelection(null);
+      if (pending) {
+        proceedStartServiceFlow(pending);
+      }
+    },
+    [username, pendingAfterVehicleSelection, proceedStartServiceFlow],
+  );
+
+  const beginStartService = useCallback(
+    (pending: PendingStartService) => {
+      if (!vehicleSelectionConfirmed) {
+        setPendingAfterVehicleSelection(pending);
+        setShowVehicleSelectionGate(true);
+        return;
+      }
+      proceedStartServiceFlow(pending);
+    },
+    [vehicleSelectionConfirmed, proceedStartServiceFlow],
   );
 
   // Handle starting service - shows service type selection first if multiple service types
@@ -1272,11 +1406,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
   const handleBadgePromptEdit = useCallback(() => {
     if (!badgePromptPayload) return;
-    const { order, program } = badgePromptPayload;
+    const { order, program, noship } = badgePromptPayload;
     setSelectedOrderData(order);
     setActiveServiceTypeTimer(program);
     setDashboardSelectedOrder(null);
-    setCurrentStep('container-summary');
+    setCurrentStep(getServiceEntryStep(program, noship));
     setShowBadgeStartEditModal(false);
     setBadgePromptPayload(null);
   }, [badgePromptPayload]);
@@ -1363,10 +1497,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const handleServiceTypeBadgePress = useCallback(
     (serviceTypeId: string) => {
       if (!selectedOrderData) return;
-      // Navigate to that service type's context (e.g. stream selection; detail view)
-      setCurrentStep('stream-selection');
+      setCurrentStep(
+        getServiceEntryStep(
+          serviceTypeId,
+          isServiceTypeNoShip(selectedOrderData.orderNumber, serviceTypeId),
+        ),
+      );
     },
-    [selectedOrderData],
+    [selectedOrderData, isServiceTypeNoShip],
   );
 
   const handleRequestPause = useCallback(() => {
@@ -3479,6 +3617,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
             returnToContainersReviewAfterAdd={returnToContainersReviewAfterAdd}
             setReturnToContainersReviewAfterAdd={setReturnToContainersReviewAfterAdd}
+            isServiceTypeNoShip={isServiceTypeNoShip}
           />
         );
       case 'containers-review':
@@ -3938,23 +4077,55 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         onRequestClose={() => {}}>
         <Pressable style={styles.postLoginSyncOverlay} onPress={() => {}}>
           <View style={styles.postLoginSyncCard}>
-            <ActivityIndicator size="large" color={colors.primary} style={styles.postLoginSyncSpinner} />
-            <Text style={styles.postLoginSyncTitle}>Syncing your route data</Text>
-            <Text style={styles.postLoginSyncSubtitle}>
-              This may take a few minutes. Your route and orders will appear when sync is complete.
-            </Text>
-            <View style={styles.postLoginSyncSupportRow}>
-              <Text style={styles.postLoginSyncSupportLabel}>
-                If it takes longer than 30 minutes,
-              </Text>
-              <TouchableOpacity
-                onPress={handleContactSupport}
-                activeOpacity={0.7}
-                accessibilityRole="link"
-                accessibilityLabel="Contact support">
-                <Text style={styles.postLoginSyncSupportLink}>contact support</Text>
-              </TouchableOpacity>
-            </View>
+            {postLoginSyncPhase === 'error' ? (
+              <>
+                <Icon name="warning" size={32} color={colors.warning} style={styles.postLoginSyncSpinner} />
+                <Text style={styles.postLoginSyncTitle}>Sync interrupted</Text>
+                <Text style={styles.postLoginSyncSubtitle}>
+                  We had trouble connecting. Check your network and try again.
+                </Text>
+                <Button
+                  title="Retry Sync"
+                  variant="primary"
+                  size="lg"
+                  fullWidth
+                  onPress={handlePostLoginRetrySync}
+                  style={styles.postLoginSyncRetryButton}
+                />
+                <View style={styles.postLoginSyncSupportRow}>
+                  <TouchableOpacity
+                    onPress={handleContactSupport}
+                    activeOpacity={0.7}
+                    accessibilityRole="link"
+                    accessibilityLabel="Contact support">
+                    <Text style={styles.postLoginSyncSupportLink}>Contact support</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.postLoginSyncSupportLabel}>
+                    {' '}if sync takes longer than 30 minutes.
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <ActivityIndicator size="large" color={colors.primary} style={styles.postLoginSyncSpinner} />
+                <Text style={styles.postLoginSyncTitle}>Syncing your route data</Text>
+                <Text style={styles.postLoginSyncSubtitle}>
+                  This may take a few minutes. Your route and orders will appear when sync is complete.
+                </Text>
+                <View style={styles.postLoginSyncSupportRow}>
+                  <TouchableOpacity
+                    onPress={handleContactSupport}
+                    activeOpacity={0.7}
+                    accessibilityRole="link"
+                    accessibilityLabel="Contact support">
+                    <Text style={styles.postLoginSyncSupportLink}>Contact support</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.postLoginSyncSupportLabel}>
+                    {' '}if sync takes longer than 30 minutes.
+                  </Text>
+                </View>
+              </>
+            )}
           </View>
         </Pressable>
       </Modal>
@@ -4593,6 +4764,19 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         </View>
       )}
 
+      {/* Vehicle Selection Gate (post-login and before starting service) */}
+      {showVehicleSelectionGate && (
+        <VehicleSelectionModal
+          visible
+          serviceCenterName={serviceCenter?.name ?? null}
+          initialTruck={resolveInitialTruckForModal()}
+          initialTrailer={resolveInitialTrailerForModal()}
+          allowCancel={pendingAfterVehicleSelection !== null}
+          onConfirm={handleVehicleSelectionConfirm}
+          onCancel={handleVehicleSelectionCancel}
+        />
+      )}
+
       {/* Before Service Photo Gate */}
       {beforeServicePhotoGate && (
         <BeforeServicePhotoModal
@@ -5130,7 +5314,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                   const hasEndTime = timeEntry != null && timeEntry.endTime != null;
                   const isNoShip = isServiceTypeNoShip(order.orderNumber, serviceTypeId);
                   const isSelected = selectedServiceTypeToStart === serviceTypeId;
-                  const isSelectable = !isNoShip && !(hasStartTime && hasEndTime);
+                  const isSelectable = !(hasStartTime && hasEndTime);
                   const isInProgress = activeServiceTypeTimer === serviceTypeId;
                   const isCompleted = !isNoShip && hasStartTime && hasEndTime;
                   const isPending = !isNoShip && !isCompleted && !isInProgress;
@@ -5990,6 +6174,9 @@ export const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '600',
     textDecorationLine: 'underline',
+  },
+  postLoginSyncRetryButton: {
+    marginBottom: spacing.lg,
   },
   appHeader: {
     backgroundColor: colors.card,
