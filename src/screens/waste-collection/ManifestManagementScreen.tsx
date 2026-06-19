@@ -5,12 +5,9 @@ import {
   ScrollView,
   TouchableOpacity,
   Modal,
-  Alert,
-  Image,
   SafeAreaView,
   StyleSheet,
 } from 'react-native';
-import SignatureCanvas from '../../components/SignatureCanvas';
 import {Button} from '../../components/Button';
 import {
   Card,
@@ -67,17 +64,12 @@ export interface ManifestManagementScreenProps {
     trackingNumber?: string;
     createdAt?: Date;
     scannedImageUri?: string;
-    signatureImageUri?: string;
   } | null;
-  setManifestData: (data: any) => void;
   scannedDocuments: ScannedDocument[];
-  showSignatureModal: boolean;
-  setShowSignatureModal: (show: boolean) => void;
   showPrintPreview: boolean;
   setShowPrintPreview: (show: boolean) => void;
   showPrintOptions: boolean;
   setShowPrintOptions: (show: boolean) => void;
-  signatureRef: React.RefObject<any>;
   voidManifest: () => void;
   printManifest: () => Promise<void>;
   printLDR: () => Promise<void>;
@@ -111,15 +103,11 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
   addedContainers,
   manifestTrackingNumber,
   manifestData,
-  setManifestData,
   scannedDocuments,
-  showSignatureModal,
-  setShowSignatureModal,
   showPrintPreview,
   setShowPrintPreview,
   showPrintOptions,
   setShowPrintOptions,
-  signatureRef,
   voidManifest,
   printManifest,
   printLDR,
@@ -198,7 +186,7 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
                 <CardTitleText>Manifest Shipment</CardTitleText>
               </CardTitle>
               <Text style={styles.manifestShipmentSubtitle}>
-                Review and sign your shipment manifest, then continue when ready.
+                Review your shipment manifest, then continue when ready.
               </Text>
             </CardHeader>
             <CardContent>
@@ -352,14 +340,6 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
                 <Text style={styles.manifestActionsLabel}>Manifest actions</Text>
                 <View style={styles.manifestActionsRow}>
                   <Button
-                    title="Sign Manifest"
-                    variant="outline"
-                    size="md"
-                    disabled={isCurrentOrderCompleted}
-                    onPress={() => setShowSignatureModal(true)}
-                    style={styles.manifestActionButton}
-                  />
-                  <Button
                     title="Print Options"
                     variant="outline"
                     size="md"
@@ -405,68 +385,6 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
           }}
         />
       </View>
-
-      {/* Signature Modal */}
-      <Modal
-        visible={showSignatureModal}
-        transparent={false}
-        animationType="slide"
-        onRequestClose={() => setShowSignatureModal(false)}>
-        <SafeAreaView style={styles.signatureModalContainer}>
-          <View style={styles.signatureModalHeader}>
-            <Text style={styles.signatureModalTitle}>Sign Manifest</Text>
-            <TouchableOpacity
-              onPress={() => setShowSignatureModal(false)}
-              style={styles.signatureModalCloseBtn}>
-              <Icon name="close" size={20} color={colors.foreground} />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.signatureCanvasContainer}>
-            <Text style={styles.signatureModalTitle}>Signature Area</Text>
-            <View style={{
-              flex: 1,
-              borderWidth: 2,
-              borderColor: colors.border,
-              borderRadius: borderRadius.md,
-              marginBottom: spacing.md,
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}>
-              <SignatureCanvas
-                ref={signatureRef}
-                onOK={(signature: string) => {
-                  setManifestData((prev: any) => ({
-                    ...prev,
-                    signatureImageUri: signature,
-                  }));
-                  setShowSignatureModal(false);
-                }}
-                onEmpty={() => {
-                  Alert.alert('Please Sign', 'Please provide a signature before saving.');
-                }}
-                penColor="#000000"
-                strokeWidth={3}
-              />
-            </View>
-            <View style={{ flexDirection: 'row', gap: spacing.md }}>
-              <Button
-                title="Clear"
-                onPress={() => signatureRef.current?.clearSignature()}
-                variant="outline"
-              />
-              <Button
-                title="Cancel"
-                onPress={() => setShowSignatureModal(false)}
-                variant="outline"
-              />
-              <Button
-                title="Save"
-                onPress={() => signatureRef.current?.readSignature()}
-              />
-            </View>
-          </View>
-        </SafeAreaView>
-      </Modal>
 
       {/* Print Preview Modal - EPA Uniform Hazardous Waste Manifest */}
       <Modal
@@ -728,21 +646,7 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
                     </View>
                     <View style={{flex: 2}}>
                       <Text style={styles.epaFormCellLabelSmall}>Signature</Text>
-                      {manifestData?.signatureImageUri ? (
-                        <Image
-                          source={{uri: manifestData.signatureImageUri}}
-                          style={{
-                            height: 40,
-                            width: '100%',
-                            borderWidth: 1,
-                            borderColor: '#000000',
-                            borderRadius: borderRadius.sm,
-                          }}
-                          resizeMode="contain"
-                        />
-                      ) : (
-                        <View style={styles.epaSignatureLine} />
-                      )}
+                      <View style={styles.epaSignatureLine} />
                     </View>
                     <View style={styles.epaDateBox}>
                       <Text style={styles.epaFormCellLabelSmall}>Month Day Year</Text>

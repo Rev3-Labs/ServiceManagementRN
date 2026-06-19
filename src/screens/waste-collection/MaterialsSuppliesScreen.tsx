@@ -7,6 +7,7 @@ import {
   Pressable,
   StyleSheet,
   useWindowDimensions,
+  Alert,
 } from 'react-native';
 import {Button} from '../../components/Button';
 import {
@@ -107,6 +108,21 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
     setMaterialsSupplies(prev => prev.filter(m => m.id !== id));
   };
 
+  const requestDeleteMaterial = (material: MaterialsSupply) => {
+    Alert.alert(
+      'Delete Item',
+      `Are you sure you want to delete ${material.itemNumber}?`,
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => handleDeleteMaterial(material.id),
+        },
+      ],
+    );
+  };
+
   const handleAdjustQuantity = (id: string, delta: number) => {
     setMaterialsSupplies(prev =>
       prev.map(m =>
@@ -189,9 +205,9 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
     </View>
   );
 
-  const renderDeleteButton = (materialId: string) => (
+  const renderDeleteButton = (material: MaterialsSupply) => (
     <TouchableOpacity
-      onPress={() => handleDeleteMaterial(materialId)}
+      onPress={() => requestDeleteMaterial(material)}
       disabled={isCurrentOrderCompleted}
       style={styles.deleteMaterialButton}>
       <Text style={styles.deleteMaterialButtonText}>Delete</Text>
@@ -226,7 +242,7 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
           <Text style={styles.materialCardQtyLabel}>Qty</Text>
           {renderQuantityControls(material)}
         </View>
-        {renderDeleteButton(material.id)}
+        {renderDeleteButton(material)}
       </View>
     </View>
   );
@@ -256,7 +272,7 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
       </View>
       <View style={styles.materialsTableCell}>{renderTypeBadge(material)}</View>
       <View style={styles.materialsTableCell}>
-        {renderDeleteButton(material.id)}
+        {renderDeleteButton(material)}
       </View>
     </View>
   );

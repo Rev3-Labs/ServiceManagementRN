@@ -26,7 +26,6 @@ import {
   Linking,
   ViewStyle,
 } from 'react-native';
-import SignatureCanvas from '../components/SignatureCanvas';
 import DropWasteModal from '../components/DropWasteModal';
 import ChecklistScreen from './ChecklistScreen';
 import {sampleChecklist} from '../data/sampleChecklist';
@@ -278,16 +277,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     trackingNumber?: string;
     createdAt?: Date;
     scannedImageUri?: string;
-    signatureImageUri?: string;
   } | null>(null);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [showPrintOptions, setShowPrintOptions] = useState(false);
-  const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [showVoidManifestConfirmModal, setShowVoidManifestConfirmModal] = useState(false);
   const [showVoidManifestSuccessModal, setShowVoidManifestSuccessModal] = useState(false);
   const [completedOrdersSectionCollapsed, setCompletedOrdersSectionCollapsed] = useState(true);
   const [showHeaderMenuModal, setShowHeaderMenuModal] = useState(false);
-  const signatureRef = useRef<any>(null);
   const [materialsSupplies, setMaterialsSupplies] = useState<MaterialsSupply[]>([]);
   // Material modal state - moved to parent to persist across re-renders
   const [showAddMaterialModal, setShowAddMaterialModal] = useState(false);
@@ -302,7 +298,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [materialCatalogSearchQuery, setMaterialCatalogSearchQuery] =
     useState('');
   const [showAddMaterialSuccess, setShowAddMaterialSuccess] = useState(false);
-  
+
   // Handler for adding materials - moved to parent to prevent modal remounting
   const handleAddMaterial = useCallback(() => {
     if (!selectedMaterialItem) return;
@@ -3678,19 +3674,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             addedContainers={currentOrderAddedContainers}
             manifestTrackingNumber={manifestTrackingNumber}
             manifestData={manifestData}
-            setManifestData={setManifestData}
             scannedDocuments={scannedDocuments.map(doc => ({
               ...doc,
               imageUri: doc.uri,
               scannedAt: doc.timestamp,
             })) as unknown as ScannedDocument[]}
-            showSignatureModal={showSignatureModal}
-            setShowSignatureModal={setShowSignatureModal}
             showPrintPreview={showPrintPreview}
             setShowPrintPreview={setShowPrintPreview}
             showPrintOptions={showPrintOptions}
             setShowPrintOptions={setShowPrintOptions}
-            signatureRef={signatureRef}
             voidManifest={voidManifest}
             printManifest={printManifest}
             printLDR={printLDR}
@@ -5950,7 +5942,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       <View style={styles.addSuccessRow}>
                         <Icon name="check-circle" size={18} color={colors.success} style={styles.addSuccessIcon} />
                         <Text style={styles.addSuccessText}>
-                          Material added successfully!
+                          Item added successfully!
                         </Text>
                       </View>
                     </View>
