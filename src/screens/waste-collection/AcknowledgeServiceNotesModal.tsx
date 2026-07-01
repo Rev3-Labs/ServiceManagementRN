@@ -3,12 +3,10 @@ import {
   View,
   Text,
   Modal,
-  ScrollView,
   StyleSheet,
 } from 'react-native';
 import {Button} from '../../components/Button';
 import {OrderData} from '../../types/wasteCollection';
-import {serviceTypeService} from '../../services/serviceTypeService';
 import {colors, spacing, borderRadius, typography} from '../../styles/theme';
 
 export interface AcknowledgeServiceNotesModalProps {
@@ -18,20 +16,9 @@ export interface AcknowledgeServiceNotesModalProps {
   onConfirm: () => void;
 }
 
-function formatOrderLocation(order: OrderData): string {
-  return [order.site, order.city, order.state, order.zip]
-    .filter(Boolean)
-    .join(', ');
-}
-
-function formatServiceRequestTypes(order: OrderData): string {
-  return order.programs
-    .map(program => {
-      const serviceOrderNumber = order.serviceOrderNumbers?.[program];
-      const label = serviceTypeService.formatForOrderDetails(program);
-      return serviceOrderNumber ? `${label} • ${serviceOrderNumber}` : label;
-    })
-    .join('\n');
+function formatOrderSummary(order: OrderData): string {
+  const address = [order.city, order.state, order.zip].filter(Boolean).join(', ');
+  return [order.customer, order.site, address].filter(Boolean).join('\n');
 }
 
 export const AcknowledgeServiceNotesModal: React.FC<
@@ -45,35 +32,12 @@ export const AcknowledgeServiceNotesModal: React.FC<
       onRequestClose={onCancel}>
       <View style={styles.overlay}>
         <View style={styles.card}>
-          <Text style={styles.title}>Continue?</Text>
+          <Text style={styles.title}>Verify Location</Text>
           <Text style={styles.message}>
-            Are you sure you want to continue?
+            Confirm you are at the correct service location before continuing.
           </Text>
           {order ? (
-            <ScrollView
-              style={styles.detailsScroll}
-              contentContainerStyle={styles.detailsContent}>
-              <View style={styles.detailBlock}>
-                <Text style={styles.detailLabel}>Customer</Text>
-                <Text style={styles.detailValue}>{order.customer}</Text>
-              </View>
-              <View style={styles.detailBlock}>
-                <Text style={styles.detailLabel}>Site</Text>
-                <Text style={styles.detailValue}>{order.site}</Text>
-              </View>
-              <View style={styles.detailBlock}>
-                <Text style={styles.detailLabel}>Location</Text>
-                <Text style={styles.detailValue}>
-                  {formatOrderLocation(order)}
-                </Text>
-              </View>
-              <View style={styles.detailBlock}>
-                <Text style={styles.detailLabel}>Service Request</Text>
-                <Text style={styles.detailValue}>
-                  {formatServiceRequestTypes(order)}
-                </Text>
-              </View>
-            </ScrollView>
+            <Text style={styles.detailValue}>{formatOrderSummary(order)}</Text>
           ) : null}
           <View style={styles.footer}>
             <Button
@@ -84,7 +48,7 @@ export const AcknowledgeServiceNotesModal: React.FC<
               style={styles.footerButton}
             />
             <Button
-              title="Continue"
+              title="Confirm Location"
               variant="primary"
               size="md"
               onPress={onConfirm}
@@ -108,7 +72,6 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 480,
-    maxHeight: '85%',
     backgroundColor: colors.card,
     borderRadius: borderRadius.lg,
     padding: spacing.lg,
@@ -126,26 +89,11 @@ const styles = StyleSheet.create({
     color: colors.mutedForeground,
     marginBottom: spacing.md,
   },
-  detailsScroll: {
-    maxHeight: 280,
-    marginBottom: spacing.md,
-  },
-  detailsContent: {
-    gap: spacing.md,
-  },
-  detailBlock: {
-    gap: spacing.xs,
-  },
-  detailLabel: {
-    ...typography.sm,
-    fontWeight: '600',
-    color: colors.mutedForeground,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
   detailValue: {
     ...typography.base,
     color: colors.foreground,
+    lineHeight: 22,
+    marginBottom: spacing.md,
   },
   footer: {
     flexDirection: 'row',

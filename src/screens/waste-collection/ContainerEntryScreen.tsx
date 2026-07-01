@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {
   View,
   Text,
@@ -92,8 +92,7 @@ export interface ContainerEntryScreenProps {
   barcode: string;
   setBarcode: (barcode: string) => void;
   unitCount: string;
-  bulkContainersAdded: number;
-  setBulkContainersAdded: (count: number | ((prev: number) => number)) => void;
+  setUnitCount: (count: string) => void;
   isManualWeightEntry: boolean;
   setIsManualWeightEntry: (manual: boolean) => void;
   isScaleConnected: boolean;
@@ -151,8 +150,7 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
   barcode,
   setBarcode,
   unitCount,
-  bulkContainersAdded,
-  setBulkContainersAdded,
+  setUnitCount,
   isManualWeightEntry,
   setIsManualWeightEntry,
   isScaleConnected,
@@ -182,10 +180,7 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
     unitCount.trim().length > 0 &&
     !Number.isNaN(parsedUnitCount) &&
     parsedUnitCount >= 1;
-  const currentContainerNumber = bulkContainersAdded + 1;
-  const isBulkAdd = !isCylinderProfile && parsedUnitCount > 1;
-
-  const scrollViewRef = useRef<ScrollView>(null);
+  const containersToAdd = isCylinderProfile ? 1 : parsedUnitCount;
 
   // Manual weight override: the scale field is read-only until the user opts
   // into manual entry and selects a reason code (e.g. scale unavailable).
@@ -194,8 +189,9 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
     null,
   );
 
-  const resetEntryFormForNextContainer = () => {
+  const resetEntryForm = () => {
     setBarcode('');
+    setUnitCount('1');
     setTareWeight('45');
     setGrossWeight('285');
     setScaleWeight('');
@@ -287,6 +283,10 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
     }
   }, [scaleWeight]);
 
+  useEffect(() => {
+    setUnitCount('1');
+  }, [selectedContainerType?.id]);
+
   if (!selectedOrderData) return null;
 
   return (
@@ -326,7 +326,6 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
       />
 
       <ScrollView
-        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -334,30 +333,30 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
         showsVerticalScrollIndicator={true}
         removeClippedSubviews={false}
         scrollEventThrottle={16}>
-        {isCylinderProfile ? (
-          <Card style={styles.unitCountCard}>
-            <CardContent>
-              <Text style={styles.sectionDescription}>
-                Adding 1 container with {parsedUnitCount} unit
-                {parsedUnitCount === 1 ? '' : 's'} of {selectedStream} •{' '}
-                {selectedContainerType?.size}
-              </Text>
-            </CardContent>
-          </Card>
-        ) : null}
+        <Card style={styles.unitCountCard}>
+          <CardHeader>
+            <CardTitle>
+              <CardTitleText>Units</CardTitleText>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Input
+              label="Number of Units"
+              required
+              value={unitCount}
+              onChangeText={setUnitCount}
+              keyboardType="numeric"
+              placeholder="Enter unit count"
+              editable={!isCurrentOrderCompleted}
+            />
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
-            <View style={styles.weightInfoHeaderRow}>
-              <CardTitle>
-                <CardTitleText>Weight Information</CardTitleText>
-              </CardTitle>
-              {isBulkAdd ? (
-                <Text style={styles.weightInfoProgressText}>
-                  Container {currentContainerNumber} of {parsedUnitCount}
-                </Text>
-              ) : null}
-            </View>
+            <CardTitle>
+              <CardTitleText>Weight Information</CardTitleText>
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {/* Net Weight Display - Most Prominent */}
@@ -586,12 +585,15 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
           size="md"
           onPress={() => {
             setIsManualWeightEntry(false);
-            setBulkContainersAdded(0);
             setCurrentStep('container-selection');
           }}
         />
         <Button
-          title="Add Container"
+          title={
+            containersToAdd > 1
+              ? `Add ${containersToAdd} Containers`
+              : 'Add Container'
+          }
           variant="primary"
           size="md"
           disabled={
@@ -645,60 +647,60 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                     ? [currentStream.id]
                     : [];
 
-              const shippingLabelBarcode = generateShippingLabelBarcode(
-                orderNumber,
-                highestExistingSequence,
-              );
+              const baseTimestamp = Date.now();
+              const newContainers: AddedContainer[] = [];
 
-              const newContainer: AddedContainer = {
-                id: `container-${Date.now()}`,
-                streamName: selectedStream,
-                streamCode: selectedStreamCode,
-                wasteCodes,
-                containerType: selectedContainerType.code,
-                containerSize: selectedContainerType.size,
-                barcode: barcode || `AUTO-${Date.now()}`,
-                tareWeight,
-                grossWeight,
-                netWeight: containerNetWeight,
-                isManualEntry: isManualWeightEntry,
-                ...(isManualWeightEntry && manualWeightReason
-                  ? {manualWeightReason}
-                  : {}),
-                shippingLabelBarcode,
-                status: 'loaded' as const,
-                serviceTypeId: activeServiceTypeTimer ?? undefined,
-                orderNumber,
-                ...(isCylinderProfile ? {unitCount: parsedUnitCount} : {}),
-              };
+              for (let i = 0; i < containersToAdd; i++) {
+                const shippingLabelBarcode = generateShippingLabelBarcode(
+                  orderNumber,
+                  highestExistingSequence + i,
+                );
 
-              setAddedContainers(prev => [...prev, newContainer]);
-              await syncService.addPendingOperation('container', newContainer);
+                newContainers.push({
+                  id: `container-${baseTimestamp}-${i}`,
+                  streamName: selectedStream,
+                  streamCode: selectedStreamCode,
+                  wasteCodes,
+                  containerType: selectedContainerType.code,
+                  containerSize: selectedContainerType.size,
+                  barcode:
+                    i === 0 && barcode
+                      ? barcode
+                      : `AUTO-${baseTimestamp}-${i}`,
+                  tareWeight,
+                  grossWeight,
+                  netWeight: containerNetWeight,
+                  isManualEntry: isManualWeightEntry,
+                  ...(isManualWeightEntry && manualWeightReason
+                    ? {manualWeightReason}
+                    : {}),
+                  shippingLabelBarcode,
+                  status: 'loaded' as const,
+                  serviceTypeId: activeServiceTypeTimer ?? undefined,
+                  orderNumber,
+                  ...(isCylinderProfile ? {unitCount: parsedUnitCount} : {}),
+                });
+              }
 
-              setPrintingLabelBarcode(shippingLabelBarcode);
-              setShowLabelPrinting(true);
-              await printShippingLabel(newContainer);
+              setAddedContainers(prev => [...prev, ...newContainers]);
+
+              for (const container of newContainers) {
+                await syncService.addPendingOperation('container', container);
+              }
+
+              for (const container of newContainers) {
+                setPrintingLabelBarcode(container.shippingLabelBarcode ?? '');
+                setShowLabelPrinting(true);
+                await printShippingLabel(container);
+              }
 
               setTimeout(() => {
                 setShowLabelPrinting(false);
                 setPrintingLabelBarcode('');
               }, 3000);
 
-              const nextBulkCompleted = bulkContainersAdded + 1;
-              const batchComplete =
-                isCylinderProfile || nextBulkCompleted >= parsedUnitCount;
-
-              if (batchComplete) {
-                setBulkContainersAdded(0);
-                resetEntryFormForNextContainer();
-                setCurrentStep('container-summary');
-              } else {
-                setBulkContainersAdded(nextBulkCompleted);
-                resetEntryFormForNextContainer();
-                // Scroll back to the top so the next container starts at the
-                // beginning of the form (helps on smaller Zebra tablet screens).
-                scrollViewRef.current?.scrollTo({y: 0, animated: true});
-              }
+              resetEntryForm();
+              setCurrentStep('container-summary');
             }
           }}
         />

@@ -237,7 +237,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [grossWeight, setGrossWeight] = useState('285');
   const [barcode, setBarcode] = useState('');
   const [unitCount, setUnitCount] = useState('1');
-  const [bulkContainersAdded, setBulkContainersAdded] = useState(0);
   const [recentlyUsedProfiles, setRecentlyUsedProfiles] = useState<string[]>(['D001', 'U001', 'N001', 'HT001']);
   const [isManualWeightEntry, setIsManualWeightEntry] = useState(false);
   const [isScaleConnected, setIsScaleConnected] = useState(true); // Default to online for simulation
@@ -3607,9 +3606,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             selectedStream={selectedStream}
             selectedContainerType={selectedContainerType}
             setSelectedContainerType={setSelectedContainerType}
-            unitCount={unitCount}
-            setUnitCount={setUnitCount}
-            onBeginContainerEntry={() => setBulkContainersAdded(0)}
           />
         );
       case 'container-entry':
@@ -3646,8 +3642,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             barcode={barcode}
             setBarcode={setBarcode}
             unitCount={unitCount}
-            bulkContainersAdded={bulkContainersAdded}
-            setBulkContainersAdded={setBulkContainersAdded}
+            setUnitCount={setUnitCount}
             isManualWeightEntry={isManualWeightEntry}
             setIsManualWeightEntry={setIsManualWeightEntry}
             isScaleConnected={isScaleConnected}
@@ -7666,17 +7661,6 @@ export const styles = StyleSheet.create({
   },
   unitCountCard: {
     marginBottom: spacing.md,
-  },
-  weightInfoHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  weightInfoProgressText: {
-    ...typography.base,
-    fontWeight: '600',
-    color: colors.primary,
   },
   unitCountFooter: {
     flexDirection: 'column',

@@ -4,14 +4,10 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  TextInput,
-  Alert,
 } from 'react-native';
 import {Badge} from '../../components/Badge';
 import {Button} from '../../components/Button';
-import {Icon} from '../../components/Icon';
 import {PersistentOrderHeader} from '../../components/PersistentOrderHeader';
-import {colors} from '../../styles/theme';
 import {FlowStep, OrderData, WasteStream, ContainerType} from '../../types/wasteCollection';
 import {SyncStatus} from '../../services/syncService';
 import {TimeTrackingRecord} from '../../services/timeTrackingService';
@@ -53,9 +49,6 @@ export interface ContainerSelectionScreenProps {
   selectedStream: string;
   selectedContainerType: ContainerType | null;
   setSelectedContainerType: (type: ContainerType | null) => void;
-  unitCount: string;
-  setUnitCount: (count: string) => void;
-  onBeginContainerEntry: () => void;
 }
 
 export const ContainerSelectionScreen: React.FC<ContainerSelectionScreenProps> = ({
@@ -85,33 +78,8 @@ export const ContainerSelectionScreen: React.FC<ContainerSelectionScreenProps> =
   selectedStream,
   selectedContainerType,
   setSelectedContainerType,
-  unitCount,
-  setUnitCount,
-  onBeginContainerEntry,
 }) => {
   const currentStream = wasteStreams.find(s => s.id === selectedStreamId);
-  const isCylinderProfile = currentStream?.requiresCylinderCount || false;
-  const parsedUnitCount = parseInt(unitCount, 10);
-  const hasValidUnitCount =
-    unitCount.trim().length > 0 &&
-    !Number.isNaN(parsedUnitCount) &&
-    parsedUnitCount >= 1;
-
-  // Only allow positive whole numbers; strip anything else (including a
-  // leading minus sign or leading zeros) so a value of 0 or below is
-  // impossible to enter.
-  const handleUnitCountChange = (value: string) => {
-    const digitsOnly = value.replace(/[^0-9]/g, '').replace(/^0+/, '');
-    setUnitCount(digitsOnly);
-  };
-  const decrementUnitCount = () => {
-    const current = Number.isNaN(parsedUnitCount) ? 1 : parsedUnitCount;
-    setUnitCount(String(Math.max(1, current - 1)));
-  };
-  const incrementUnitCount = () => {
-    const current = Number.isNaN(parsedUnitCount) ? 0 : parsedUnitCount;
-    setUnitCount(String(Math.max(1, current + 1)));
-  };
   const allowedContainerIds = currentStream?.allowedContainers || [];
   const filteredContainers = allContainerTypes.filter(c =>
     allowedContainerIds.includes(c.id),
@@ -175,7 +143,6 @@ export const ContainerSelectionScreen: React.FC<ContainerSelectionScreenProps> =
                 onPress={() => {
                   if (!isCurrentOrderCompleted) {
                     setSelectedContainerType(container);
-                    setUnitCount('1');
                   }
                 }}
                 disabled={isCurrentOrderCompleted}
@@ -212,73 +179,14 @@ export const ContainerSelectionScreen: React.FC<ContainerSelectionScreenProps> =
       </ScrollView>
 
       {selectedContainerType ? (
-        <View style={styles.unitCountFooter}>
-          <View style={styles.unitCountPromptRow}>
-            <View style={styles.unitCountPromptTextGroup}>
-              <Text style={styles.unitCountPromptLabel}>
-                {isCylinderProfile ? 'Number of Cylinders' : 'Number of Units'}
-              </Text>
-              <Text style={styles.unitCountPromptHint}>
-                {isCylinderProfile
-                  ? 'Cylinders in this single container.'
-                  : 'One shipping label & weight per unit.'}
-              </Text>
-            </View>
-            <View style={styles.unitCountStepper}>
-              <TouchableOpacity
-                style={[
-                  styles.unitCountStepperButton,
-                  (isCurrentOrderCompleted || parsedUnitCount <= 1) &&
-                    styles.unitCountStepperButtonDisabled,
-                ]}
-                onPress={decrementUnitCount}
-                disabled={isCurrentOrderCompleted || parsedUnitCount <= 1}
-                accessibilityRole="button"
-                accessibilityLabel="Decrease unit count">
-                <Icon name="remove" size={24} color={colors.primary} />
-              </TouchableOpacity>
-              <TextInput
-                style={styles.unitCountStepperInput}
-                value={unitCount}
-                onChangeText={handleUnitCountChange}
-                keyboardType="number-pad"
-                placeholder="1"
-                placeholderTextColor={colors.mutedForeground}
-                selectTextOnFocus
-                editable={!isCurrentOrderCompleted}
-                accessibilityLabel="Unit count"
-              />
-              <TouchableOpacity
-                style={[
-                  styles.unitCountStepperButton,
-                  isCurrentOrderCompleted &&
-                    styles.unitCountStepperButtonDisabled,
-                ]}
-                onPress={incrementUnitCount}
-                disabled={isCurrentOrderCompleted}
-                accessibilityRole="button"
-                accessibilityLabel="Increase unit count">
-                <Icon name="add" size={24} color={colors.primary} />
-              </TouchableOpacity>
-            </View>
-          </View>
+        <View style={styles.footer}>
           <Button
             title="Continue"
             variant="primary"
             size="md"
             fullWidth
-            disabled={isCurrentOrderCompleted || !hasValidUnitCount}
-            onPress={() => {
-              if (!hasValidUnitCount) {
-                Alert.alert(
-                  'Required Field',
-                  'Please enter a valid unit count.',
-                );
-                return;
-              }
-              onBeginContainerEntry();
-              setCurrentStep('container-entry');
-            }}
+            disabled={isCurrentOrderCompleted}
+            onPress={() => setCurrentStep('container-entry')}
           />
         </View>
       ) : null}
