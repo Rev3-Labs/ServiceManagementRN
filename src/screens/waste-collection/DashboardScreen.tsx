@@ -39,6 +39,7 @@ import {MOCK_ORDERS} from '../../data/mockOrders';
 import {styles} from './styles';
 import {DASHBOARD_INVENTORY_COLUMNS, SIMULATED_CONTAINERS_BY_ORDER_INDEX, getBusinessTypeStyle} from './constants';
 import {InventoryOnTruckCell} from './InventoryOnTruckCell';
+import {AcknowledgeServiceNotesModal} from './AcknowledgeServiceNotesModal';
 
 // Enable LayoutAnimation on Android for smooth section expand/collapse transitions
 if (
@@ -65,6 +66,11 @@ function formatPhoneNumber(phone: string): string {
     return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
   }
   return phone;
+}
+
+interface AcknowledgePromptState {
+  order: OrderData;
+  onConfirm: () => void;
 }
 
 interface OrderContactItem {
@@ -524,7 +530,7 @@ export function renderDashboardTabContent(
                 const hasNotes = Boolean(
                   order.generatorStatus ||
                   order.siteAccessNotes ||
-                  (order.previousServiceNotes && order.previousServiceNotes.length > 0) ||
+                  order.orderNotes ||
                   order.customerSpecialInstructions,
                 );
                 return (
@@ -593,24 +599,22 @@ export function renderDashboardTabContent(
                             </Text>
                           </View>
                         )}
+                        {order.customerSpecialInstructions && (
+                          <View style={styles.serviceListExpandedBlock}>
+                            <Text style={styles.serviceListExpandedLabel}>Customer notes</Text>
+                            <Text style={styles.serviceListExpandedValue}>{order.customerSpecialInstructions}</Text>
+                          </View>
+                        )}
                         {order.siteAccessNotes && (
                           <View style={styles.serviceListExpandedBlock}>
                             <Text style={styles.serviceListExpandedLabel}>Site notes</Text>
                             <Text style={styles.serviceListExpandedValue}>{order.siteAccessNotes}</Text>
                           </View>
                         )}
-                        {order.previousServiceNotes && order.previousServiceNotes.length > 0 && (
+                        {order.orderNotes && (
                           <View style={styles.serviceListExpandedBlock}>
-                            <Text style={styles.serviceListExpandedLabel}>Technician notes</Text>
-                            <Text style={styles.serviceListExpandedValue}>
-                              {order.previousServiceNotes.map(n => `${n.note} (${n.technician || n.date})`).join('. ')}
-                            </Text>
-                          </View>
-                        )}
-                        {order.customerSpecialInstructions && (
-                          <View style={styles.serviceListExpandedBlock}>
-                            <Text style={styles.serviceListExpandedLabel}>Job sheet notes</Text>
-                            <Text style={styles.serviceListExpandedValue}>{order.customerSpecialInstructions}</Text>
+                            <Text style={styles.serviceListExpandedLabel}>Order notes</Text>
+                            <Text style={styles.serviceListExpandedValue}>{order.orderNotes}</Text>
                           </View>
                         )}
                       </View>
@@ -685,13 +689,9 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     selectedOrder && (
       selectedOrder.customerSpecialInstructions ||
       selectedOrder.siteAccessNotes ||
-      (selectedOrder.safetyWarnings && selectedOrder.safetyWarnings.length > 0) ||
-      (selectedOrder.previousServiceNotes && selectedOrder.previousServiceNotes.length > 0)
+      selectedOrder.orderNotes
     ),
   );
-  const detailLastThreeNotes = selectedOrder?.previousServiceNotes
-    ? selectedOrder.previousServiceNotes.slice(0, 3)
-    : [];
 
   // ----- Service Notes acknowledgment + state-driven section layout -----
   // Re-render trigger when ack store changes (service is a singleton with subscribers).
@@ -724,6 +724,8 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
   const detailPaneScrollRef = useRef<ScrollView | null>(null);
   const notesSectionTopRef = useRef(0);
   const [allContactsExpanded, setAllContactsExpanded] = useState(false);
+  const [acknowledgePrompt, setAcknowledgePrompt] =
+    useState<AcknowledgePromptState | null>(null);
 
   useEffect(() => {
     setSectionsExpanded({ contact: false, order: true, notes: false });
@@ -735,14 +737,24 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     setSectionsExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const handleAcknowledgeServiceNotes = async () => {
+  const acknowledgeServiceNotes = async () => {
+    if (!selectedOrder) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    await serviceNotesAckService.acknowledge(selectedOrder.orderNumber);
+    setSectionsExpanded({ contact: false, order: true, notes: false });
+  };
+
+  const handleAcknowledgeServiceNotes = () => {
     if (!selectedOrder) return;
     if (!checkCanWorkOnOrder(selectedOrder.orderNumber)) {
       return;
     }
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    await serviceNotesAckService.acknowledge(selectedOrder.orderNumber);
-    setSectionsExpanded({ contact: false, order: true, notes: false });
+    setAcknowledgePrompt({
+      order: selectedOrder,
+      onConfirm: () => {
+        void acknowledgeServiceNotes();
+      },
+    });
   };
   const focusServiceNotesSection = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -1338,6 +1350,15 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                               style={StyleSheet.flatten(badgeStyle)}
                               textStyle={textStyle}
                               title={serviceTypeService.getServiceTypeName(program)}
+                              leadingIcon={
+                                completed ? (
+                                  <Icon
+                                    name="check"
+                                    size={16}
+                                    color={colors.success}
+                                  />
+                                ) : undefined
+                              }
                               trailingIcon={
                                 <Icon
                                   name={lockedByAck ? 'lock' : 'chevron-right'}
@@ -1482,7 +1503,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                               <Card style={styles.jobNotesCard}>
                                 <CardHeader>
                                   <CardTitle>
-                                    <CardTitleText>Customer Special Instructions</CardTitleText>
+                                    <CardTitleText>Customer Notes</CardTitleText>
                                   </CardTitle>
                                 </CardHeader>
                                 <CardContent>
@@ -1497,7 +1518,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                               <Card style={styles.jobNotesCard}>
                                 <CardHeader>
                                   <CardTitle>
-                                    <CardTitleText>Site Access Notes</CardTitleText>
+                                    <CardTitleText>Site Notes</CardTitleText>
                                   </CardTitle>
                                 </CardHeader>
                                 <CardContent>
@@ -1508,55 +1529,17 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                               </Card>
                             )}
 
-                            {selectedOrder.safetyWarnings &&
-                              selectedOrder.safetyWarnings.length > 0 && (
-                                <Card style={styles.jobNotesSafetyCard}>
-                                  <CardHeader>
-                                    <CardTitle>
-                                      <View style={styles.jobNotesSafetyTitleContainer}>
-                                        <Icon
-                                          name="warning"
-                                          size={20}
-                                          color={colors.destructive}
-                                          style={styles.jobNotesSafetyIcon}
-                                        />
-                                        <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
-                                          Safety Warnings
-                                        </Text>
-                                      </View>
-                                    </CardTitle>
-                                  </CardHeader>
-                                  <CardContent>
-                                    {selectedOrder.safetyWarnings.map((warning, index) => (
-                                      <View key={index} style={styles.safetyWarningItem}>
-                                        <Text style={styles.safetyWarningText}>{warning}</Text>
-                                      </View>
-                                    ))}
-                                  </CardContent>
-                                </Card>
-                              )}
-
-                            {detailLastThreeNotes.length > 0 && (
+                            {selectedOrder.orderNotes && (
                               <Card style={styles.jobNotesCard}>
                                 <CardHeader>
                                   <CardTitle>
-                                    <CardTitleText>Previous Service Notes</CardTitleText>
+                                    <CardTitleText>Order Notes</CardTitleText>
                                   </CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                  {detailLastThreeNotes.map((note, index) => (
-                                    <View key={index} style={styles.previousNoteItem}>
-                                      <View style={styles.previousNoteHeader}>
-                                        <Text style={styles.previousNoteDate}>{note.date}</Text>
-                                        {note.technician && (
-                                          <Text style={styles.previousNoteTechnician}>
-                                            {note.technician}
-                                          </Text>
-                                        )}
-                                      </View>
-                                      <Text style={styles.previousNoteText}>{note.note}</Text>
-                                    </View>
-                                  ))}
+                                  <Text style={styles.jobNotesText}>
+                                    {selectedOrder.orderNotes}
+                                  </Text>
                                 </CardContent>
                               </Card>
                             )}
@@ -1831,6 +1814,16 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
         </View>
       </View>
       )}
+      <AcknowledgeServiceNotesModal
+        visible={acknowledgePrompt != null}
+        order={acknowledgePrompt?.order ?? null}
+        onCancel={() => setAcknowledgePrompt(null)}
+        onConfirm={() => {
+          const prompt = acknowledgePrompt;
+          setAcknowledgePrompt(null);
+          prompt?.onConfirm();
+        }}
+      />
     </View>
   );
 };
@@ -1898,9 +1891,6 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
   const hasDashboardNotes = dashboardSelectedOrder
     ? hasOrderNotes(dashboardSelectedOrder)
     : false;
-  const dashboardLastThreeNotes = dashboardSelectedOrder?.previousServiceNotes
-    ? dashboardSelectedOrder.previousServiceNotes.slice(0, 3)
-    : [];
 
   // ----- Service Notes acknowledgment + state-driven section layout (full-screen view) -----
   const [, setDashAckRefreshKey] = useState(0);
@@ -1927,6 +1917,8 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
   const dashboardNotesSectionTopRef = useRef(0);
   const [dashboardAllContactsExpanded, setDashboardAllContactsExpanded] =
     useState(false);
+  const [dashboardAcknowledgePrompt, setDashboardAcknowledgePrompt] =
+    useState<AcknowledgePromptState | null>(null);
 
   useEffect(() => {
     setDashboardSectionsExpanded({ contact: false, order: true, notes: false });
@@ -1938,14 +1930,24 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     setDashboardSectionsExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const handleAcknowledgeDashboardServiceNotes = async () => {
+  const acknowledgeDashboardServiceNotes = async () => {
+    if (!dashboardSelectedOrder) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    await serviceNotesAckService.acknowledge(dashboardSelectedOrder.orderNumber);
+    setDashboardSectionsExpanded({ contact: false, order: true, notes: false });
+  };
+
+  const handleAcknowledgeDashboardServiceNotes = () => {
     if (!dashboardSelectedOrder) return;
     if (!checkCanWorkOnOrder(dashboardSelectedOrder.orderNumber)) {
       return;
     }
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    await serviceNotesAckService.acknowledge(dashboardSelectedOrder.orderNumber);
-    setDashboardSectionsExpanded({ contact: false, order: true, notes: false });
+    setDashboardAcknowledgePrompt({
+      order: dashboardSelectedOrder,
+      onConfirm: () => {
+        void acknowledgeDashboardServiceNotes();
+      },
+    });
   };
   const focusDashboardServiceNotesSection = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -2484,6 +2486,15 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                               style={StyleSheet.flatten(badgeStyle)}
                               textStyle={textStyle}
                               title={serviceTypeService.getServiceTypeName(program)}
+                              leadingIcon={
+                                completed ? (
+                                  <Icon
+                                    name="check"
+                                    size={16}
+                                    color={colors.success}
+                                  />
+                                ) : undefined
+                              }
                               trailingIcon={
                                 <Icon
                                   name={lockedByAck ? 'lock' : 'chevron-right'}
@@ -2626,7 +2637,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                               <Card style={styles.jobNotesCard}>
                                 <CardHeader>
                                   <CardTitle>
-                                    <CardTitleText>Customer Special Instructions</CardTitleText>
+                                    <CardTitleText>Customer Notes</CardTitleText>
                                   </CardTitle>
                                 </CardHeader>
                                 <CardContent>
@@ -2641,7 +2652,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                               <Card style={styles.jobNotesCard}>
                                 <CardHeader>
                                   <CardTitle>
-                                    <CardTitleText>Site Access Notes</CardTitleText>
+                                    <CardTitleText>Site Notes</CardTitleText>
                                   </CardTitle>
                                 </CardHeader>
                                 <CardContent>
@@ -2652,55 +2663,17 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                               </Card>
                             )}
 
-                            {dashboardSelectedOrder.safetyWarnings &&
-                              dashboardSelectedOrder.safetyWarnings.length > 0 && (
-                                <Card style={styles.jobNotesSafetyCard}>
-                                  <CardHeader>
-                                    <CardTitle>
-                                      <View style={styles.jobNotesSafetyTitleContainer}>
-                                        <Icon
-                                          name="warning"
-                                          size={20}
-                                          color={colors.destructive}
-                                          style={styles.jobNotesSafetyIcon}
-                                        />
-                                        <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
-                                          Safety Warnings
-                                        </Text>
-                                      </View>
-                                    </CardTitle>
-                                  </CardHeader>
-                                  <CardContent>
-                                    {dashboardSelectedOrder.safetyWarnings.map((warning, index) => (
-                                      <View key={index} style={styles.safetyWarningItem}>
-                                        <Text style={styles.safetyWarningText}>{warning}</Text>
-                                      </View>
-                                    ))}
-                                  </CardContent>
-                                </Card>
-                              )}
-
-                            {dashboardLastThreeNotes.length > 0 && (
+                            {dashboardSelectedOrder.orderNotes && (
                               <Card style={styles.jobNotesCard}>
                                 <CardHeader>
                                   <CardTitle>
-                                    <CardTitleText>Previous Service Notes</CardTitleText>
+                                    <CardTitleText>Order Notes</CardTitleText>
                                   </CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                  {dashboardLastThreeNotes.map((note, index) => (
-                                    <View key={index} style={styles.previousNoteItem}>
-                                      <View style={styles.previousNoteHeader}>
-                                        <Text style={styles.previousNoteDate}>{note.date}</Text>
-                                        {note.technician && (
-                                          <Text style={styles.previousNoteTechnician}>
-                                            {note.technician}
-                                          </Text>
-                                        )}
-                                      </View>
-                                      <Text style={styles.previousNoteText}>{note.note}</Text>
-                                    </View>
-                                  ))}
+                                  <Text style={styles.jobNotesText}>
+                                    {dashboardSelectedOrder.orderNotes}
+                                  </Text>
                                 </CardContent>
                               </Card>
                             )}
@@ -2880,6 +2853,16 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
         </ScrollView>
       </View>
       )}
+      <AcknowledgeServiceNotesModal
+        visible={dashboardAcknowledgePrompt != null}
+        order={dashboardAcknowledgePrompt?.order ?? null}
+        onCancel={() => setDashboardAcknowledgePrompt(null)}
+        onConfirm={() => {
+          const prompt = dashboardAcknowledgePrompt;
+          setDashboardAcknowledgePrompt(null);
+          prompt?.onConfirm();
+        }}
+      />
     </View>
   );
 };

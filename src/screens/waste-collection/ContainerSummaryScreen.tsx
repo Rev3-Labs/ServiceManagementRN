@@ -631,6 +631,15 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
 
             </View>
 
+            {container.unitCount != null ? (
+              <View style={styles.containerSummaryInfoCard}>
+                <Text style={styles.containerSummaryInfoLabel}>Unit Count</Text>
+                <Text style={styles.containerSummaryInfoValue}>
+                  {container.unitCount}
+                </Text>
+              </View>
+            ) : null}
+
             {container.shippingLabelBarcode ? (
 
               <View style={styles.containerSummaryInfoCard}>

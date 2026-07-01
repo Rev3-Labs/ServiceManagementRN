@@ -8,6 +8,7 @@ interface BadgeProps {
   style?: ViewStyle;
   textStyle?: TextStyle;
   title?: string; // Tooltip/accessibility label
+  leadingIcon?: React.ReactNode;
   trailingIcon?: React.ReactNode;
 }
 
@@ -17,10 +18,12 @@ export const Badge: React.FC<BadgeProps> = ({
   style,
   textStyle,
   title,
+  leadingIcon,
   trailingIcon,
 }) => {
-  const content = trailingIcon ? (
+  const content = leadingIcon || trailingIcon ? (
     <View style={styles.badgeContentRow}>
+      {leadingIcon}
       <Text style={[styles.text, styles[`text_${variant}`], textStyle]}>{children}</Text>
       {trailingIcon}
     </View>

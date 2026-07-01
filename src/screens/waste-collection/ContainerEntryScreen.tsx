@@ -1,5 +1,13 @@
-import React, {useEffect} from 'react';
-import {View, Text, ScrollView, Alert} from 'react-native';
+import React, {useEffect, useRef, useState} from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  Alert,
+  Modal,
+  TouchableOpacity,
+  StyleSheet,
+} from 'react-native';
 import {Button} from '../../components/Button';
 import {Input} from '../../components/Input';
 import {
@@ -11,7 +19,13 @@ import {
 } from '../../components/Card';
 import {Icon} from '../../components/Icon';
 import {PersistentOrderHeader} from '../../components/PersistentOrderHeader';
-import {colors} from '../../styles/theme';
+import {
+  colors,
+  spacing,
+  typography,
+  borderRadius,
+  touchTargets,
+} from '../../styles/theme';
 import {
   FlowStep,
   OrderData,
@@ -24,6 +38,16 @@ import {syncService} from '../../services/syncService';
 import {TimeTrackingRecord} from '../../services/timeTrackingService';
 import {OfflineStatus} from '../../services/offlineTrackingService';
 import {styles} from './styles';
+
+/** Reason codes offered when a weight is entered manually (scale unavailable). */
+const MANUAL_WEIGHT_REASONS: string[] = [
+  'Scale not connected',
+  'Scale malfunction',
+  'Weight exceeds scale capacity',
+  'Weight from certified truck scale',
+  'Estimated weight',
+  'Other',
+];
 
 export interface ContainerEntryScreenProps {
   // Order state
@@ -67,8 +91,9 @@ export interface ContainerEntryScreenProps {
   setScaleWeight: (weight: string) => void;
   barcode: string;
   setBarcode: (barcode: string) => void;
-  cylinderCount: string;
-  setCylinderCount: (count: string) => void;
+  unitCount: string;
+  bulkContainersAdded: number;
+  setBulkContainersAdded: (count: number | ((prev: number) => number)) => void;
   isManualWeightEntry: boolean;
   setIsManualWeightEntry: (manual: boolean) => void;
   isScaleConnected: boolean;
@@ -125,8 +150,9 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
   setScaleWeight,
   barcode,
   setBarcode,
-  cylinderCount,
-  setCylinderCount,
+  unitCount,
+  bulkContainersAdded,
+  setBulkContainersAdded,
   isManualWeightEntry,
   setIsManualWeightEntry,
   isScaleConnected,
@@ -146,12 +172,67 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
   setShowLabelPrinting,
   wasteStreams,
 }) => {
-  const netWeight =
-    parseInt(grossWeight || '0') - parseInt(tareWeight || '0');
+  const parsedGrossWeight = parseInt(grossWeight || '0');
+  const netWeight = parsedGrossWeight - parseInt(tareWeight || '0');
 
-  // Check if current stream requires cylinder count
   const currentStream = wasteStreams.find(s => s.id === selectedStreamId);
-  const requiresCylinderCount = currentStream?.requiresCylinderCount || false;
+  const isCylinderProfile = currentStream?.requiresCylinderCount || false;
+  const parsedUnitCount = parseInt(unitCount, 10);
+  const hasValidUnitCount =
+    unitCount.trim().length > 0 &&
+    !Number.isNaN(parsedUnitCount) &&
+    parsedUnitCount >= 1;
+  const currentContainerNumber = bulkContainersAdded + 1;
+  const isBulkAdd = !isCylinderProfile && parsedUnitCount > 1;
+
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // Manual weight override: the scale field is read-only until the user opts
+  // into manual entry and selects a reason code (e.g. scale unavailable).
+  const [showManualReasonModal, setShowManualReasonModal] = useState(false);
+  const [manualWeightReason, setManualWeightReason] = useState<string | null>(
+    null,
+  );
+
+  const resetEntryFormForNextContainer = () => {
+    setBarcode('');
+    setTareWeight('45');
+    setGrossWeight('285');
+    setScaleWeight('');
+    setIsManualWeightEntry(false);
+    setManualWeightReason(null);
+    setShowManualReasonModal(false);
+    if (isScaleConnected) {
+      const capturedWeight = 285;
+      setScaleReading(capturedWeight);
+      setScaleWeight(capturedWeight.toString());
+    } else {
+      setScaleReading(null);
+    }
+  };
+
+  // Toggle the manual-entry override. Turning it on prompts for a reason code
+  // first; turning it off reverts to the live scale reading.
+  const handleToggleManualEntry = () => {
+    if (isCurrentOrderCompleted) return;
+    if (isManualWeightEntry) {
+      setIsManualWeightEntry(false);
+      setManualWeightReason(null);
+      if (isScaleConnected && scaleReading !== null) {
+        setScaleWeight(scaleReading.toString());
+      } else {
+        setScaleWeight('');
+      }
+    } else {
+      setShowManualReasonModal(true);
+    }
+  };
+
+  const handleSelectManualReason = (reason: string) => {
+    setManualWeightReason(reason);
+    setIsManualWeightEntry(true);
+    setShowManualReasonModal(false);
+  };
 
   // Get weight limits from selected container type
   const getWeightLimits = () => {
@@ -177,9 +258,9 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
 
   const weightLimits = getWeightLimits();
   const showSoftWarning =
-    netWeight >= weightLimits.softThreshold &&
-    netWeight < weightLimits.hardThreshold;
-  const showHardWarning = netWeight >= weightLimits.hardThreshold;
+    parsedGrossWeight >= weightLimits.softThreshold &&
+    parsedGrossWeight < weightLimits.hardThreshold;
+  const showHardWarning = parsedGrossWeight >= weightLimits.hardThreshold;
 
   const isCurrentOrderCompleted = selectedOrderData
     ? isOrderCompleted(selectedOrderData.orderNumber)
@@ -198,26 +279,13 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
     }
   }, [isScaleConnected]);
 
-  // When scale weight changes, update gross weight
+  // Keep gross weight in sync with the scale weight field (the scale reads
+  // gross). This holds for both live scale readings and manual entry.
   useEffect(() => {
     if (scaleWeight && !isNaN(parseFloat(scaleWeight))) {
       setGrossWeight(scaleWeight);
-      setIsManualWeightEntry(false);
     }
   }, [scaleWeight]);
-
-  // Handle manual weight entry
-  const handleManualWeightChange = (
-    field: 'tare' | 'gross',
-    value: string,
-  ) => {
-    if (field === 'tare') {
-      setTareWeight(value);
-    } else {
-      setGrossWeight(value);
-    }
-    setIsManualWeightEntry(true);
-  };
 
   if (!selectedOrderData) return null;
 
@@ -258,6 +326,7 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
       />
 
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -265,33 +334,30 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
         showsVerticalScrollIndicator={true}
         removeClippedSubviews={false}
         scrollEventThrottle={16}>
-        {/* Cylinder Count Input - Only shown for profiles that require it */}
-        {requiresCylinderCount && (
-          <Card style={styles.cylinderCountCard}>
-            <CardHeader>
-              <CardTitle>
-                <CardTitleText>Cylinder Count</CardTitleText>
-              </CardTitle>
-            </CardHeader>
+        {isCylinderProfile ? (
+          <Card style={styles.unitCountCard}>
             <CardContent>
-              <Input
-                label="Number of Cylinders"
-                required
-                value={cylinderCount}
-                onChangeText={setCylinderCount}
-                keyboardType="numeric"
-                placeholder="Enter cylinder count"
-                editable={!isCurrentOrderCompleted}
-              />
+              <Text style={styles.sectionDescription}>
+                Adding 1 container with {parsedUnitCount} unit
+                {parsedUnitCount === 1 ? '' : 's'} of {selectedStream} •{' '}
+                {selectedContainerType?.size}
+              </Text>
             </CardContent>
           </Card>
-        )}
+        ) : null}
 
         <Card>
           <CardHeader>
-            <CardTitle>
-              <CardTitleText>Weight Information</CardTitleText>
-            </CardTitle>
+            <View style={styles.weightInfoHeaderRow}>
+              <CardTitle>
+                <CardTitleText>Weight Information</CardTitleText>
+              </CardTitle>
+              {isBulkAdd ? (
+                <Text style={styles.weightInfoProgressText}>
+                  Container {currentContainerNumber} of {parsedUnitCount}
+                </Text>
+              ) : null}
+            </View>
           </CardHeader>
           <CardContent>
             {/* Net Weight Display - Most Prominent */}
@@ -301,9 +367,7 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                 showHardWarning && styles.netWeightDisplayCardHardWarning,
                 showSoftWarning && styles.netWeightDisplayCardSoftWarning,
               ]}>
-              <Text style={styles.netWeightDisplayLabel}>
-                Net Weight (Waste Only)
-              </Text>
+              <Text style={styles.netWeightDisplayLabel}>Gross Weight</Text>
               <View style={styles.netWeightDisplayValue}>
                 <Text
                   style={[
@@ -311,7 +375,7 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                     showHardWarning &&
                       styles.netWeightDisplayLargeValueWarning,
                   ]}>
-                  {netWeight}
+                  {parsedGrossWeight}
                 </Text>
                 <Text style={styles.netWeightDisplayUnit}>lbs</Text>
               </View>
@@ -326,8 +390,8 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                     />
                     <Text style={styles.inlineWarningText}>
                       Approaching capacity (
-                      {Math.round((netWeight / weightLimits.max) * 100)}% of{' '}
-                      {weightLimits.max} lbs)
+                      {Math.round((parsedGrossWeight / weightLimits.max) * 100)}%
+                      of {weightLimits.max} lbs)
                     </Text>
                   </View>
                 </View>
@@ -342,8 +406,9 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                       style={styles.inlineWarningIcon}
                     />
                     <Text style={styles.inlineWarningText}>
-                      EXCEEDS MAXIMUM ({netWeight} lbs / {weightLimits.max}{' '}
-                      lbs max) - Must consolidate or use new container
+                      EXCEEDS MAXIMUM ({parsedGrossWeight} lbs /{' '}
+                      {weightLimits.max} lbs max) - Must consolidate or use new
+                      container
                     </Text>
                   </View>
                 </View>
@@ -359,35 +424,39 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
               </View>
               <View style={styles.compactWeightDivider} />
               <View style={styles.compactWeightItem}>
-                <View style={styles.compactScaleHeader}>
-                  <Text style={styles.compactWeightLabel}>Scale Weight</Text>
-                  <View style={styles.compactScaleStatus}>
-                    <View
-                      style={[
-                        styles.compactScaleLight,
-                        isScaleConnected
-                          ? styles.compactScaleLightOnline
-                          : styles.compactScaleLightOffline,
-                      ]}
-                    />
-                  </View>
-                </View>
-                {isScaleConnected && scaleReading !== null ? (
-                  <Text style={styles.compactWeightValue}>
-                    {scaleReading}
-                  </Text>
-                ) : (
-                  <Text style={styles.compactWeightValueOffline}>---</Text>
-                )}
+                <Text style={styles.compactWeightLabel}>Scale Weight</Text>
                 <Input
                   value={scaleWeight}
                   onChangeText={setScaleWeight}
                   keyboardType="numeric"
-                  editable={!isCurrentOrderCompleted}
-                  style={styles.compactScaleInput}
+                  editable={isManualWeightEntry && !isCurrentOrderCompleted}
+                  placeholder="---"
+                  style={[
+                    styles.compactScaleInput,
+                    !isManualWeightEntry && localStyles.readOnlyInput,
+                  ]}
                   containerStyle={styles.compactScaleInputContainer}
                 />
                 <Text style={styles.compactWeightUnit}>lbs (Gross)</Text>
+                <View style={localStyles.scaleStatusRow}>
+                  <View
+                    style={[
+                      styles.compactScaleLight,
+                      isScaleConnected
+                        ? styles.compactScaleLightOnline
+                        : styles.compactScaleLightOffline,
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      localStyles.scaleStatusLabel,
+                      isScaleConnected
+                        ? localStyles.scaleStatusLabelOnline
+                        : localStyles.scaleStatusLabelOffline,
+                    ]}>
+                    {isScaleConnected ? 'Connected' : 'Disconnected'}
+                  </Text>
+                </View>
               </View>
               <View style={styles.compactWeightDivider} />
               <View style={styles.compactWeightItem}>
@@ -403,25 +472,112 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
               </View>
             </View>
 
-            {/* Manual Entry Indicator */}
+            {/* Manual weight override */}
+            <TouchableOpacity
+              style={localStyles.manualToggleRow}
+              onPress={handleToggleManualEntry}
+              disabled={isCurrentOrderCompleted}
+              activeOpacity={0.7}
+              accessibilityRole="checkbox"
+              accessibilityState={{checked: isManualWeightEntry}}>
+              <View
+                style={[
+                  localStyles.checkbox,
+                  isManualWeightEntry && localStyles.checkboxChecked,
+                ]}>
+                {isManualWeightEntry && (
+                  <Icon name="check" size={18} color={colors.primaryForeground} />
+                )}
+              </View>
+              <View style={localStyles.manualToggleTextGroup}>
+                <Text style={localStyles.manualToggleLabel}>
+                  Enter weight manually
+                </Text>
+                <Text style={localStyles.manualToggleHint}>
+                  Use when the scale is unavailable or disconnected.
+                </Text>
+              </View>
+            </TouchableOpacity>
+
             {isManualWeightEntry && (
-              <View style={styles.manualEntryIndicator}>
-                <View style={styles.manualWeightRow}>
-                  <Icon
-                    name="warning"
-                    size={16}
-                    color={colors.warning}
-                    style={styles.manualWeightIcon}
-                  />
-                  <Text style={styles.manualEntryText}>
-                    Weight entered manually
+              <TouchableOpacity
+                style={localStyles.reasonRow}
+                onPress={() => setShowManualReasonModal(true)}
+                disabled={isCurrentOrderCompleted}
+                activeOpacity={0.7}>
+                <Icon
+                  name="warning"
+                  size={18}
+                  color={colors.warning}
+                  style={localStyles.reasonIcon}
+                />
+                <View style={localStyles.reasonTextGroup}>
+                  <Text style={localStyles.reasonLabel}>
+                    Manual entry reason
+                  </Text>
+                  <Text
+                    style={[
+                      localStyles.reasonValue,
+                      !manualWeightReason && localStyles.reasonValuePlaceholder,
+                    ]}>
+                    {manualWeightReason || 'Tap to select a reason'}
                   </Text>
                 </View>
-              </View>
+                <Icon
+                  name="keyboard-arrow-down"
+                  size={22}
+                  color={colors.mutedForeground}
+                />
+              </TouchableOpacity>
             )}
           </CardContent>
         </Card>
       </ScrollView>
+
+      {/* Manual weight reason picker */}
+      <Modal
+        visible={showManualReasonModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowManualReasonModal(false)}>
+        <View style={localStyles.modalOverlay}>
+          <View style={localStyles.modalContent}>
+            <View style={localStyles.modalHeader}>
+              <Text style={localStyles.modalTitle}>
+                Reason for Manual Entry
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowManualReasonModal(false)}
+                style={localStyles.modalCloseBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Close">
+                <Icon name="close" size={22} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+            <Text style={localStyles.modalSubtitle}>
+              Select why you are entering this weight without a live scale
+              reading.
+            </Text>
+            <ScrollView>
+              {MANUAL_WEIGHT_REASONS.map(reason => {
+                const isSelected = manualWeightReason === reason;
+                return (
+                  <TouchableOpacity
+                    key={reason}
+                    style={localStyles.reasonOption}
+                    onPress={() => handleSelectManualReason(reason)}
+                    activeOpacity={0.7}>
+                    <Text style={localStyles.reasonOptionText}>{reason}</Text>
+                    {isSelected && (
+                      <Icon name="check" size={22} color={colors.primary} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <View style={styles.footer}>
         <Button
@@ -430,6 +586,7 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
           size="md"
           onPress={() => {
             setIsManualWeightEntry(false);
+            setBulkContainersAdded(0);
             setCurrentStep('container-selection');
           }}
         />
@@ -440,7 +597,7 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
           disabled={
             isCurrentOrderCompleted ||
             offlineStatus.isBlocked ||
-            (requiresCylinderCount && !cylinderCount.trim())
+            !hasValidUnitCount
           }
           onPress={async () => {
             if (
@@ -454,30 +611,22 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                 return;
               }
 
-              // Validate cylinder count if required
-              if (
-                requiresCylinderCount &&
-                (!cylinderCount || cylinderCount.trim() === '')
-              ) {
+              if (!hasValidUnitCount) {
                 Alert.alert(
                   'Required Field',
-                  'Please enter the cylinder count before adding the container.',
+                  'Please enter a valid unit count before adding containers.',
                 );
                 return;
               }
 
-              // Check if blocked due to offline limit
-              if (offlineStatus.isBlocked) {
-                setShowOfflineBlockedModal(true);
+              if (isManualWeightEntry && !manualWeightReason) {
+                setShowManualReasonModal(true);
                 return;
               }
 
-              const netWeight =
+              const containerNetWeight =
                 parseInt(grossWeight || '0') - parseInt(tareWeight || '0');
 
-              // Derive the next sequence from the highest existing shipping label,
-              // not the container count — otherwise deleting a middle container
-              // collides with the trailing barcode on the next add.
               const orderNumber =
                 selectedOrderData?.orderNumber || 'WO-2024-0000';
               const highestExistingSequence = addedContainers.reduce(
@@ -488,10 +637,6 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                 },
                 0,
               );
-              const shippingLabelBarcode = generateShippingLabelBarcode(
-                orderNumber,
-                highestExistingSequence,
-              );
 
               const wasteCodes =
                 currentStream?.wasteCodes && currentStream.wasteCodes.length > 0
@@ -500,7 +645,12 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                     ? [currentStream.id]
                     : [];
 
-              const newContainer = {
+              const shippingLabelBarcode = generateShippingLabelBarcode(
+                orderNumber,
+                highestExistingSequence,
+              );
+
+              const newContainer: AddedContainer = {
                 id: `container-${Date.now()}`,
                 streamName: selectedStream,
                 streamCode: selectedStreamCode,
@@ -510,45 +660,45 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                 barcode: barcode || `AUTO-${Date.now()}`,
                 tareWeight,
                 grossWeight,
-                netWeight,
+                netWeight: containerNetWeight,
                 isManualEntry: isManualWeightEntry,
+                ...(isManualWeightEntry && manualWeightReason
+                  ? {manualWeightReason}
+                  : {}),
                 shippingLabelBarcode,
                 status: 'loaded' as const,
                 serviceTypeId: activeServiceTypeTimer ?? undefined,
                 orderNumber,
-                ...(requiresCylinderCount && cylinderCount
-                  ? {cylinderCount: parseInt(cylinderCount) || 0}
-                  : {}),
+                ...(isCylinderProfile ? {unitCount: parsedUnitCount} : {}),
               };
 
               setAddedContainers(prev => [...prev, newContainer]);
+              await syncService.addPendingOperation('container', newContainer);
 
-              // Queue for sync
-              await syncService.addPendingOperation(
-                'container',
-                newContainer,
-              );
-
-              // Show label printing notification
               setPrintingLabelBarcode(shippingLabelBarcode);
               setShowLabelPrinting(true);
-
-              // Auto-print shipping label
               await printShippingLabel(newContainer);
 
-              // Hide notification after 3 seconds
               setTimeout(() => {
                 setShowLabelPrinting(false);
                 setPrintingLabelBarcode('');
               }, 3000);
 
-              // Reset form
-              setBarcode('');
-              setTareWeight('45');
-              setGrossWeight('285');
-              setCylinderCount('');
-              setIsManualWeightEntry(false);
-              setCurrentStep('container-summary');
+              const nextBulkCompleted = bulkContainersAdded + 1;
+              const batchComplete =
+                isCylinderProfile || nextBulkCompleted >= parsedUnitCount;
+
+              if (batchComplete) {
+                setBulkContainersAdded(0);
+                resetEntryFormForNextContainer();
+                setCurrentStep('container-summary');
+              } else {
+                setBulkContainersAdded(nextBulkCompleted);
+                resetEntryFormForNextContainer();
+                // Scroll back to the top so the next container starts at the
+                // beginning of the form (helps on smaller Zebra tablet screens).
+                scrollViewRef.current?.scrollTo({y: 0, animated: true});
+              }
             }
           }}
         />
@@ -556,3 +706,151 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
     </View>
   );
 };
+
+const localStyles = StyleSheet.create({
+  scaleStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  scaleStatusLabel: {
+    ...typography.xs,
+    fontWeight: '700',
+  },
+  scaleStatusLabelOnline: {
+    color: colors.success,
+  },
+  scaleStatusLabelOffline: {
+    color: colors.destructive,
+  },
+  readOnlyInput: {
+    backgroundColor: colors.muted,
+    color: colors.mutedForeground,
+  },
+  manualToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  checkbox: {
+    width: 28,
+    height: 28,
+    borderRadius: borderRadius.sm,
+    borderWidth: 2,
+    borderColor: colors.border,
+    marginRight: spacing.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+  },
+  checkboxChecked: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  manualToggleTextGroup: {
+    flex: 1,
+    minWidth: 0,
+  },
+  manualToggleLabel: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  manualToggleHint: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: spacing.xs / 2,
+  },
+  reasonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 2,
+    borderColor: colors.warning,
+    borderRadius: borderRadius.md,
+    backgroundColor: `${colors.warning}12`,
+  },
+  reasonIcon: {
+    marginRight: spacing.sm,
+  },
+  reasonTextGroup: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reasonLabel: {
+    ...typography.xs,
+    fontWeight: '700',
+    color: colors.mutedForeground,
+    textTransform: 'uppercase',
+  },
+  reasonValue: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  reasonValuePlaceholder: {
+    color: colors.warning,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 520,
+    maxHeight: '80%',
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    paddingBottom: spacing.md,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  modalTitle: {
+    ...typography.lg,
+    fontWeight: '700',
+    color: colors.foreground,
+    flex: 1,
+  },
+  modalCloseBtn: {
+    width: touchTargets.min,
+    height: touchTargets.min,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalSubtitle: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  reasonOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    minHeight: touchTargets.comfortable,
+  },
+  reasonOptionText: {
+    ...typography.base,
+    color: colors.foreground,
+    flex: 1,
+  },
+});

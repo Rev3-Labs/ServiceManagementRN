@@ -56,7 +56,7 @@ export const PHOTO_CATEGORY_DEFINITIONS: ReadonlyArray<PhotoCategoryDefinition> 
       icon: 'camera-alt',
       group: 'service-milestone',
       requirement: 'start',
-      maxPhotos: 2,
+      maxPhotos: 10,
       description: 'Site condition before work begins',
     },
     {
@@ -64,7 +64,7 @@ export const PHOTO_CATEGORY_DEFINITIONS: ReadonlyArray<PhotoCategoryDefinition> 
       label: 'After Service',
       icon: 'camera-alt',
       group: 'service-milestone',
-      maxPhotos: 2,
+      maxPhotos: 10,
       description: 'Site condition after work is complete',
     },
     {

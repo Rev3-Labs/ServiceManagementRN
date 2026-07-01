@@ -121,6 +121,7 @@ import {ContainerSelectionScreen as ExtContainerSelectionScreen} from './waste-c
 import {ContainerEntryScreen as ExtContainerEntryScreen} from './waste-collection/ContainerEntryScreen';
 import {ContainerSummaryScreen as ExtContainerSummaryScreen} from './waste-collection/ContainerSummaryScreen';
 import {OrderContainersReviewScreen as ExtOrderContainersReviewScreen} from './waste-collection/OrderContainersReviewScreen';
+import {NoShipDocumentScreen as ExtNoShipDocumentScreen} from './waste-collection/NoShipDocumentScreen';
 import {ManifestManagementScreen as ExtManifestManagementScreen} from './waste-collection/ManifestManagementScreen';
 import {MaterialsSuppliesScreen as ExtMaterialsSuppliesScreen} from './waste-collection/MaterialsSuppliesScreen';
 import {EquipmentPPEScreen as ExtEquipmentPPEScreen} from './waste-collection/EquipmentPPEScreen';
@@ -235,7 +236,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [scaleWeight, setScaleWeight] = useState('');
   const [grossWeight, setGrossWeight] = useState('285');
   const [barcode, setBarcode] = useState('');
-  const [cylinderCount, setCylinderCount] = useState('');
+  const [unitCount, setUnitCount] = useState('1');
+  const [bulkContainersAdded, setBulkContainersAdded] = useState(0);
   const [recentlyUsedProfiles, setRecentlyUsedProfiles] = useState<string[]>(['D001', 'U001', 'N001', 'HT001']);
   const [isManualWeightEntry, setIsManualWeightEntry] = useState(false);
   const [isScaleConnected, setIsScaleConnected] = useState(true); // Default to online for simulation
@@ -280,6 +282,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   } | null>(null);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [showPrintOptions, setShowPrintOptions] = useState(false);
+  /** Orders for which "Print All" has already been used; disables the option on the print preview. */
+  const [printedAllByOrder, setPrintedAllByOrder] = useState<
+    Record<string, boolean>
+  >({});
   const [showVoidManifestConfirmModal, setShowVoidManifestConfirmModal] = useState(false);
   const [showVoidManifestSuccessModal, setShowVoidManifestSuccessModal] = useState(false);
   const [completedOrdersSectionCollapsed, setCompletedOrdersSectionCollapsed] = useState(true);
@@ -413,6 +419,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     if (
       currentStep === 'containers-review' ||
       currentStep === 'manifest-management' ||
+      currentStep === 'noship-preview' ||
       currentStep === 'order-service'
     ) {
       setInManifestCompletion(true);
@@ -466,6 +473,24 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         : addedContainers,
     [addedContainers, selectedOrderData],
   );
+  /** No-Ship service types for the selected order (drives the No-Ship documentation preview). */
+  const currentOrderNoShipItems = useMemo(() => {
+    if (!selectedOrderData) {
+      return [] as Array<{
+        serviceTypeId: string;
+        reasonCode: NoShipReasonCode;
+        notes?: string;
+      }>;
+    }
+    const map = noshipByOrderAndServiceType[selectedOrderData.orderNumber] || {};
+    return selectedOrderData.programs
+      .filter(stId => map[stId])
+      .map(stId => ({
+        serviceTypeId: stId,
+        reasonCode: map[stId].reasonCode,
+        notes: map[stId].notes,
+      }));
+  }, [selectedOrderData, noshipByOrderAndServiceType]);
   const currentTotalWeight = useMemo(
     () => activeContainers.reduce((sum, c) => sum + c.netWeight, 0),
     [activeContainers],
@@ -976,8 +1001,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     return Boolean(
       order.customerSpecialInstructions ||
         order.siteAccessNotes ||
-        (order.safetyWarnings && order.safetyWarnings.length > 0) ||
-        (order.previousServiceNotes && order.previousServiceNotes.length > 0),
+        order.orderNotes,
     );
   }, []);
 
@@ -1809,6 +1833,65 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     addedContainers,
   ]);
 
+  // Print BOL (Bill of Lading)
+  const printBOL = useCallback(async () => {
+    try {
+      const trackingNumber =
+        manifestTrackingNumber || assignTrackingNumberOnLabelPrint();
+
+      Alert.alert(
+        'Printing BOL',
+        `Tracking Number: ${trackingNumber}\n\nBOL printer integration will be implemented here.`,
+        [{text: 'OK'}],
+      );
+    } catch (error: any) {
+      Alert.alert(
+        'Print Error',
+        error.message || 'Failed to print BOL. Please try again.',
+      );
+    }
+  }, [manifestTrackingNumber, assignTrackingNumberOnLabelPrint]);
+
+  // Print all shipment documents (Manifest + BOL + LDR) in one action.
+  // Only offered once per order; subsequent reprints must be done individually.
+  const printAllDocuments = useCallback(async () => {
+    try {
+      const trackingNumber =
+        manifestTrackingNumber || assignTrackingNumberOnLabelPrint();
+      const orderNumber = selectedOrderData?.orderNumber;
+      if (orderNumber) {
+        setPrintedAllByOrder(prev => ({...prev, [orderNumber]: true}));
+      }
+
+      Alert.alert(
+        'Printing All Documents',
+        `Tracking Number: ${trackingNumber}\n\nPrinting Manifest, BOL, and LDR. Printer integration will be implemented here.`,
+        [{text: 'OK'}],
+      );
+    } catch (error: any) {
+      Alert.alert(
+        'Print Error',
+        error.message || 'Failed to print documents. Please try again.',
+      );
+    }
+  }, [manifestTrackingNumber, assignTrackingNumberOnLabelPrint, selectedOrderData]);
+
+  // Print the No-Ship documentation report
+  const printNoShip = useCallback(async () => {
+    try {
+      Alert.alert(
+        'Printing No-Ship Report',
+        `Order: ${selectedOrderData?.orderNumber}\n\nNo-Ship report printer integration will be implemented here.`,
+        [{text: 'OK'}],
+      );
+    } catch (error: any) {
+      Alert.alert(
+        'Print Error',
+        error.message || 'Failed to print No-Ship report. Please try again.',
+      );
+    }
+  }, [selectedOrderData]);
+
   // Void manifest: show confirm modal; on confirm clear state and show success modal
   const voidManifest = useCallback(() => {
     setShowVoidManifestConfirmModal(true);
@@ -1922,7 +2005,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       flags: ['Flammable', 'Toxic'],
       containerCount: 5,
       allowedContainers: ['30G', '55G', '85G'],
-      requiresCylinderCount: true, // Example: This profile requires cylinder count
+      requiresCylinderCount: false,
     },
     {
       id: 'P001',
@@ -2547,7 +2630,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 const hasNotes = Boolean(
                   order.generatorStatus ||
                   order.siteAccessNotes ||
-                  (order.previousServiceNotes && order.previousServiceNotes.length > 0) ||
+                  order.orderNotes ||
                   order.customerSpecialInstructions,
                 );
                 return (
@@ -2616,24 +2699,22 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                             </Text>
                           </View>
                         )}
+                        {order.customerSpecialInstructions && (
+                          <View style={styles.serviceListExpandedBlock}>
+                            <Text style={styles.serviceListExpandedLabel}>Customer notes</Text>
+                            <Text style={styles.serviceListExpandedValue}>{order.customerSpecialInstructions}</Text>
+                          </View>
+                        )}
                         {order.siteAccessNotes && (
                           <View style={styles.serviceListExpandedBlock}>
                             <Text style={styles.serviceListExpandedLabel}>Site notes</Text>
                             <Text style={styles.serviceListExpandedValue}>{order.siteAccessNotes}</Text>
                           </View>
                         )}
-                        {order.previousServiceNotes && order.previousServiceNotes.length > 0 && (
+                        {order.orderNotes && (
                           <View style={styles.serviceListExpandedBlock}>
-                            <Text style={styles.serviceListExpandedLabel}>Technician notes</Text>
-                            <Text style={styles.serviceListExpandedValue}>
-                              {order.previousServiceNotes.map(n => `${n.note} (${n.technician || n.date})`).join('. ')}
-                            </Text>
-                          </View>
-                        )}
-                        {order.customerSpecialInstructions && (
-                          <View style={styles.serviceListExpandedBlock}>
-                            <Text style={styles.serviceListExpandedLabel}>Job sheet notes</Text>
-                            <Text style={styles.serviceListExpandedValue}>{order.customerSpecialInstructions}</Text>
+                            <Text style={styles.serviceListExpandedLabel}>Order notes</Text>
+                            <Text style={styles.serviceListExpandedValue}>{order.orderNotes}</Text>
                           </View>
                         )}
                       </View>
@@ -3488,7 +3569,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             setSelectedStream={setSelectedStream}
             setSelectedStreamCode={setSelectedStreamCode}
             setSelectedStreamId={setSelectedStreamId}
-            setCylinderCount={setCylinderCount}
+            setUnitCount={setUnitCount}
+            setSelectedContainerType={setSelectedContainerType}
             searchInputRef={searchInputRef}
             handleSearchFocus={handleSearchFocus}
             handleSearchBlur={handleSearchBlur}
@@ -3523,7 +3605,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             wasteStreams={wasteStreams}
             allContainerTypes={allContainerTypes}
             selectedStream={selectedStream}
+            selectedContainerType={selectedContainerType}
             setSelectedContainerType={setSelectedContainerType}
+            unitCount={unitCount}
+            setUnitCount={setUnitCount}
+            onBeginContainerEntry={() => setBulkContainersAdded(0)}
           />
         );
       case 'container-entry':
@@ -3559,8 +3645,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             setScaleWeight={setScaleWeight}
             barcode={barcode}
             setBarcode={setBarcode}
-            cylinderCount={cylinderCount}
-            setCylinderCount={setCylinderCount}
+            unitCount={unitCount}
+            bulkContainersAdded={bulkContainersAdded}
+            setBulkContainersAdded={setBulkContainersAdded}
             isManualWeightEntry={isManualWeightEntry}
             setIsManualWeightEntry={setIsManualWeightEntry}
             isScaleConnected={isScaleConnected}
@@ -3673,22 +3760,44 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             isOrderCompleted={isOrderCompleted}
             addedContainers={currentOrderAddedContainers}
             manifestTrackingNumber={manifestTrackingNumber}
-            manifestData={manifestData}
-            scannedDocuments={scannedDocuments.map(doc => ({
-              ...doc,
-              imageUri: doc.uri,
-              scannedAt: doc.timestamp,
-            })) as unknown as ScannedDocument[]}
-            showPrintPreview={showPrintPreview}
-            setShowPrintPreview={setShowPrintPreview}
-            showPrintOptions={showPrintOptions}
-            setShowPrintOptions={setShowPrintOptions}
-            voidManifest={voidManifest}
             printManifest={printManifest}
             printLDR={printLDR}
-            setPendingDocumentType={setPendingDocumentType}
-            setCaptureFromManifestScanView={setCaptureFromManifestScanView}
-            setShowCaptureMethodSelector={setShowCaptureMethodSelector}
+            printBOL={printBOL}
+            printAllDocuments={printAllDocuments}
+            hasPrintedAllDocuments={
+              selectedOrderData
+                ? !!printedAllByOrder[selectedOrderData.orderNumber]
+                : false
+            }
+            hasNoShipItems={currentOrderNoShipItems.length > 0}
+            setSelectedOrderData={setSelectedOrderData}
+          />
+        );
+      case 'noship-preview':
+        return (
+          <ExtNoShipDocumentScreen
+            selectedOrderData={selectedOrderData}
+            isOrderHeaderCollapsed={isOrderHeaderCollapsed}
+            setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
+            setCurrentStep={setCurrentStep}
+            elapsedTimeDisplay={elapsedTimeDisplay}
+            currentOrderTimeTracking={currentOrderTimeTracking}
+            handleRequestPause={handleRequestPause}
+            handleResumeTracking={handleResumeTracking}
+            setShowJobNotesModal={setShowJobNotesModal}
+            validationState={validationState}
+            setShowValidationModal={setShowValidationModal}
+            setShowServiceCenterModal={setShowServiceCenterModal}
+            selectedTruck={selectedTruck}
+            truckId={truckId}
+            selectedTrailer={selectedTrailer}
+            syncStatus={syncStatus}
+            pendingSyncCount={pendingSyncCount}
+            handleManualSync={handleManualSync}
+            serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
+            isOrderCompleted={isOrderCompleted}
+            noShipItems={currentOrderNoShipItems}
+            printNoShip={printNoShip}
             setSelectedOrderData={setSelectedOrderData}
           />
         );
@@ -3904,12 +4013,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const hasJobNotes = jobNotesOrder && (
     jobNotesOrder.customerSpecialInstructions ||
     jobNotesOrder.siteAccessNotes ||
-    (jobNotesOrder.safetyWarnings && jobNotesOrder.safetyWarnings.length > 0) ||
-    (jobNotesOrder.previousServiceNotes && jobNotesOrder.previousServiceNotes.length > 0)
+    jobNotesOrder.orderNotes ||
+    (jobNotesOrder.safetyWarnings && jobNotesOrder.safetyWarnings.length > 0)
   );
-  const lastThreeNotes = jobNotesOrder?.previousServiceNotes
-    ? jobNotesOrder.previousServiceNotes.slice(0, 3)
-    : [];
 
   // Load persisted validation issues when order changes
   useEffect(() => {
@@ -4201,7 +4307,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 <Card style={styles.jobNotesCard}>
                   <CardHeader>
                     <CardTitle>
-                      <CardTitleText>Customer Special Instructions</CardTitleText>
+                      <CardTitleText>Customer Notes</CardTitleText>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -4216,12 +4322,27 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 <Card style={styles.jobNotesCard}>
                   <CardHeader>
                     <CardTitle>
-                      <CardTitleText>Site Access Notes</CardTitleText>
+                      <CardTitleText>Site Notes</CardTitleText>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <Text style={styles.jobNotesText}>
                       {jobNotesOrder.siteAccessNotes}
+                    </Text>
+                  </CardContent>
+                </Card>
+              )}
+
+              {jobNotesOrder.orderNotes && (
+                <Card style={styles.jobNotesCard}>
+                  <CardHeader>
+                    <CardTitle>
+                      <CardTitleText>Order Notes</CardTitleText>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Text style={styles.jobNotesText}>
+                      {jobNotesOrder.orderNotes}
                     </Text>
                   </CardContent>
                 </Card>
@@ -4248,31 +4369,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     {jobNotesOrder.safetyWarnings.map((warning, index) => (
                       <View key={index} style={styles.safetyWarningItem}>
                         <Text style={styles.safetyWarningText}>{warning}</Text>
-                      </View>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
-
-              {lastThreeNotes.length > 0 && (
-                <Card style={styles.jobNotesCard}>
-                  <CardHeader>
-                    <CardTitle>
-                      <CardTitleText>Previous Service Notes</CardTitleText>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {lastThreeNotes.map((note, index) => (
-                      <View key={index} style={styles.previousNoteItem}>
-                        <View style={styles.previousNoteHeader}>
-                          <Text style={styles.previousNoteDate}>{note.date}</Text>
-                          {note.technician && (
-                            <Text style={styles.previousNoteTechnician}>
-                              {note.technician}
-                            </Text>
-                          )}
-                        </View>
-                        <Text style={styles.previousNoteText}>{note.note}</Text>
                       </View>
                     ))}
                   </CardContent>
@@ -4312,9 +4408,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               upcomingOrdersWithNotes.map(order => {
                 const locationParts = [order.city, order.state].filter(Boolean).join(', ');
                 const locationLine = locationParts ? `${order.site} • ${locationParts}` : order.site;
-                const lastThreeNotes = order.previousServiceNotes
-                  ? order.previousServiceNotes.slice(0, 3)
-                  : [];
 
                 return (
                   <View key={order.orderNumber} style={styles.allNotesOrderSection}>
@@ -4343,7 +4436,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       <Card style={styles.jobNotesCard}>
                         <CardHeader>
                           <CardTitle>
-                            <CardTitleText>Customer Special Instructions</CardTitleText>
+                            <CardTitleText>Customer Notes</CardTitleText>
                           </CardTitle>
                         </CardHeader>
                         <CardContent>
@@ -4358,11 +4451,24 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       <Card style={styles.jobNotesCard}>
                         <CardHeader>
                           <CardTitle>
-                            <CardTitleText>Site Access Notes</CardTitleText>
+                            <CardTitleText>Site Notes</CardTitleText>
                           </CardTitle>
                         </CardHeader>
                         <CardContent>
                           <Text style={styles.jobNotesText}>{order.siteAccessNotes}</Text>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {order.orderNotes && (
+                      <Card style={styles.jobNotesCard}>
+                        <CardHeader>
+                          <CardTitle>
+                            <CardTitleText>Order Notes</CardTitleText>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <Text style={styles.jobNotesText}>{order.orderNotes}</Text>
                         </CardContent>
                       </Card>
                     )}
@@ -4394,30 +4500,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       </Card>
                     )}
 
-                    {lastThreeNotes.length > 0 && (
-                      <Card style={styles.jobNotesCard}>
-                        <CardHeader>
-                          <CardTitle>
-                            <CardTitleText>Previous Service Notes</CardTitleText>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          {lastThreeNotes.map((note, index) => (
-                            <View key={index} style={styles.previousNoteItem}>
-                              <View style={styles.previousNoteHeader}>
-                                <Text style={styles.previousNoteDate}>{note.date}</Text>
-                                {note.technician && (
-                                  <Text style={styles.previousNoteTechnician}>
-                                    {note.technician}
-                                  </Text>
-                                )}
-                              </View>
-                              <Text style={styles.previousNoteText}>{note.note}</Text>
-                            </View>
-                          ))}
-                        </CardContent>
-                      </Card>
-                    )}
                   </View>
                 );
               })
@@ -7488,6 +7570,10 @@ export const styles = StyleSheet.create({
     minHeight: 220,
     position: 'relative',
   },
+  containerCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}10`,
+  },
   popularBadge: {
     position: 'absolute',
     top: spacing.md,
@@ -7578,8 +7664,76 @@ export const styles = StyleSheet.create({
     ...typography.sm,
     color: colors.mutedForeground,
   },
-  cylinderCountCard: {
+  unitCountCard: {
     marginBottom: spacing.md,
+  },
+  weightInfoHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  weightInfoProgressText: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  unitCountFooter: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.card,
+    borderTopWidth: 2,
+    borderTopColor: colors.border,
+    gap: spacing.md,
+  },
+  unitCountPromptRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  unitCountPromptTextGroup: {
+    flex: 1,
+    minWidth: 0,
+  },
+  unitCountPromptLabel: {
+    ...typography.lg,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  unitCountPromptHint: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: spacing.xs / 2,
+  },
+  unitCountStepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.primary,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+  },
+  unitCountStepperButton: {
+    width: touchTargets.comfortable,
+    height: touchTargets.comfortable,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: `${colors.primary}12`,
+  },
+  unitCountStepperButtonDisabled: {
+    opacity: 0.4,
+  },
+  unitCountStepperInput: {
+    ...typography.xl,
+    fontWeight: '700',
+    color: colors.foreground,
+    textAlign: 'center',
+    minWidth: 72,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
   },
   manualEntryIndicator: {
     backgroundColor: '#fef3c720',
@@ -7679,7 +7833,7 @@ export const styles = StyleSheet.create({
   },
   compactWeightRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     backgroundColor: colors.card,
     borderRadius: borderRadius.lg,
     padding: spacing.md,
@@ -7689,13 +7843,15 @@ export const styles = StyleSheet.create({
   },
   compactWeightItem: {
     flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
     alignItems: 'center',
   },
   compactWeightDivider: {
     width: 1,
-    height: 40,
+    alignSelf: 'stretch',
     backgroundColor: colors.border,
-    marginHorizontal: spacing.sm,
+    marginHorizontal: spacing.xs,
   },
   compactWeightLabel: {
     ...typography.sm,
@@ -7757,12 +7913,16 @@ export const styles = StyleSheet.create({
   compactScaleInputContainer: {
     marginTop: spacing.xs,
     marginBottom: 0,
+    alignSelf: 'center',
+    width: 96,
+    maxWidth: '100%',
   },
   compactScaleInput: {
     textAlign: 'center',
     fontSize: 20,
     fontWeight: '700',
     fontFamily: 'monospace',
+    paddingHorizontal: spacing.xs,
     paddingVertical: spacing.xs,
   },
   manualEntryText: {
@@ -9540,9 +9700,6 @@ export const styles = StyleSheet.create({
   },
   additionalContactsList: {
     marginTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: spacing.sm,
     gap: spacing.md,
   },
   detailNotesSection: {

@@ -5,7 +5,7 @@ import {Badge} from '../../components/Badge';
 import {Icon} from '../../components/Icon';
 import {PersistentOrderHeader} from '../../components/PersistentOrderHeader';
 import {colors} from '../../styles/theme';
-import {FlowStep, OrderData, WasteStream} from '../../types/wasteCollection';
+import {FlowStep, OrderData, WasteStream, ContainerType} from '../../types/wasteCollection';
 import {SyncStatus} from '../../services/syncService';
 import {TimeTrackingRecord} from '../../services/timeTrackingService';
 import {OfflineStatus} from '../../services/offlineTrackingService';
@@ -54,7 +54,8 @@ export interface StreamSelectionScreenProps {
   setSelectedStream: (stream: string) => void;
   setSelectedStreamCode: (code: string) => void;
   setSelectedStreamId: (id: string) => void;
-  setCylinderCount: (count: string) => void;
+  setUnitCount: (count: string) => void;
+  setSelectedContainerType: (type: ContainerType | null) => void;
   searchInputRef: React.RefObject<TextInput>;
   handleSearchFocus: () => void;
   handleSearchBlur: () => void;
@@ -92,7 +93,8 @@ export const StreamSelectionScreen: React.FC<StreamSelectionScreenProps> = ({
   setSelectedStream,
   setSelectedStreamCode,
   setSelectedStreamId,
-  setCylinderCount,
+  setUnitCount,
+  setSelectedContainerType,
   searchInputRef,
   handleSearchFocus,
   handleSearchBlur,
@@ -238,7 +240,8 @@ export const StreamSelectionScreen: React.FC<StreamSelectionScreenProps> = ({
                   setSelectedStream(stream.profileName);
                   setSelectedStreamCode(stream.profileNumber);
                   setSelectedStreamId(stream.id);
-                  setCylinderCount(''); // Reset cylinder count when stream changes
+                  setUnitCount('1');
+                  setSelectedContainerType(null);
                   setCurrentStep('container-selection');
                 }
               };

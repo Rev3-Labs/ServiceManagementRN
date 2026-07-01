@@ -49,18 +49,7 @@ export const MOCK_ORDERS: OrderData[] = [
       'Wear full PPE including respirator when handling controlled substances',
       'No smoking within 50 feet of storage area',
     ],
-    previousServiceNotes: [
-      {
-        date: '12/15/2024',
-        note: 'Customer requested additional containers for next service.',
-        technician: 'Mike Johnson',
-      },
-      {
-        date: '11/20/2024',
-        note: 'Site access gate code changed. Updated in system.',
-        technician: 'Sarah Williams',
-      },
-    ],
+    orderNotes: 'Customer requested additional containers for next service.',
   },
   {
     orderNumber: 'WO-2024-1235',
@@ -92,13 +81,7 @@ export const MOCK_ORDERS: OrderData[] = [
     safetyWarnings: [
       'Pharmaceutical waste requires special handling - check labels carefully',
     ],
-    previousServiceNotes: [
-      {
-        date: '12/18/2024',
-        note: 'Customer noted increased volume of pharmaceutical waste.',
-        technician: 'Tom Brown',
-      },
-    ],
+    orderNotes: 'Customer noted increased volume of pharmaceutical waste.',
   },
   {
     orderNumber: 'WO-2024-1236',
@@ -149,23 +132,7 @@ export const MOCK_ORDERS: OrderData[] = [
       'Controlled substances present - full compliance required',
       'Forklift traffic in dock area - use caution',
     ],
-    previousServiceNotes: [
-      {
-        date: '12/10/2024',
-        note: 'Customer requested earlier pickup time for next service.',
-        technician: 'Lisa Anderson',
-      },
-      {
-        date: '11/25/2024',
-        note: 'Dock 3 was blocked - used dock 2 instead. Notify customer.',
-        technician: 'David Martinez',
-      },
-      {
-        date: '10/30/2024',
-        note: 'Large volume handled successfully. No issues.',
-        technician: 'Mike Johnson',
-      },
-    ],
+    orderNotes: 'Customer requested earlier pickup time for next service. Dock 3 was blocked on last visit — used dock 2 instead.',
   },
   {
     orderNumber: 'WO-2024-1237',
@@ -435,18 +402,7 @@ export const MOCK_ORDERS: OrderData[] = [
       'DEA Form 41 must be completed and witnessed',
       'Chain of custody documentation is mandatory',
     ],
-    previousServiceNotes: [
-      {
-        date: '12/20/2024',
-        note: 'Large volume of Schedule II narcotics. Additional time required for proper documentation.',
-        technician: 'Mike Johnson',
-      },
-      {
-        date: '11/15/2024',
-        note: 'DEA Form 41 documentation completed successfully. All controlled substances properly verified.',
-        technician: 'Sarah Williams',
-      },
-    ],
+    orderNotes: 'Large volume of Schedule II narcotics. Additional time required for proper documentation.',
   },
   {
     orderNumber: 'WO-2024-1246',

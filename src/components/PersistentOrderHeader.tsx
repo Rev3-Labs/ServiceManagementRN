@@ -81,8 +81,8 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
   const hasJobNotes = 
     orderData.customerSpecialInstructions ||
     orderData.siteAccessNotes ||
-    (orderData.safetyWarnings && orderData.safetyWarnings.length > 0) ||
-    (orderData.previousServiceNotes && orderData.previousServiceNotes.length > 0);
+    orderData.orderNotes ||
+    (orderData.safetyWarnings && orderData.safetyWarnings.length > 0);
   const formatAddress = () => {
     const parts = [orderData.site, orderData.city, orderData.state].filter(
       Boolean,

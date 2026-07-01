@@ -7,6 +7,7 @@ export type FlowStep =
   | 'container-summary'
   | 'containers-review'   // Order-level: all containers by service type, add/delete before manifest
   | 'manifest-management'
+  | 'noship-preview'      // No-Ship documentation preview shown after the manifest print preview
   | 'materials-supplies'
   | 'equipment-ppe'
   | 'order-photos'
@@ -45,12 +46,8 @@ export interface OrderData {
   }>;
   customerSpecialInstructions?: string;
   siteAccessNotes?: string;
+  orderNotes?: string;
   safetyWarnings?: string[];
-  previousServiceNotes?: Array<{
-    date: string;
-    note: string;
-    technician?: string;
-  }>;
 }
 
 export interface WasteStream {
@@ -66,7 +63,7 @@ export interface WasteStream {
   containerCount?: number;
   allowedContainers: string[];
   isDEARegulated?: boolean;
-  requiresCylinderCount?: boolean; // Whether this profile requires cylinder count entry
+  requiresCylinderCount?: boolean; // Cylinder profile: one container row with unit count; otherwise one row per unit entered
   wasteCodes?: string[]; // Waste codes including P-Listed codes (P001-P205)
 }
 
@@ -92,14 +89,16 @@ export interface AddedContainer {
   grossWeight: string;
   netWeight: number;
   isManualEntry?: boolean;
+  /** Reason code selected when the weight was entered manually (scale unavailable). */
+  manualWeightReason?: string;
   shippingLabelBarcode?: string;
   status?: 'loaded' | 'in_transit' | 'dropped';
   /** Service type this container was added under; used for per-service-type grouping. */
   serviceTypeId?: string;
   /** Order this container belongs to; used for per-customer projected inventory aggregation. */
   orderNumber?: string;
-  /** Number of cylinders captured for profiles that require a cylinder count. */
-  cylinderCount?: number;
+  /** Cylinder profiles: number of cylinders/units in this single container row. */
+  unitCount?: number;
 }
 
 export interface MaterialsSupply {

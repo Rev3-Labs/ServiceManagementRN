@@ -39,8 +39,8 @@ export interface WasteCollectionSharedProps {
   setGrossWeight: (weight: string) => void;
   barcode: string;
   setBarcode: (barcode: string) => void;
-  cylinderCount: string;
-  setCylinderCount: (count: string) => void;
+  unitCount: string;
+  setUnitCount: (count: string) => void;
   isManualWeightEntry: boolean;
   setIsManualWeightEntry: (manual: boolean) => void;
   isScaleConnected: boolean;
