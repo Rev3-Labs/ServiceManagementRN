@@ -23,6 +23,7 @@ import {colors, spacing, typography, borderRadius} from '../styles/theme';
 interface BeforeServicePhotoModalProps {
   visible: boolean;
   orderNumber: string;
+  serviceTypeId?: string;
   onPhotoCaptured: () => void;
   onSkip: () => void;
   onCancel: () => void;
@@ -33,6 +34,7 @@ type CaptureStatus = 'opening' | 'preview' | 'retry' | 'saving';
 export const BeforeServicePhotoModal: React.FC<BeforeServicePhotoModalProps> = ({
   visible,
   orderNumber,
+  serviceTypeId,
   onPhotoCaptured,
   onSkip,
   onCancel,
@@ -64,7 +66,14 @@ export const BeforeServicePhotoModal: React.FC<BeforeServicePhotoModalProps> = (
       setStatus('saving');
       setErrorMessage(null);
       try {
-        await photoService.addPhoto(orderNumber, uri, 'before-service');
+        await photoService.addPhoto(
+          orderNumber,
+          uri,
+          'before-service',
+          undefined,
+          undefined,
+          serviceTypeId,
+        );
         stopWebCamera();
         onPhotoCaptured();
       } catch {
@@ -72,7 +81,7 @@ export const BeforeServicePhotoModal: React.FC<BeforeServicePhotoModalProps> = (
         setStatus('retry');
       }
     },
-    [orderNumber, onPhotoCaptured, stopWebCamera],
+    [orderNumber, serviceTypeId, onPhotoCaptured, stopWebCamera],
   );
 
   const openNativeCamera = useCallback(() => {

@@ -38,8 +38,11 @@ import {offlineTrackingService} from '../services/offlineTrackingService';
 import {serviceCenterService} from '../services/serviceCenterService';
 import {vehicleService, Truck, Trailer} from '../services/vehicleService';
 import {Input} from '../components/Input';
+import {
+  deviceStatusService,
+} from '../services/deviceStatusService';
 
-type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings' | 'DebugSql';
+type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings' | 'Devices' | 'DebugSql';
 
 interface SettingsScreenProps {
   username?: string;
@@ -68,6 +71,21 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [selectedOfflineScenario, setSelectedOfflineScenario] = useState<number | null>(null);
   const [showOfflineNotification, setShowOfflineNotification] = useState(false);
   const [serviceCenter, setServiceCenter] = useState(serviceCenterService.getServiceCenter());
+  const [connectedDeviceCount, setConnectedDeviceCount] = useState(
+    deviceStatusService.getConnectedCount(),
+  );
+  const [deviceCount, setDeviceCount] = useState(
+    deviceStatusService.getDevices().length,
+  );
+
+  useEffect(() => {
+    return deviceStatusService.onDevicesChange(devices => {
+      setConnectedDeviceCount(
+        devices.filter(device => device.status === 'connected').length,
+      );
+      setDeviceCount(devices.length);
+    });
+  }, []);
 
   useEffect(() => {
     loadTruckId();
@@ -281,6 +299,35 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}>
+        <Card style={styles.settingsCard}>
+          <TouchableOpacity
+            style={styles.settingsNavRow}
+            onPress={() => onNavigate?.('Devices')}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Connected devices">
+            <View style={styles.settingsNavIconWrap}>
+              <Icon name="devices" size={22} color={colors.primary} />
+            </View>
+            <View style={styles.settingsNavTextWrap}>
+              <Text style={styles.settingsNavTitle}>Connected devices</Text>
+              <Text style={styles.settingsNavSubtitle}>
+                Scale, printers, and peripherals
+              </Text>
+            </View>
+            <View style={styles.settingsNavRight}>
+              <Text style={styles.settingsNavMeta}>
+                {connectedDeviceCount}/{deviceCount} connected
+              </Text>
+              <Icon
+                name="chevron-right"
+                size={22}
+                color={colors.mutedForeground}
+              />
+            </View>
+          </TouchableOpacity>
+        </Card>
+
         <Card style={styles.settingsCard}>
           <CardHeader>
             <CardTitle>
@@ -733,6 +780,42 @@ const styles = StyleSheet.create({
   },
   settingsCard: {
     marginBottom: spacing.lg,
+  },
+  settingsNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  settingsNavIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.primary + '14',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsNavTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  settingsNavTitle: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
+  settingsNavSubtitle: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginTop: spacing.xs / 4,
+  },
+  settingsNavRight: {
+    alignItems: 'flex-end',
+    gap: spacing.xs / 2,
+  },
+  settingsNavMeta: {
+    ...typography.xs,
+    color: colors.mutedForeground,
   },
   description: {
     ...typography.base,

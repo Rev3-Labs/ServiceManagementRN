@@ -7,6 +7,7 @@ import WasteCollectionScreen from './src/screens/WasteCollectionScreen';
 import MaterialsSuppliesScreen from './src/screens/MaterialsSuppliesScreen';
 import ServiceCloseoutScreen from './src/screens/ServiceCloseoutScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import DevicesScreen from './src/screens/DevicesScreen';
 import ProjectedInventoryScreen from './src/screens/ProjectedInventoryScreen';
 import {DebugSqlScreen} from './src/screens/DebugSqlScreen';
 
@@ -17,6 +18,7 @@ type Screen =
   | 'MaterialsSupplies'
   | 'ServiceCloseout'
   | 'Settings'
+  | 'Devices'
   | 'ProjectedInventory'
   | 'DebugSql';
 
@@ -109,6 +111,8 @@ function App(): React.JSX.Element {
             onGoBack={goBack}
           />
         );
+      case 'Devices':
+        return <DevicesScreen onGoBack={goBack} />;
       case 'ProjectedInventory':
         return (
           <ProjectedInventoryScreen

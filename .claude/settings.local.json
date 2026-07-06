@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"const m = require\\('react-native-vector-icons/glyphmaps/MaterialIcons.json'\\); console.log\\('chevron-up:', m['chevron-up'], 'chevron-down:', m['chevron-down'], 'lock:', m['lock'], 'check-circle:', m['check-circle']\\);\")",
+      "Bash(npx tsc *)"
+    ]
+  }
+}

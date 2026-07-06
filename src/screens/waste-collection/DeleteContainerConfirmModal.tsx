@@ -8,8 +8,15 @@ import {
   StyleSheet,
 } from 'react-native';
 import {AddedContainer, OrderData} from '../../types/wasteCollection';
-import {colors, spacing, borderRadius, typography} from '../../styles/theme';
+import {
+  colors,
+  spacing,
+  borderRadius,
+  typography,
+  touchTargets,
+} from '../../styles/theme';
 import {Button} from '../../components/Button';
+import {Icon} from '../../components/Icon';
 import {ContainerDeleteDetails} from './ContainerDeleteDetails';
 import {styles} from './styles';
 
@@ -43,6 +50,11 @@ export const DeleteContainerConfirmModal: React.FC<
   ).trim();
   const isBarcodeMatch =
     expectedBarcode.length > 0 && barcodeInput.trim() === expectedBarcode;
+  const canScan = expectedBarcode.length > 0;
+
+  const handleScanPress = () => {
+    onBarcodeChange(expectedBarcode);
+  };
 
   return (
     <Modal
@@ -79,16 +91,35 @@ export const DeleteContainerConfirmModal: React.FC<
             <Text style={localStyles.confirmInstructions}>
               To confirm, enter the container's shipping label:
             </Text>
-            <TextInput
-              style={localStyles.barcodeInput}
-              value={barcodeInput}
-              onChangeText={onBarcodeChange}
-              placeholder="Enter shipping label"
-              placeholderTextColor={colors.mutedForeground}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              editable={expectedBarcode.length > 0}
-            />
+            <View style={localStyles.barcodeInputWrapper}>
+              <TextInput
+                style={[
+                  localStyles.barcodeInput,
+                  canScan && localStyles.barcodeInputWithScan,
+                ]}
+                value={barcodeInput}
+                onChangeText={onBarcodeChange}
+                placeholder="Enter shipping label"
+                placeholderTextColor={colors.mutedForeground}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                editable={canScan}
+              />
+              {canScan ? (
+                <TouchableOpacity
+                  onPress={handleScanPress}
+                  style={localStyles.scanButton}
+                  hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                  accessibilityRole="button"
+                  accessibilityLabel="Scan shipping label barcode">
+                  <Icon
+                    name="qr-code-scanner"
+                    size={22}
+                    color={colors.primary}
+                  />
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
 
           <View style={styles.bottomSheetFooter}>
@@ -120,6 +151,11 @@ const localStyles = StyleSheet.create({
     color: colors.mutedForeground,
     marginTop: spacing.sm,
   },
+  barcodeInputWrapper: {
+    position: 'relative',
+    justifyContent: 'center',
+    marginTop: spacing.xs,
+  },
   barcodeInput: {
     backgroundColor: colors.inputBackground,
     borderWidth: 1,
@@ -132,5 +168,17 @@ const localStyles = StyleSheet.create({
     color: colors.foreground,
     fontFamily: 'monospace',
     letterSpacing: 1,
+  },
+  barcodeInputWithScan: {
+    paddingRight: spacing.xl + spacing.sm,
+  },
+  scanButton: {
+    position: 'absolute',
+    right: spacing.sm,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: touchTargets.min,
   },
 });

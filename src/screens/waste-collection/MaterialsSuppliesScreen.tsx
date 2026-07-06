@@ -33,7 +33,10 @@ import {
   formatServiceRequestLabel,
   getDefaultExpandedServiceTypeId,
   groupMaterialsByServiceRequest,
+  UNASSIGNED_SERVICE_TYPE_ID,
 } from './containerGrouping';
+import {ServiceRequestPicker} from './ServiceRequestPicker';
+import {isItemUnassigned} from './serviceRequestReview';
 
 export interface MaterialsSuppliesScreenProps {
   // PersistentOrderHeader props
@@ -68,6 +71,9 @@ export interface MaterialsSuppliesScreenProps {
   setShowAddMaterialModal: (show: boolean) => void;
   activeServiceTypeTimer: string | null;
   handleMarkServiceTypeComplete: () => void;
+  /** True when all service requests are complete and user is in review/manifest phase. */
+  canAssignServiceRequests?: boolean;
+  openAddMaterialModal?: () => void;
 }
 
 export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = ({
@@ -96,6 +102,8 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
   setShowAddMaterialModal,
   activeServiceTypeTimer,
   handleMarkServiceTypeComplete,
+  canAssignServiceRequests = false,
+  openAddMaterialModal,
 }) => {
   const {width: windowWidth} = useWindowDimensions();
   const useCompactMaterialsLayout = windowWidth < 1000;
@@ -158,6 +166,22 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
         activeServiceTypeTimer,
       ),
   );
+  const [assigningMaterialId, setAssigningMaterialId] = useState<string | null>(
+    null,
+  );
+  const [assignServiceTypeId, setAssignServiceTypeId] = useState<string | null>(
+    null,
+  );
+
+  const handleAssignMaterial = (materialId: string, serviceTypeId: string) => {
+    setMaterialsSupplies(prev =>
+      prev.map(m =>
+        m.id === materialId ? {...m, serviceTypeId} : m,
+      ),
+    );
+    setAssigningMaterialId(null);
+    setAssignServiceTypeId(null);
+  };
 
   useEffect(() => {
     const defaultGroups = groupMaterialsByServiceRequest(
@@ -220,6 +244,79 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
     </Badge>
   );
 
+  const renderAssignmentButton = (
+    material: MaterialsSupply,
+    groupServiceTypeId: string,
+  ) => {
+    if (!canAssignServiceRequests || isCurrentOrderCompleted) {
+      return null;
+    }
+
+    const needsAssignment =
+      groupServiceTypeId === UNASSIGNED_SERVICE_TYPE_ID ||
+      isItemUnassigned(material.serviceTypeId, selectedOrderData.programs);
+
+    if (assigningMaterialId === material.id) {
+      return null;
+    }
+
+    return (
+      <TouchableOpacity
+        onPress={() => {
+          setAssigningMaterialId(material.id);
+          setAssignServiceTypeId(
+            needsAssignment ? null : (material.serviceTypeId ?? null),
+          );
+        }}
+        style={styles.assignServiceRequestButton}
+        hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+        <Text style={styles.assignServiceRequestButtonText}>
+          {needsAssignment ? 'Assign' : 'Change'}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderAssignmentPanel = (material: MaterialsSupply) => {
+    if (assigningMaterialId !== material.id) {
+      return null;
+    }
+
+    return (
+      <View style={styles.assignServiceRequestPanel}>
+        <ServiceRequestPicker
+          order={selectedOrderData}
+          selectedServiceTypeId={assignServiceTypeId}
+          onSelect={setAssignServiceTypeId}
+          label="Assign to service request"
+          description="Choose which completed service request this item belongs to"
+        />
+        <View style={styles.assignServiceRequestActions}>
+          <Button
+            title="Cancel"
+            variant="outline"
+            size="sm"
+            onPress={() => {
+              setAssigningMaterialId(null);
+              setAssignServiceTypeId(null);
+            }}
+          />
+          <Button
+            title="Save"
+            variant="primary"
+            size="sm"
+            disabled={!assignServiceTypeId}
+            onPress={() => {
+              if (assignServiceTypeId) {
+                handleAssignMaterial(material.id, assignServiceTypeId);
+              }
+            }}
+          />
+        </View>
+      </View>
+    );
+  };
+
   const renderMaterialCard = (
     material: MaterialsSupply,
     serviceTypeId: string,
@@ -242,8 +339,12 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
           <Text style={styles.materialCardQtyLabel}>Qty</Text>
           {renderQuantityControls(material)}
         </View>
-        {renderDeleteButton(material)}
+        <View style={styles.materialCardActions}>
+          {renderAssignmentButton(material, serviceTypeId)}
+          {renderDeleteButton(material)}
+        </View>
       </View>
+      {renderAssignmentPanel(material)}
     </View>
   );
 
@@ -251,29 +352,37 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
     material: MaterialsSupply,
     serviceTypeId: string,
   ) => (
-    <View key={material.id} style={styles.materialsTableRow}>
-      <Text
-        style={[
-          styles.materialsTableCell,
-          styles.materialsTableCellServiceRequest,
-        ]}>
-        {formatServiceRequestLabel(serviceTypeId, selectedOrderData)}
-      </Text>
-      <Text style={styles.materialsTableCell}>{material.itemNumber}</Text>
-      <Text
-        style={[
-          styles.materialsTableCell,
-          styles.materialsTableCellDescription,
-        ]}>
-        {material.description}
-      </Text>
-      <View style={styles.materialsTableCell}>
-        {renderQuantityControls(material)}
+    <View key={material.id}>
+      <View style={styles.materialsTableRow}>
+        <Text
+          style={[
+            styles.materialsTableCell,
+            styles.materialsTableCellServiceRequest,
+          ]}>
+          {formatServiceRequestLabel(serviceTypeId, selectedOrderData)}
+        </Text>
+        <Text style={styles.materialsTableCell}>{material.itemNumber}</Text>
+        <Text
+          style={[
+            styles.materialsTableCell,
+            styles.materialsTableCellDescription,
+          ]}>
+          {material.description}
+        </Text>
+        <View style={styles.materialsTableCell}>
+          {renderQuantityControls(material)}
+        </View>
+        <View style={styles.materialsTableCell}>{renderTypeBadge(material)}</View>
+        <View style={styles.materialsTableCell}>
+          {renderDeleteButton(material)}
+        </View>
+        {canAssignServiceRequests && !isCurrentOrderCompleted ? (
+          <View style={[styles.materialsTableCell, styles.materialsTableCellAssign]}>
+            {renderAssignmentButton(material, serviceTypeId)}
+          </View>
+        ) : null}
       </View>
-      <View style={styles.materialsTableCell}>{renderTypeBadge(material)}</View>
-      <View style={styles.materialsTableCell}>
-        {renderDeleteButton(material)}
-      </View>
+      {renderAssignmentPanel(material)}
     </View>
   );
 
@@ -297,6 +406,9 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
       <Text style={styles.materialsTableHeaderText}>Qty</Text>
       <Text style={styles.materialsTableHeaderText}>Type</Text>
       <Text style={styles.materialsTableHeaderText}>Action</Text>
+      {canAssignServiceRequests && !isCurrentOrderCompleted ? (
+        <Text style={styles.materialsTableHeaderText}>Assign</Text>
+      ) : null}
     </View>
   );
 
@@ -352,7 +464,11 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
                 variant="primary"
                 size="sm"
                 disabled={isCurrentOrderCompleted}
-                onPress={() => setShowAddMaterialModal(true)}
+                onPress={() =>
+                  openAddMaterialModal
+                    ? openAddMaterialModal()
+                    : setShowAddMaterialModal(true)
+                }
               />
             </CardHeader>
             <CardContent>
@@ -360,6 +476,12 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
                 Track materials and supplies used or left behind for this work
                 order.
               </Text>
+              {canAssignServiceRequests && (
+                <Text style={styles.reviewAssignHint}>
+                  All service requests are complete. Assign each item to the
+                  correct service request before closing out the order.
+                </Text>
+              )}
 
               {materialsSupplies.length > 0 ? (
                 <>

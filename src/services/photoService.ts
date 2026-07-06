@@ -139,6 +139,8 @@ export interface PhotoDocumentGroup {
   category: PhotoCategory;
   label?: string;
   createdAt: number;
+  /** Service type this document group belongs to. */
+  serviceTypeId?: string;
 }
 
 export interface OrderPhoto {
@@ -153,6 +155,8 @@ export interface OrderPhoto {
   caption?: string;
   timestamp: string;
   capturedAt: number;
+  /** Service type this photo was captured under. */
+  serviceTypeId?: string;
 }
 
 export interface PhotoDocumentGroupWithPhotos extends PhotoDocumentGroup {
@@ -489,6 +493,7 @@ class PhotoService {
     orderNumber: string,
     category: PhotoCategory,
     label?: string,
+    serviceTypeId?: string,
   ): Promise<PhotoDocumentGroup> {
     if (!isShippingDocumentCategory(category)) {
       throw new Error(
@@ -502,6 +507,7 @@ class PhotoService {
       category,
       label: label ?? this.getCategoryLabel(category),
       createdAt: Date.now(),
+      serviceTypeId,
     };
 
     const groups = this.documentGroups.get(orderNumber) ?? [];
@@ -516,6 +522,7 @@ class PhotoService {
     groupId: string,
     uri: string,
     caption?: string,
+    serviceTypeId?: string,
   ): Promise<OrderPhoto> {
     const group = (this.documentGroups.get(orderNumber) ?? []).find(
       g => g.id === groupId,
@@ -532,6 +539,16 @@ class PhotoService {
       );
     }
 
+    const existingPages = this.getPhotosInGroup(orderNumber, groupId);
+    const resolvedServiceTypeId =
+      serviceTypeId ??
+      group.serviceTypeId ??
+      existingPages[0]?.serviceTypeId;
+
+    if (resolvedServiceTypeId && !group.serviceTypeId) {
+      group.serviceTypeId = resolvedServiceTypeId;
+    }
+
     const photo: OrderPhoto = {
       id: `photo-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       uri,
@@ -542,6 +559,7 @@ class PhotoService {
       caption,
       timestamp: new Date().toISOString(),
       capturedAt: Date.now(),
+      serviceTypeId: resolvedServiceTypeId,
     };
 
     const orderPhotos = this.photos.get(orderNumber) || [];
@@ -559,13 +577,31 @@ class PhotoService {
     category: PhotoCategory,
     caption?: string,
     groupId?: string,
+    serviceTypeId?: string,
   ): Promise<OrderPhoto> {
     if (isShippingDocumentCategory(category)) {
       if (groupId) {
-        return this.addPhotoToGroup(orderNumber, groupId, uri, caption);
+        return this.addPhotoToGroup(
+          orderNumber,
+          groupId,
+          uri,
+          caption,
+          serviceTypeId,
+        );
       }
-      const group = await this.createDocumentGroup(orderNumber, category);
-      return this.addPhotoToGroup(orderNumber, group.id, uri, caption);
+      const group = await this.createDocumentGroup(
+        orderNumber,
+        category,
+        undefined,
+        serviceTypeId,
+      );
+      return this.addPhotoToGroup(
+        orderNumber,
+        group.id,
+        uri,
+        caption,
+        serviceTypeId,
+      );
     }
 
     if (!this.canAddPhotoToCategory(orderNumber, category)) {
@@ -584,6 +620,7 @@ class PhotoService {
       caption,
       timestamp: new Date().toISOString(),
       capturedAt: Date.now(),
+      serviceTypeId,
     };
 
     const orderPhotos = this.photos.get(orderNumber) || [];
@@ -662,7 +699,7 @@ class PhotoService {
   async updatePhoto(
     orderNumber: string,
     photoId: string,
-    updates: Partial<Pick<OrderPhoto, 'category' | 'caption'>>,
+    updates: Partial<Pick<OrderPhoto, 'category' | 'caption' | 'serviceTypeId'>>,
   ): Promise<void> {
     const orderPhotos = this.photos.get(orderNumber) || [];
     const photo = orderPhotos.find(p => p.id === photoId);
@@ -686,6 +723,18 @@ class PhotoService {
         }
       }
       Object.assign(photo, updates);
+      if (updates.serviceTypeId && photo.groupId) {
+        const group = (this.documentGroups.get(orderNumber) ?? []).find(
+          g => g.id === photo.groupId,
+        );
+        if (group) {
+          group.serviceTypeId = updates.serviceTypeId;
+          const pages = this.getPhotosInGroup(orderNumber, photo.groupId);
+          pages.forEach(page => {
+            page.serviceTypeId = updates.serviceTypeId;
+          });
+        }
+      }
       await this.savePhotos();
       this.notifyListeners(orderNumber);
     }

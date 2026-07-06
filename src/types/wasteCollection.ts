@@ -115,6 +115,8 @@ export interface EquipmentPPE {
   id: string;
   name: string;
   count: number;
+  /** Service type this item was logged under; drives per-service-type grouping in review. */
+  serviceTypeId?: string;
 }
 
 export interface ScannedDocument {

@@ -35,6 +35,18 @@ import {
 import {colors, spacing, typography, borderRadius, touchTargets} from '../../styles/theme';
 import {isLandscape} from '../../utils/responsive';
 import {styles} from './styles';
+import {Badge} from '../../components/Badge';
+import {
+  formatServiceRequestLabel,
+  getDefaultExpandedServiceTypeId,
+  groupPhotosByServiceRequest,
+  UNASSIGNED_SERVICE_TYPE_ID,
+} from './containerGrouping';
+import {ServiceRequestPicker} from './ServiceRequestPicker';
+import {
+  isItemUnassigned,
+  resolveServiceTypeIdForAdd,
+} from './serviceRequestReview';
 
 type PhotoFilter = 'all' | PhotoCategory;
 
@@ -65,6 +77,8 @@ export interface OrderPhotosScreenProps {
   isOrderCompleted: (orderNumber: string) => boolean;
   onBack: () => void;
   inManifestCompletion?: boolean;
+  canAssignServiceRequests?: boolean;
+  activeServiceTypeTimer?: string | null;
 }
 
 export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
@@ -89,6 +103,8 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
   isOrderCompleted,
   onBack,
   inManifestCompletion = false,
+  canAssignServiceRequests = false,
+  activeServiceTypeTimer = null,
 }) => {
   const {width: windowWidth} = useWindowDimensions();
   const gridColumns = isLandscape() ? 3 : 2;
@@ -113,11 +129,72 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
     id: string;
     label: string;
   } | null>(null);
+  const [pendingPhotoServiceTypeId, setPendingPhotoServiceTypeId] = useState<
+    string | null
+  >(null);
+  const [expandedServiceTypeId, setExpandedServiceTypeId] = useState<
+    string | null
+  >(null);
+  const [assigningPhotoId, setAssigningPhotoId] = useState<string | null>(null);
+  const [assignServiceTypeId, setAssignServiceTypeId] = useState<string | null>(
+    null,
+  );
+  const [assigningDocumentGroupId, setAssigningDocumentGroupId] = useState<
+    string | null
+  >(null);
 
   const orderNumber = selectedOrderData?.orderNumber ?? '';
   const isCurrentOrderCompleted = selectedOrderData
     ? isOrderCompleted(selectedOrderData.orderNumber)
     : false;
+
+  const resolveInheritedServiceTypeId = useCallback(
+    (groupId?: string | null): string | null => {
+      if (!selectedOrderData) return null;
+      if (groupId) {
+        const group = photoService.getDocumentGroupWithPhotos(
+          orderNumber,
+          groupId,
+        );
+        return (
+          group?.serviceTypeId ??
+          group?.photos[0]?.serviceTypeId ??
+          null
+        );
+      }
+      if (activeServiceTypeTimer) {
+        return activeServiceTypeTimer;
+      }
+      if (selectedOrderData.programs.length === 1) {
+        return selectedOrderData.programs[0];
+      }
+      return null;
+    },
+    [selectedOrderData, orderNumber, activeServiceTypeTimer],
+  );
+
+  const handleAssignPhoto = async (
+    photoId: string,
+    serviceTypeId: string,
+  ) => {
+    await photoService.updatePhoto(orderNumber, photoId, {serviceTypeId});
+    setAssigningPhotoId(null);
+    setAssignServiceTypeId(null);
+  };
+
+  const handleAssignDocumentGroup = async (
+    groupId: string,
+    serviceTypeId: string,
+  ) => {
+    const groupPhotos = photoService.getPhotosInGroup(orderNumber, groupId);
+    await Promise.all(
+      groupPhotos.map(photo =>
+        photoService.updatePhoto(orderNumber, photo.id, {serviceTypeId}),
+      ),
+    );
+    setAssigningDocumentGroupId(null);
+    setAssignServiceTypeId(null);
+  };
 
   useEffect(() => {
     if (!orderNumber) {
@@ -174,6 +251,45 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
       .filter((group): group is PhotoDocumentGroupWithPhotos => group != null);
   }, [photos, activeFilter, orderNumber, isShippingFilter]);
 
+  const needsPhotoServiceRequestPicker =
+    canAssignServiceRequests &&
+    (selectedOrderData?.programs.length ?? 0) > 1;
+
+  const groupedPhotos = useMemo(
+    () =>
+      groupPhotosByServiceRequest(
+        filteredPhotos,
+        selectedOrderData?.programs ?? [],
+      ),
+    [filteredPhotos, selectedOrderData?.programs],
+  );
+
+  const serviceTypeStatusById = useMemo(
+    () =>
+      new Map(
+        serviceTypeBadgesForHeader.map(b => [b.serviceTypeId, b.status] as const),
+      ),
+    [serviceTypeBadgesForHeader],
+  );
+
+  useEffect(() => {
+    setExpandedServiceTypeId(
+      getDefaultExpandedServiceTypeId(
+        groupPhotosByServiceRequest(
+          filteredPhotos,
+          selectedOrderData?.programs ?? [],
+        ),
+        activeServiceTypeTimer,
+      ),
+    );
+  }, [
+    selectedOrderData?.orderNumber,
+    activeServiceTypeTimer,
+    activeFilter,
+    photos.length,
+    filteredPhotos,
+  ]);
+
   const activeFilterMeta =
     activeFilter !== 'all'
       ? PHOTO_CATEGORY_DEFINITIONS.find(d => d.category === activeFilter) ??
@@ -228,23 +344,38 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
         setPendingPhotoUri(uri);
         setPendingPhotoCategory(presetCategory);
         setPendingGroupId(groupId ?? null);
+        setPendingPhotoServiceTypeId(resolveInheritedServiceTypeId(groupId));
         setPhotoCaption('');
         setShowCaptionModal(true);
       });
     },
-    [orderNumber],
+    [orderNumber, resolveInheritedServiceTypeId],
   );
 
   const resetPendingPhoto = () => {
     setPendingPhotoUri(null);
     setPendingPhotoCategory(null);
     setPendingGroupId(null);
+    setPendingPhotoServiceTypeId(null);
     setPhotoCaption('');
     setShowCaptionModal(false);
   };
 
   const handleSavePhoto = async () => {
     if (!pendingPhotoUri || !pendingPhotoCategory || !orderNumber) return;
+
+    const serviceTypeId = pendingGroupId
+      ? resolveInheritedServiceTypeId(pendingGroupId) ?? undefined
+      : resolveServiceTypeIdForAdd(
+          selectedOrderData!,
+          canAssignServiceRequests,
+          activeServiceTypeTimer,
+          pendingPhotoServiceTypeId,
+        );
+
+    if (needsPhotoServiceRequestPicker && !pendingGroupId && !serviceTypeId) {
+      return;
+    }
 
     try {
       const caption = photoCaption.trim() || undefined;
@@ -254,6 +385,7 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
         pendingPhotoCategory,
         caption,
         pendingGroupId ?? undefined,
+        serviceTypeId,
       );
       setActiveFilter(pendingPhotoCategory);
       resetPendingPhoto();
@@ -453,6 +585,16 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
       orderNumber,
       group.id,
     );
+    const groupServiceTypeId =
+      group.serviceTypeId ?? group.photos[0]?.serviceTypeId;
+    const needsGroupAssignment =
+      canAssignServiceRequests &&
+      (!groupServiceTypeId ||
+        isItemUnassigned(
+          groupServiceTypeId,
+          selectedOrderData?.programs ?? [],
+        ));
+
     return (
       <View key={group.id} style={localStyles.documentCard}>
         <View style={localStyles.documentCardHeader}>
@@ -467,11 +609,59 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
                 <Icon name="edit" size={20} color={colors.primary} />
               </TouchableOpacity>
             )}
+            {canAssignServiceRequests && !isCurrentOrderCompleted && (
+              <TouchableOpacity
+                onPress={() => {
+                  setAssigningDocumentGroupId(group.id);
+                  setAssignServiceTypeId(groupServiceTypeId ?? null);
+                }}
+                style={styles.assignServiceRequestButton}
+                hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+                <Text style={styles.assignServiceRequestButtonText}>
+                  {needsGroupAssignment ? 'Assign' : 'Change'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
           <Text style={localStyles.documentCardMeta}>
             {group.photos.length} page{group.photos.length !== 1 ? 's' : ''}
+            {groupServiceTypeId && selectedOrderData
+              ? ` • ${formatServiceRequestLabel(groupServiceTypeId, selectedOrderData)}`
+              : ''}
           </Text>
         </View>
+        {assigningDocumentGroupId === group.id && selectedOrderData && (
+          <View style={styles.assignServiceRequestPanel}>
+            <ServiceRequestPicker
+              order={selectedOrderData}
+              selectedServiceTypeId={assignServiceTypeId}
+              onSelect={setAssignServiceTypeId}
+              label="Assign document to service request"
+            />
+            <View style={styles.assignServiceRequestActions}>
+              <Button
+                title="Cancel"
+                variant="outline"
+                size="sm"
+                onPress={() => {
+                  setAssigningDocumentGroupId(null);
+                  setAssignServiceTypeId(null);
+                }}
+              />
+              <Button
+                title="Save"
+                variant="primary"
+                size="sm"
+                disabled={!assignServiceTypeId}
+                onPress={() => {
+                  if (assignServiceTypeId) {
+                    void handleAssignDocumentGroup(group.id, assignServiceTypeId);
+                  }
+                }}
+              />
+            </View>
+          </View>
+        )}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -552,6 +742,80 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
     <View style={localStyles.gridContainer}>
       {filteredPhotos.map((photo, index) => renderThumbnail(photo, index))}
       {renderAddTile()}
+    </View>
+  );
+
+  const renderGroupedPhotoSections = () => (
+    <View>
+      <Text style={styles.reviewAssignHint}>
+        All service requests are complete. Assign each photo to the correct
+        service request before closing out the order.
+      </Text>
+      {groupedPhotos.map(group => {
+        const isExpanded = expandedServiceTypeId === group.serviceTypeId;
+        return (
+          <View
+            key={group.serviceTypeId}
+            style={styles.containerServiceGroup}>
+            <TouchableOpacity
+              onPress={() =>
+                setExpandedServiceTypeId(prev =>
+                  prev === group.serviceTypeId ? null : group.serviceTypeId,
+                )
+              }
+              style={styles.containerServiceGroupHeader}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityState={{expanded: isExpanded}}>
+              <View style={styles.containerServiceGroupHeaderLeft}>
+                <Badge
+                  variant="outline"
+                  style={StyleSheet.flatten([
+                    styles.serviceTypeBadge,
+                    group.serviceTypeId === UNASSIGNED_SERVICE_TYPE_ID &&
+                      styles.serviceTypeBadgePending,
+                    serviceTypeStatusById.get(group.serviceTypeId) ===
+                      'completed' && styles.serviceTypeBadgeCompleted,
+                  ])}
+                  textStyle={StyleSheet.flatten([
+                    styles.serviceTypeBadgeText,
+                    group.serviceTypeId === UNASSIGNED_SERVICE_TYPE_ID &&
+                      styles.serviceTypeBadgeTextPending,
+                    serviceTypeStatusById.get(group.serviceTypeId) ===
+                      'completed' && styles.serviceTypeBadgeTextCompleted,
+                  ])}>
+                  {selectedOrderData
+                    ? formatServiceRequestLabel(
+                        group.serviceTypeId,
+                        selectedOrderData,
+                      )
+                    : group.serviceTypeId}
+                </Badge>
+                <Text style={styles.containerServiceGroupMeta}>
+                  {group.photos.length} photo
+                  {group.photos.length !== 1 ? 's' : ''}
+                </Text>
+              </View>
+              <Icon
+                name={isExpanded ? 'expand-less' : 'expand-more'}
+                size={22}
+                color={colors.mutedForeground}
+              />
+            </TouchableOpacity>
+            {isExpanded && (
+              <View style={styles.containerServiceGroupBody}>
+                <View style={localStyles.gridContainer}>
+                  {group.photos.map(photo => {
+                    const index = filteredPhotos.findIndex(p => p.id === photo.id);
+                    return renderThumbnail(photo, index);
+                  })}
+                </View>
+              </View>
+            )}
+          </View>
+        );
+      })}
+      {!isCurrentOrderCompleted && activeFilter !== 'all' && renderAddTile()}
     </View>
   );
 
@@ -642,7 +906,9 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
               )}
             </View>
           ) : (
-            renderPhotoGrid()
+            canAssignServiceRequests
+              ? renderGroupedPhotoSections()
+              : renderPhotoGrid()
           )}
         </ScrollView>
       </View>
@@ -755,6 +1021,25 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
 
               {!isCurrentOrderCompleted && (
                 <View style={localStyles.viewerActions}>
+                  {canAssignServiceRequests && viewerPhoto && (
+                    <TouchableOpacity
+                      style={localStyles.viewerActionButton}
+                      onPress={() => {
+                        setAssigningPhotoId(viewerPhoto.id);
+                        setAssignServiceTypeId(viewerPhoto.serviceTypeId ?? null);
+                      }}
+                      activeOpacity={0.7}>
+                      <Icon name="assignment" size={28} color={colors.primary} />
+                      <Text style={localStyles.viewerActionLabel}>
+                        {isItemUnassigned(
+                          viewerPhoto.serviceTypeId,
+                          selectedOrderData?.programs ?? [],
+                        )
+                          ? 'Assign'
+                          : 'Change SR'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity
                     style={localStyles.viewerActionButton}
                     onPress={() => setViewerEditingNote(true)}
@@ -798,6 +1083,44 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
                     variant="destructive"
                     size="md"
                     onPress={handleDeleteViewerPhoto}
+                  />
+                </View>
+              </View>
+            </View>
+          )}
+
+          {assigningPhotoId && viewerPhoto?.id === assigningPhotoId && selectedOrderData && (
+            <View style={localStyles.viewerConfirmOverlay}>
+              <View style={localStyles.viewerConfirmBox}>
+                <ServiceRequestPicker
+                  order={selectedOrderData}
+                  selectedServiceTypeId={assignServiceTypeId}
+                  onSelect={setAssignServiceTypeId}
+                  label="Assign to service request"
+                />
+                <View style={localStyles.viewerNoteActions}>
+                  <Button
+                    title="Cancel"
+                    variant="outline"
+                    size="md"
+                    onPress={() => {
+                      setAssigningPhotoId(null);
+                      setAssignServiceTypeId(null);
+                    }}
+                  />
+                  <Button
+                    title="Save"
+                    variant="primary"
+                    size="md"
+                    disabled={!assignServiceTypeId}
+                    onPress={() => {
+                      if (assignServiceTypeId) {
+                        void handleAssignPhoto(
+                          assigningPhotoId,
+                          assignServiceTypeId,
+                        );
+                      }
+                    }}
                   />
                 </View>
               </View>
@@ -902,6 +1225,15 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
               </TouchableOpacity>
             </View>
             <View style={localStyles.captionModalContent}>
+              {needsPhotoServiceRequestPicker &&
+                !pendingGroupId &&
+                selectedOrderData && (
+                  <ServiceRequestPicker
+                    order={selectedOrderData}
+                    selectedServiceTypeId={pendingPhotoServiceTypeId}
+                    onSelect={setPendingPhotoServiceTypeId}
+                  />
+                )}
               <Input
                 label="Note"
                 placeholder="Add a note about this photo (optional)"
@@ -914,6 +1246,11 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
                 title="Save"
                 variant="primary"
                 size="lg"
+                disabled={
+                  needsPhotoServiceRequestPicker &&
+                  !pendingGroupId &&
+                  !pendingPhotoServiceTypeId
+                }
                 onPress={handleSavePhoto}
               />
             </View>

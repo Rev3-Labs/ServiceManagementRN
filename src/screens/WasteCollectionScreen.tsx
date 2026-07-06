@@ -53,6 +53,7 @@ import {
 } from '../services/userSettingsService';
 import {vehicleService, Truck, Trailer} from '../services/vehicleService';
 import {offlineTrackingService, OfflineStatus} from '../services/offlineTrackingService';
+import {deviceStatusService} from '../services/deviceStatusService';
 import {
   getPersistedIssues,
   updateValidationIssues,
@@ -128,6 +129,11 @@ import {EquipmentPPEScreen as ExtEquipmentPPEScreen} from './waste-collection/Eq
 import {OrderPhotosScreen as ExtOrderPhotosScreen} from './waste-collection/OrderPhotosScreen';
 import {OrderServiceScreen as ExtOrderServiceScreen} from './waste-collection/OrderServiceScreen';
 import {InventoryOnTruckCell} from './waste-collection/InventoryOnTruckCell';
+import {ServiceRequestPicker} from './waste-collection/ServiceRequestPicker';
+import {
+  canAssignServiceRequestsInReview,
+  resolveServiceTypeIdForAdd,
+} from './waste-collection/serviceRequestReview';
 import {DocumentTypeSelectionModal} from '../components/modals/DocumentTypeSelectionModal';
 import {CaptureMethodSelectionModal} from '../components/modals/CaptureMethodSelectionModal';
 
@@ -239,7 +245,19 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [unitCount, setUnitCount] = useState('1');
   const [recentlyUsedProfiles, setRecentlyUsedProfiles] = useState<string[]>(['D001', 'U001', 'N001', 'HT001']);
   const [isManualWeightEntry, setIsManualWeightEntry] = useState(false);
-  const [isScaleConnected, setIsScaleConnected] = useState(true); // Default to online for simulation
+  const [isScaleConnected, setIsScaleConnectedState] = useState(
+    deviceStatusService.isScaleConnected(),
+  );
+  const setIsScaleConnected = useCallback((connected: boolean) => {
+    deviceStatusService.setScaleConnected(connected);
+  }, []);
+
+  useEffect(() => {
+    return deviceStatusService.onDevicesChange(devices => {
+      const scale = devices.find(device => device.id === 'scale');
+      setIsScaleConnectedState(scale?.status === 'connected');
+    });
+  }, []);
   const [scaleReading, setScaleReading] = useState<number | null>(null); // Simulated integer reading
   const [completedOrders, setCompletedOrders] = useState<string[]>([]);
   const [orderStatuses, setOrderStatuses] = useState<
@@ -303,47 +321,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [materialCatalogSearchQuery, setMaterialCatalogSearchQuery] =
     useState('');
   const [showAddMaterialSuccess, setShowAddMaterialSuccess] = useState(false);
-
-  // Handler for adding materials - moved to parent to prevent modal remounting
-  const handleAddMaterial = useCallback(() => {
-    if (!selectedMaterialItem) return;
-    const quantity = parseInt(materialQuantity) || 1;
-    const serviceTypeId = activeServiceTypeTimer ?? undefined;
-
-    setMaterialsSupplies(prev => {
-      const existing = prev.find(
-        m =>
-          m.itemNumber === selectedMaterialItem.itemNumber &&
-          m.type === materialType &&
-          m.serviceTypeId === serviceTypeId,
-      );
-      if (existing) {
-        return prev.map(m =>
-          m.id === existing.id
-            ? {...m, quantity: m.quantity + quantity}
-            : m,
-        );
-      }
-      return [
-        ...prev,
-        {
-          id: `mat-${Date.now()}`,
-          itemNumber: selectedMaterialItem.itemNumber,
-          description: selectedMaterialItem.description,
-          quantity,
-          type: materialType,
-          serviceTypeId,
-        },
-      ];
-    });
-    setSelectedMaterialItem(null);
-    setMaterialQuantity('1');
-    setMaterialType('used');
-
-    // Show success indicator
-    setShowAddMaterialSuccess(true);
-    setTimeout(() => setShowAddMaterialSuccess(false), 2000);
-  }, [selectedMaterialItem, materialQuantity, materialType, activeServiceTypeTimer]);
+  const [materialServiceTypeId, setMaterialServiceTypeId] = useState<
+    string | null
+  >(null);
 
   const [showLabelPrinting, setShowLabelPrinting] = useState(false);
   const [printingLabelBarcode, setPrintingLabelBarcode] = useState('');
@@ -1480,6 +1460,105 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     },
     [],
   );
+
+  const canAssignServiceRequests = useMemo(
+    () =>
+      canAssignServiceRequestsInReview(
+        selectedOrderData,
+        inManifestCompletion,
+        serviceTypeTimeEntries,
+        isServiceTypeNoShip,
+        activeServiceTypeTimer,
+      ),
+    [
+      selectedOrderData,
+      inManifestCompletion,
+      serviceTypeTimeEntries,
+      isServiceTypeNoShip,
+      activeServiceTypeTimer,
+    ],
+  );
+
+  const needsMaterialServiceRequestPicker =
+    canAssignServiceRequests &&
+    (selectedOrderData?.programs.length ?? 0) > 1;
+
+  const resetAddMaterialModal = useCallback(() => {
+    setShowAddMaterialModal(false);
+    setSelectedMaterialItem(null);
+    setMaterialQuantity('1');
+    setMaterialType('used');
+    setMaterialCatalogSearchQuery('');
+    setMaterialServiceTypeId(null);
+  }, []);
+
+  const openAddMaterialModal = useCallback(() => {
+    if (canAssignServiceRequests && selectedOrderData?.programs.length === 1) {
+      setMaterialServiceTypeId(selectedOrderData.programs[0]);
+    } else if (activeServiceTypeTimer) {
+      setMaterialServiceTypeId(activeServiceTypeTimer);
+    } else {
+      setMaterialServiceTypeId(null);
+    }
+    setShowAddMaterialModal(true);
+  }, [canAssignServiceRequests, selectedOrderData, activeServiceTypeTimer]);
+
+  const handleAddMaterial = useCallback(() => {
+    if (!selectedMaterialItem || !selectedOrderData) return;
+    const quantity = parseInt(materialQuantity) || 1;
+    const serviceTypeId = resolveServiceTypeIdForAdd(
+      selectedOrderData,
+      canAssignServiceRequests,
+      activeServiceTypeTimer,
+      materialServiceTypeId,
+    );
+
+    if (needsMaterialServiceRequestPicker && !serviceTypeId) {
+      return;
+    }
+
+    setMaterialsSupplies(prev => {
+      const existing = prev.find(
+        m =>
+          m.itemNumber === selectedMaterialItem.itemNumber &&
+          m.type === materialType &&
+          m.serviceTypeId === serviceTypeId,
+      );
+      if (existing) {
+        return prev.map(m =>
+          m.id === existing.id
+            ? {...m, quantity: m.quantity + quantity}
+            : m,
+        );
+      }
+      return [
+        ...prev,
+        {
+          id: `mat-${Date.now()}`,
+          itemNumber: selectedMaterialItem.itemNumber,
+          description: selectedMaterialItem.description,
+          quantity,
+          type: materialType,
+          serviceTypeId,
+        },
+      ];
+    });
+    setSelectedMaterialItem(null);
+    setMaterialQuantity('1');
+    setMaterialType('used');
+
+    setShowAddMaterialSuccess(true);
+    setTimeout(() => setShowAddMaterialSuccess(false), 2000);
+  }, [
+    selectedMaterialItem,
+    selectedOrderData,
+    materialQuantity,
+    materialType,
+    canAssignServiceRequests,
+    activeServiceTypeTimer,
+    materialServiceTypeId,
+    needsMaterialServiceRequestPicker,
+  ]);
 
   // FR-3a.UI.8.1: Service type badges (orange=pending, blue=in progress, gray=no-ship, green=completed). By default all are pending/not started; only show in progress when that type is actively being timed this session.
   const serviceTypeBadgesForHeader = useMemo(() => {
@@ -3824,6 +3903,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             setShowAddMaterialModal={setShowAddMaterialModal}
             activeServiceTypeTimer={activeServiceTypeTimer}
             handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
+            canAssignServiceRequests={canAssignServiceRequests}
+            openAddMaterialModal={openAddMaterialModal}
           />
         );
       case 'equipment-ppe':
@@ -3854,6 +3935,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             activeServiceTypeTimer={activeServiceTypeTimer}
             handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
             inManifestCompletion={inManifestCompletion}
+            canAssignServiceRequests={canAssignServiceRequests}
           />
         );
       case 'order-photos':
@@ -3881,6 +3963,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             isOrderCompleted={isOrderCompleted}
             onBack={() => setCurrentStep(photosReturnStep)}
             inManifestCompletion={inManifestCompletion}
+            canAssignServiceRequests={canAssignServiceRequests}
+            activeServiceTypeTimer={activeServiceTypeTimer}
           />
         );
       case 'order-service':
@@ -4851,6 +4935,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         <BeforeServicePhotoModal
           visible
           orderNumber={beforeServicePhotoGate.order.orderNumber}
+          serviceTypeId={
+            beforeServicePhotoGate.type === 'serviceType'
+              ? beforeServicePhotoGate.program
+              : beforeServicePhotoGate.order.programs[0]
+          }
           onPhotoCaptured={() => {
             const pending = beforeServicePhotoGate;
             setBeforeServicePhotoGate(null);
@@ -5911,20 +6000,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       <Modal
         visible={showAddMaterialModal}
         animationType="slide"
-        onRequestClose={() => setShowAddMaterialModal(false)}>
+        onRequestClose={resetAddMaterialModal}>
         <View style={styles.fullScreenModalContainer}>
           <View style={styles.fullScreenModalHeader}>
             <Text style={styles.fullScreenModalTitle}>
               Add Materials & Supplies
             </Text>
             <TouchableOpacity
-              onPress={() => {
-                setShowAddMaterialModal(false);
-                setSelectedMaterialItem(null);
-                setMaterialQuantity('1');
-                setMaterialType('used');
-                setMaterialCatalogSearchQuery('');
-              }}
+              onPress={resetAddMaterialModal}
               hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
               style={styles.fullScreenModalCloseButton}>
               <Icon name="close" size={20} color={colors.foreground} />
@@ -6045,6 +6128,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         />
                       </View>
 
+                      {needsMaterialServiceRequestPicker && selectedOrderData && (
+                        <ServiceRequestPicker
+                          order={selectedOrderData}
+                          selectedServiceTypeId={materialServiceTypeId}
+                          onSelect={setMaterialServiceTypeId}
+                        />
+                      )}
+
                       <View style={styles.materialInputSection}>
                         <Text style={styles.inputLabel}>Type</Text>
                         <Text style={styles.sectionDescription}>
@@ -6106,20 +6197,17 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               title="Done"
               variant="outline"
               size="lg"
-              onPress={() => {
-                setShowAddMaterialModal(false);
-                setSelectedMaterialItem(null);
-                setMaterialQuantity('1');
-                setMaterialType('used');
-                setMaterialCatalogSearchQuery('');
-              }}
+              onPress={resetAddMaterialModal}
               style={styles.fullScreenModalCancelButton}
             />
             <Button
               title="Add Item"
               variant="primary"
               size="lg"
-              disabled={!selectedMaterialItem}
+              disabled={
+                !selectedMaterialItem ||
+                (needsMaterialServiceRequestPicker && !materialServiceTypeId)
+              }
               onPress={handleAddMaterial}
               style={styles.fullScreenModalAddButton}
             />
@@ -7488,10 +7576,10 @@ export const styles = StyleSheet.create({
   streamCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: spacing.sm,
     marginBottom: spacing.md,
-    flexWrap: 'wrap',
+    minHeight: 88,
   },
   streamCardBadges: {
     flexDirection: 'row',
@@ -8958,6 +9046,45 @@ export const styles = StyleSheet.create({
     ...typography.sm,
     color: colors.destructive,
     fontWeight: '600',
+  },
+  materialCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  assignServiceRequestButton: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  assignServiceRequestButtonText: {
+    ...typography.sm,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  assignServiceRequestPanel: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  assignServiceRequestActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  materialsTableCellAssign: {
+    minWidth: 72,
+  },
+  reviewAssignHint: {
+    ...typography.sm,
+    color: colors.info,
+    marginBottom: spacing.md,
+    padding: spacing.sm,
+    backgroundColor: colors.info + '15',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.info + '40',
   },
   materialCardList: {
     gap: spacing.sm,

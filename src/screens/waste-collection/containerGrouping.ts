@@ -1,4 +1,5 @@
-import {AddedContainer, MaterialsSupply, OrderData} from '../../types/wasteCollection';
+import {AddedContainer, MaterialsSupply, EquipmentPPE, OrderData} from '../../types/wasteCollection';
+import {OrderPhoto} from '../../services/photoService';
 import {serviceTypeService} from '../../services/serviceTypeService';
 
 export const UNASSIGNED_SERVICE_TYPE_ID = '__unassigned__';
@@ -16,6 +17,16 @@ export interface ServiceRequestContainerGroup {
 export interface ServiceRequestMaterialsGroup {
   serviceTypeId: string;
   materials: MaterialsSupply[];
+}
+
+export interface ServiceRequestEquipmentGroup {
+  serviceTypeId: string;
+  equipment: EquipmentPPE[];
+}
+
+export interface ServiceRequestPhotoGroup {
+  serviceTypeId: string;
+  photos: OrderPhoto[];
 }
 
 function groupItemsByServiceRequest<T extends {serviceTypeId?: string}>(
@@ -62,6 +73,26 @@ export function groupMaterialsByServiceRequest(
   return groupItemsByServiceRequest(materials, programOrder).map(group => ({
     serviceTypeId: group.serviceTypeId,
     materials: group.items,
+  }));
+}
+
+export function groupEquipmentByServiceRequest(
+  equipment: EquipmentPPE[],
+  programOrder: string[],
+): ServiceRequestEquipmentGroup[] {
+  return groupItemsByServiceRequest(equipment, programOrder).map(group => ({
+    serviceTypeId: group.serviceTypeId,
+    equipment: group.items,
+  }));
+}
+
+export function groupPhotosByServiceRequest(
+  photos: OrderPhoto[],
+  programOrder: string[],
+): ServiceRequestPhotoGroup[] {
+  return groupItemsByServiceRequest(photos, programOrder).map(group => ({
+    serviceTypeId: group.serviceTypeId,
+    photos: group.items,
   }));
 }
 

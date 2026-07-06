@@ -1,12 +1,15 @@
-import React, {useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   Modal,
+  Pressable,
+  StyleSheet,
 } from 'react-native';
 import {Button} from '../../components/Button';
+import {Badge} from '../../components/Badge';
 import {
   Card,
   CardContent,
@@ -27,6 +30,14 @@ import {TimeTrackingRecord} from '../../services/timeTrackingService';
 import {colors} from '../../styles/theme';
 import {isTablet} from '../../utils/responsive';
 import {styles} from './styles';
+import {
+  formatServiceRequestLabel,
+  getDefaultExpandedServiceTypeId,
+  groupEquipmentByServiceRequest,
+  UNASSIGNED_SERVICE_TYPE_ID,
+} from './containerGrouping';
+import {ServiceRequestPicker} from './ServiceRequestPicker';
+import {isItemUnassigned} from './serviceRequestReview';
 
 export interface EquipmentPPEScreenProps {
   // PersistentOrderHeader props
@@ -66,6 +77,8 @@ export interface EquipmentPPEScreenProps {
    * "Mark service type complete" footer button should be hidden.
    */
   inManifestCompletion?: boolean;
+  /** True when all service requests are complete and user is in review/manifest phase. */
+  canAssignServiceRequests?: boolean;
 }
 
 export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
@@ -94,15 +107,28 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
   activeServiceTypeTimer,
   handleMarkServiceTypeComplete,
   inManifestCompletion = false,
+  canAssignServiceRequests = false,
 }) => {
   const [showAddEquipmentModal, setShowAddEquipmentModal] = useState(false);
   const [selectedEquipmentItem, setSelectedEquipmentItem] = useState<
     string | null
   >(null);
   const [equipmentQuantity, setEquipmentQuantity] = useState('1');
+  const [equipmentServiceTypeId, setEquipmentServiceTypeId] = useState<
+    string | null
+  >(null);
   const [showAddEquipmentSuccess, setShowAddEquipmentSuccess] =
     useState(false);
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
+  const [expandedServiceTypeId, setExpandedServiceTypeId] = useState<string | null>(
+    null,
+  );
+  const [assigningEquipmentId, setAssigningEquipmentId] = useState<string | null>(
+    null,
+  );
+  const [assignServiceTypeId, setAssignServiceTypeId] = useState<string | null>(
+    null,
+  );
 
   // Pre-determined equipment/PPE list
   const EQUIPMENT_PPE_CATALOG = [
@@ -119,10 +145,29 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
   ];
 
   const handleAddEquipment = () => {
-    if (!selectedEquipmentItem) return;
+    if (!selectedEquipmentItem || !selectedOrderData) return;
     const quantity = parseInt(equipmentQuantity) || 1;
+    const serviceTypeId =
+      canAssignServiceRequests && selectedOrderData.programs.length > 1
+        ? equipmentServiceTypeId ?? undefined
+        : selectedOrderData.programs.length === 1
+          ? selectedOrderData.programs[0]
+          : activeServiceTypeTimer ?? undefined;
+
+    if (
+      canAssignServiceRequests &&
+      selectedOrderData.programs.length > 1 &&
+      !serviceTypeId
+    ) {
+      return;
+    }
+
     setEquipmentPPE(prev => {
-      const existing = prev.find(e => e.name === selectedEquipmentItem);
+      const existing = prev.find(
+        e =>
+          e.name === selectedEquipmentItem &&
+          e.serviceTypeId === serviceTypeId,
+      );
       if (existing) {
         return prev.map(e =>
           e.id === existing.id ? {...e, count: e.count + quantity} : e,
@@ -134,15 +179,42 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
           id: `eq-${Date.now()}`,
           name: selectedEquipmentItem,
           count: quantity,
+          serviceTypeId,
         },
       ];
     });
-    // Show success indicator
     setShowAddEquipmentSuccess(true);
     setTimeout(() => setShowAddEquipmentSuccess(false), 2000);
-    // Reset form but keep modal open
     setSelectedEquipmentItem(null);
     setEquipmentQuantity('1');
+    setEquipmentServiceTypeId(null);
+  };
+
+  const resetAddEquipmentModal = () => {
+    setShowAddEquipmentModal(false);
+    setSelectedEquipmentItem(null);
+    setEquipmentQuantity('1');
+    setCatalogSearchQuery('');
+    setEquipmentServiceTypeId(null);
+  };
+
+  const openAddEquipmentModal = () => {
+    if (canAssignServiceRequests && selectedOrderData?.programs.length === 1) {
+      setEquipmentServiceTypeId(selectedOrderData.programs[0]);
+    } else {
+      setEquipmentServiceTypeId(null);
+    }
+    setShowAddEquipmentModal(true);
+  };
+
+  const handleAssignEquipment = (equipmentId: string, serviceTypeId: string) => {
+    setEquipmentPPE(prev =>
+      prev.map(e =>
+        e.id === equipmentId ? {...e, serviceTypeId} : e,
+      ),
+    );
+    setAssigningEquipmentId(null);
+    setAssignServiceTypeId(null);
   };
 
   const handleDeleteEquipment = (id: string) => {
@@ -165,6 +237,163 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
       item.toLowerCase().includes(searchLower),
     );
   }, [catalogSearchQuery]);
+
+  const groupedEquipment = useMemo(
+    () =>
+      groupEquipmentByServiceRequest(
+        equipmentPPE,
+        selectedOrderData?.programs ?? [],
+      ),
+    [equipmentPPE, selectedOrderData?.programs],
+  );
+
+  const serviceTypeStatusById = useMemo(
+    () =>
+      new Map(
+        serviceTypeBadgesForHeader.map(b => [b.serviceTypeId, b.status] as const),
+      ),
+    [serviceTypeBadgesForHeader],
+  );
+
+  useEffect(() => {
+    const defaultGroups = groupEquipmentByServiceRequest(
+      equipmentPPE,
+      selectedOrderData?.programs ?? [],
+    );
+    setExpandedServiceTypeId(
+      getDefaultExpandedServiceTypeId(defaultGroups, activeServiceTypeTimer),
+    );
+  }, [selectedOrderData?.orderNumber, activeServiceTypeTimer, equipmentPPE.length]);
+
+  const showGroupedEquipment =
+    canAssignServiceRequests &&
+    (selectedOrderData?.programs.length ?? 0) > 1;
+
+  const needsEquipmentServicePicker =
+    canAssignServiceRequests &&
+    (selectedOrderData?.programs.length ?? 0) > 1;
+
+  const renderAssignmentButton = (
+    equipment: EquipmentPPEType,
+    groupServiceTypeId: string,
+  ) => {
+    if (!canAssignServiceRequests) {
+      return null;
+    }
+
+    const needsAssignment =
+      groupServiceTypeId === UNASSIGNED_SERVICE_TYPE_ID ||
+      isItemUnassigned(equipment.serviceTypeId, selectedOrderData?.programs ?? []);
+
+    if (assigningEquipmentId === equipment.id) {
+      return null;
+    }
+
+    return (
+      <TouchableOpacity
+        onPress={() => {
+          setAssigningEquipmentId(equipment.id);
+          setAssignServiceTypeId(
+            needsAssignment ? null : (equipment.serviceTypeId ?? null),
+          );
+        }}
+        style={styles.assignServiceRequestButton}
+        hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+        <Text style={styles.assignServiceRequestButtonText}>
+          {needsAssignment ? 'Assign' : 'Change'}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderAssignmentPanel = (equipment: EquipmentPPEType) => {
+    if (assigningEquipmentId !== equipment.id) {
+      return null;
+    }
+
+    return (
+      <View style={styles.assignServiceRequestPanel}>
+        <ServiceRequestPicker
+          order={selectedOrderData}
+          selectedServiceTypeId={assignServiceTypeId}
+          onSelect={setAssignServiceTypeId}
+          label="Assign to service request"
+          description="Choose which completed service request this equipment belongs to"
+        />
+        <View style={styles.assignServiceRequestActions}>
+          <Button
+            title="Cancel"
+            variant="outline"
+            size="sm"
+            onPress={() => {
+              setAssigningEquipmentId(null);
+              setAssignServiceTypeId(null);
+            }}
+          />
+          <Button
+            title="Save"
+            variant="primary"
+            size="sm"
+            disabled={!assignServiceTypeId}
+            onPress={() => {
+              if (assignServiceTypeId) {
+                handleAssignEquipment(equipment.id, assignServiceTypeId);
+              }
+            }}
+          />
+        </View>
+      </View>
+    );
+  };
+
+  const renderEquipmentRow = (
+    equipment: EquipmentPPEType,
+    groupServiceTypeId: string,
+  ) => (
+    <View key={equipment.id}>
+      <View style={styles.materialsTableRow}>
+        <Text
+          style={[
+            styles.materialsTableCell,
+            styles.materialsTableCellDescription,
+          ]}>
+          {equipment.name}
+        </Text>
+        <View style={styles.materialsTableCell}>
+          <View style={styles.quantityEditContainer}>
+            <TouchableOpacity
+              onPress={() => handleAdjustCount(equipment.id, -1)}
+              disabled={equipment.count <= 1}
+              style={[
+                styles.quantityEditButton,
+                equipment.count <= 1 && {opacity: 0.4},
+              ]}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+              <Icon name="remove" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+            <Text style={styles.materialsTableQuantity}>
+              {equipment.count}
+            </Text>
+            <TouchableOpacity
+              onPress={() => handleAdjustCount(equipment.id, 1)}
+              style={styles.quantityEditButton}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+              <Icon name="add" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+        </View>
+        <View style={[styles.materialsTableCell, styles.materialCardActions]}>
+          {renderAssignmentButton(equipment, groupServiceTypeId)}
+          <TouchableOpacity
+            onPress={() => handleDeleteEquipment(equipment.id)}
+            style={styles.deleteMaterialButton}>
+            <Text style={styles.deleteMaterialButtonText}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+      {renderAssignmentPanel(equipment)}
+    </View>
+  );
 
   if (!selectedOrderData) return null;
 
@@ -212,15 +441,115 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                 title="Add Equipment"
                 variant="primary"
                 size="sm"
-                onPress={() => setShowAddEquipmentModal(true)}
+                onPress={openAddEquipmentModal}
               />
             </CardHeader>
             <CardContent>
               <Text style={styles.cardDescription}>
                 Track equipment items used during service completion
               </Text>
+              {canAssignServiceRequests && (
+                <Text style={styles.reviewAssignHint}>
+                  All service requests are complete. Assign each equipment item
+                  to the correct service request before closing out the order.
+                </Text>
+              )}
 
               {equipmentPPE.length > 0 ? (
+                showGroupedEquipment ? (
+                  groupedEquipment.map(group => {
+                    const isExpanded = expandedServiceTypeId === group.serviceTypeId;
+                    const groupCount = group.equipment.reduce(
+                      (sum, item) => sum + item.count,
+                      0,
+                    );
+
+                    return (
+                      <View
+                        key={group.serviceTypeId}
+                        style={styles.containerServiceGroup}>
+                        <Pressable
+                          onPress={() =>
+                            setExpandedServiceTypeId(prev =>
+                              prev === group.serviceTypeId
+                                ? null
+                                : group.serviceTypeId,
+                            )
+                          }
+                          style={styles.containerServiceGroupHeader}
+                          accessibilityRole="button"
+                          accessibilityState={{expanded: isExpanded}}>
+                          <View style={styles.containerServiceGroupHeaderLeft}>
+                            <Badge
+                              variant="outline"
+                              style={StyleSheet.flatten([
+                                styles.serviceTypeBadge,
+                                serviceTypeStatusById.get(group.serviceTypeId) ===
+                                  'noship' && styles.serviceTypeBadgeNoship,
+                                serviceTypeStatusById.get(group.serviceTypeId) ===
+                                  'completed' && styles.serviceTypeBadgeCompleted,
+                                serviceTypeStatusById.get(group.serviceTypeId) ===
+                                  'in-progress' &&
+                                  styles.serviceTypeBadgeInProgress,
+                                (!serviceTypeStatusById.get(group.serviceTypeId) ||
+                                  serviceTypeStatusById.get(group.serviceTypeId) ===
+                                    'pending') &&
+                                  styles.serviceTypeBadgePending,
+                                group.serviceTypeId ===
+                                  UNASSIGNED_SERVICE_TYPE_ID &&
+                                  styles.serviceTypeBadgePending,
+                              ])}
+                              textStyle={StyleSheet.flatten([
+                                styles.serviceTypeBadgeText,
+                                group.serviceTypeId ===
+                                  UNASSIGNED_SERVICE_TYPE_ID &&
+                                  styles.serviceTypeBadgeTextPending,
+                              ])}>
+                              {formatServiceRequestLabel(
+                                group.serviceTypeId,
+                                selectedOrderData,
+                              )}
+                            </Badge>
+                            <Text style={styles.containerServiceGroupMeta}>
+                              {group.equipment.length} item
+                              {group.equipment.length !== 1 ? 's' : ''} •{' '}
+                              {groupCount} qty
+                            </Text>
+                          </View>
+                          <Icon
+                            name={isExpanded ? 'expand-less' : 'expand-more'}
+                            size={22}
+                            color={colors.mutedForeground}
+                          />
+                        </Pressable>
+                        {isExpanded && (
+                          <View style={styles.containerServiceGroupBody}>
+                            <View style={styles.materialsTable}>
+                              <View style={styles.materialsTableHeader}>
+                                <Text
+                                  style={[
+                                    styles.materialsTableHeaderText,
+                                    styles.materialsTableCellDescription,
+                                  ]}>
+                                  Equipment
+                                </Text>
+                                <Text style={styles.materialsTableHeaderText}>
+                                  Qty
+                                </Text>
+                                <Text style={styles.materialsTableHeaderText}>
+                                  Action
+                                </Text>
+                              </View>
+                              {group.equipment.map(item =>
+                                renderEquipmentRow(item, group.serviceTypeId),
+                              )}
+                            </View>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })
+                ) : (
                 <View style={styles.materialsTable}>
                   <View style={styles.materialsTableHeader}>
                     <Text
@@ -235,50 +564,11 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                       Action
                     </Text>
                   </View>
-                  {equipmentPPE.map(equipment => (
-                    <View key={equipment.id} style={styles.materialsTableRow}>
-                      <Text
-                        style={[
-                          styles.materialsTableCell,
-                          styles.materialsTableCellDescription,
-                        ]}>
-                        {equipment.name}
-                      </Text>
-                      <View style={styles.materialsTableCell}>
-                        <View style={styles.quantityEditContainer}>
-                          <TouchableOpacity
-                            onPress={() => handleAdjustCount(equipment.id, -1)}
-                            disabled={equipment.count <= 1}
-                            style={[
-                              styles.quantityEditButton,
-                              equipment.count <= 1 && {opacity: 0.4},
-                            ]}
-                            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
-                            <Icon name="remove" size={20} color={colors.foreground} />
-                          </TouchableOpacity>
-                          <Text style={styles.materialsTableQuantity}>
-                            {equipment.count}
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => handleAdjustCount(equipment.id, 1)}
-                            style={styles.quantityEditButton}
-                            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
-                            <Icon name="add" size={20} color={colors.foreground} />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                      <View style={styles.materialsTableCell}>
-                        <TouchableOpacity
-                          onPress={() => handleDeleteEquipment(equipment.id)}
-                          style={styles.deleteMaterialButton}>
-                          <Text style={styles.deleteMaterialButtonText}>
-                            Delete
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))}
+                  {equipmentPPE.map(equipment =>
+                    renderEquipmentRow(equipment, equipment.serviceTypeId ?? UNASSIGNED_SERVICE_TYPE_ID),
+                  )}
                 </View>
+                )
               ) : (
                 <View style={styles.emptyMaterialsState}>
                   <Text style={styles.emptyMaterialsText}>
@@ -316,19 +606,14 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
       <Modal
         visible={showAddEquipmentModal}
         animationType="slide"
-        onRequestClose={() => setShowAddEquipmentModal(false)}>
+        onRequestClose={resetAddEquipmentModal}>
         <View style={styles.fullScreenModalContainer}>
           <View style={styles.fullScreenModalHeader}>
             <Text style={styles.fullScreenModalTitle}>
               Add Equipment
             </Text>
             <TouchableOpacity
-              onPress={() => {
-                setShowAddEquipmentModal(false);
-                setSelectedEquipmentItem(null);
-                setEquipmentQuantity('1');
-                setCatalogSearchQuery('');
-              }}
+              onPress={resetAddEquipmentModal}
               hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
               style={styles.fullScreenModalCloseButton}>
               <Icon name="close" size={20} color={colors.foreground} />
@@ -419,6 +704,14 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                       </Text>
                     </View>
 
+                    {needsEquipmentServicePicker && (
+                      <ServiceRequestPicker
+                        order={selectedOrderData}
+                        selectedServiceTypeId={equipmentServiceTypeId}
+                        onSelect={setEquipmentServiceTypeId}
+                      />
+                    )}
+
                     <View style={styles.materialInputSection}>
                       <Input
                         label="Quantity"
@@ -445,19 +738,17 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
               title="Done"
               variant="outline"
               size="lg"
-              onPress={() => {
-                setShowAddEquipmentModal(false);
-                setSelectedEquipmentItem(null);
-                setEquipmentQuantity('1');
-                setCatalogSearchQuery('');
-              }}
+              onPress={resetAddEquipmentModal}
               style={styles.fullScreenModalCancelButton}
             />
             <Button
               title="Add Equipment"
               variant="primary"
               size="lg"
-              disabled={!selectedEquipmentItem}
+              disabled={
+                !selectedEquipmentItem ||
+                (needsEquipmentServicePicker && !equipmentServiceTypeId)
+              }
               onPress={handleAddEquipment}
               style={styles.fullScreenModalAddButton}
             />

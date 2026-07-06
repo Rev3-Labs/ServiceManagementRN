@@ -3,6 +3,8 @@ import {View, Text, ScrollView, TouchableOpacity, TextInput} from 'react-native'
 import {Input} from '../../components/Input';
 import {Badge} from '../../components/Badge';
 import {Icon} from '../../components/Icon';
+import {DotHazardDiamond} from '../../components/DotHazardDiamond';
+import {getDotHazardLabelSpec} from '../../utils/dotHazardLabel';
 import {PersistentOrderHeader} from '../../components/PersistentOrderHeader';
 import {colors} from '../../styles/theme';
 import {FlowStep, OrderData, WasteStream, ContainerType} from '../../types/wasteCollection';
@@ -284,6 +286,7 @@ export const StreamSelectionScreen: React.FC<StreamSelectionScreenProps> = ({
               const categoryBadgeConfig = getCategoryBadgeConfig(
                 stream.category,
               );
+              const dotLabelSpec = getDotHazardLabelSpec(stream.hazardClass);
 
               return (
                 <TouchableOpacity
@@ -293,14 +296,23 @@ export const StreamSelectionScreen: React.FC<StreamSelectionScreenProps> = ({
                   disabled={isCurrentOrderCompleted}
                   activeOpacity={isCurrentOrderCompleted ? 1 : 0.7}>
                   <View style={styles.streamCardHeader}>
-                    {recentlyUsedProfiles.includes(stream.id) && (
-                      <Badge
-                        variant="outline"
-                        style={styles.recentlyUsedBadge}
-                        textStyle={styles.recentlyUsedBadgeText}>
-                        Recently Used
-                      </Badge>
-                    )}
+                    <View style={styles.streamCardBadges}>
+                      {recentlyUsedProfiles.includes(stream.id) && (
+                        <Badge
+                          variant="outline"
+                          style={styles.recentlyUsedBadge}
+                          textStyle={styles.recentlyUsedBadgeText}>
+                          Recently Used
+                        </Badge>
+                      )}
+                    </View>
+                    {dotLabelSpec ? (
+                      <DotHazardDiamond
+                        spec={dotLabelSpec}
+                        size={88}
+                        accessibilityLabel={`DOT hazard class ${stream.hazardClass}`}
+                      />
+                    ) : null}
                   </View>
                   <Text style={styles.streamCardTitle}>
                     {stream.profileName}

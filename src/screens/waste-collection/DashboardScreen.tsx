@@ -2826,6 +2826,15 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                             style={StyleSheet.flatten(badgeStyle)}
                             textStyle={textStyle}
                             title={serviceType?.name || program}
+                            leadingIcon={
+                              completed ? (
+                                <Icon
+                                  name="check"
+                                  size={16}
+                                  color={colors.success}
+                                />
+                              ) : undefined
+                            }
                             trailingIcon={
                               <Icon name="chevron-right" size={20} color={chevronColor} />
                             }>
