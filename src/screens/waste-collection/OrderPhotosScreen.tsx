@@ -139,9 +139,6 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
   const [assignServiceTypeId, setAssignServiceTypeId] = useState<string | null>(
     null,
   );
-  const [assigningDocumentGroupId, setAssigningDocumentGroupId] = useState<
-    string | null
-  >(null);
 
   const orderNumber = selectedOrderData?.orderNumber ?? '';
   const isCurrentOrderCompleted = selectedOrderData
@@ -179,20 +176,6 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
   ) => {
     await photoService.updatePhoto(orderNumber, photoId, {serviceTypeId});
     setAssigningPhotoId(null);
-    setAssignServiceTypeId(null);
-  };
-
-  const handleAssignDocumentGroup = async (
-    groupId: string,
-    serviceTypeId: string,
-  ) => {
-    const groupPhotos = photoService.getPhotosInGroup(orderNumber, groupId);
-    await Promise.all(
-      groupPhotos.map(photo =>
-        photoService.updatePhoto(orderNumber, photo.id, {serviceTypeId}),
-      ),
-    );
-    setAssigningDocumentGroupId(null);
     setAssignServiceTypeId(null);
   };
 
@@ -254,6 +237,12 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
   const needsPhotoServiceRequestPicker =
     canAssignServiceRequests &&
     (selectedOrderData?.programs.length ?? 0) > 1;
+
+  const needsServiceTypeForPendingPhoto =
+    needsPhotoServiceRequestPicker &&
+    !pendingGroupId &&
+    pendingPhotoCategory != null &&
+    !isShippingDocumentCategory(pendingPhotoCategory);
 
   const groupedPhotos = useMemo(
     () =>
@@ -344,7 +333,11 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
         setPendingPhotoUri(uri);
         setPendingPhotoCategory(presetCategory);
         setPendingGroupId(groupId ?? null);
-        setPendingPhotoServiceTypeId(resolveInheritedServiceTypeId(groupId));
+        setPendingPhotoServiceTypeId(
+          isShippingDocumentCategory(presetCategory)
+            ? null
+            : resolveInheritedServiceTypeId(groupId),
+        );
         setPhotoCaption('');
         setShowCaptionModal(true);
       });
@@ -364,16 +357,19 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
   const handleSavePhoto = async () => {
     if (!pendingPhotoUri || !pendingPhotoCategory || !orderNumber) return;
 
-    const serviceTypeId = pendingGroupId
-      ? resolveInheritedServiceTypeId(pendingGroupId) ?? undefined
-      : resolveServiceTypeIdForAdd(
-          selectedOrderData!,
-          canAssignServiceRequests,
-          activeServiceTypeTimer,
-          pendingPhotoServiceTypeId,
-        );
+    const isShippingDoc = isShippingDocumentCategory(pendingPhotoCategory);
+    const serviceTypeId = isShippingDoc
+      ? undefined
+      : pendingGroupId
+        ? resolveInheritedServiceTypeId(pendingGroupId) ?? undefined
+        : resolveServiceTypeIdForAdd(
+            selectedOrderData!,
+            canAssignServiceRequests,
+            activeServiceTypeTimer,
+            pendingPhotoServiceTypeId,
+          );
 
-    if (needsPhotoServiceRequestPicker && !pendingGroupId && !serviceTypeId) {
+    if (needsServiceTypeForPendingPhoto && !serviceTypeId) {
       return;
     }
 
@@ -585,15 +581,6 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
       orderNumber,
       group.id,
     );
-    const groupServiceTypeId =
-      group.serviceTypeId ?? group.photos[0]?.serviceTypeId;
-    const needsGroupAssignment =
-      canAssignServiceRequests &&
-      (!groupServiceTypeId ||
-        isItemUnassigned(
-          groupServiceTypeId,
-          selectedOrderData?.programs ?? [],
-        ));
 
     return (
       <View key={group.id} style={localStyles.documentCard}>
@@ -609,59 +596,11 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
                 <Icon name="edit" size={20} color={colors.primary} />
               </TouchableOpacity>
             )}
-            {canAssignServiceRequests && !isCurrentOrderCompleted && (
-              <TouchableOpacity
-                onPress={() => {
-                  setAssigningDocumentGroupId(group.id);
-                  setAssignServiceTypeId(groupServiceTypeId ?? null);
-                }}
-                style={styles.assignServiceRequestButton}
-                hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
-                <Text style={styles.assignServiceRequestButtonText}>
-                  {needsGroupAssignment ? 'Assign' : 'Change'}
-                </Text>
-              </TouchableOpacity>
-            )}
           </View>
           <Text style={localStyles.documentCardMeta}>
             {group.photos.length} page{group.photos.length !== 1 ? 's' : ''}
-            {groupServiceTypeId && selectedOrderData
-              ? ` • ${formatServiceRequestLabel(groupServiceTypeId, selectedOrderData)}`
-              : ''}
           </Text>
         </View>
-        {assigningDocumentGroupId === group.id && selectedOrderData && (
-          <View style={styles.assignServiceRequestPanel}>
-            <ServiceRequestPicker
-              order={selectedOrderData}
-              selectedServiceTypeId={assignServiceTypeId}
-              onSelect={setAssignServiceTypeId}
-              label="Assign document to service request"
-            />
-            <View style={styles.assignServiceRequestActions}>
-              <Button
-                title="Cancel"
-                variant="outline"
-                size="sm"
-                onPress={() => {
-                  setAssigningDocumentGroupId(null);
-                  setAssignServiceTypeId(null);
-                }}
-              />
-              <Button
-                title="Save"
-                variant="primary"
-                size="sm"
-                disabled={!assignServiceTypeId}
-                onPress={() => {
-                  if (assignServiceTypeId) {
-                    void handleAssignDocumentGroup(group.id, assignServiceTypeId);
-                  }
-                }}
-              />
-            </View>
-          </View>
-        )}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1021,7 +960,9 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
 
               {!isCurrentOrderCompleted && (
                 <View style={localStyles.viewerActions}>
-                  {canAssignServiceRequests && viewerPhoto && (
+                  {canAssignServiceRequests &&
+                    viewerPhoto &&
+                    !isShippingDocumentCategory(viewerPhoto.category) && (
                     <TouchableOpacity
                       style={localStyles.viewerActionButton}
                       onPress={() => {
@@ -1225,9 +1166,7 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
               </TouchableOpacity>
             </View>
             <View style={localStyles.captionModalContent}>
-              {needsPhotoServiceRequestPicker &&
-                !pendingGroupId &&
-                selectedOrderData && (
+              {needsServiceTypeForPendingPhoto && selectedOrderData && (
                   <ServiceRequestPicker
                     order={selectedOrderData}
                     selectedServiceTypeId={pendingPhotoServiceTypeId}
@@ -1247,9 +1186,7 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
                 variant="primary"
                 size="lg"
                 disabled={
-                  needsPhotoServiceRequestPicker &&
-                  !pendingGroupId &&
-                  !pendingPhotoServiceTypeId
+                  needsServiceTypeForPendingPhoto && !pendingPhotoServiceTypeId
                 }
                 onPress={handleSavePhoto}
               />

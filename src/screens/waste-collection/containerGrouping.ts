@@ -124,3 +124,14 @@ export function formatServiceRequestLabel(
   const badge = serviceTypeService.formatForBadge(serviceTypeId);
   return serviceOrderNumber ? `${badge} • ${serviceOrderNumber}` : badge;
 }
+
+/** Subtitle for container cards: "55 Gallon Drum - 55G" (+ " - Units: N" for cylinders). */
+export function formatContainerCardSubtitle(container: AddedContainer): string {
+  const parts = [container.containerSize, container.containerType].filter(
+    Boolean,
+  );
+  if (container.unitCount != null) {
+    parts.push(`Units: ${container.unitCount}`);
+  }
+  return parts.join(' - ');
+}

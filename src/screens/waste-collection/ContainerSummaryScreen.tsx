@@ -42,6 +42,8 @@ import {styles} from './styles';
 
 import {
 
+  formatContainerCardSubtitle,
+
   formatServiceRequestLabel,
 
   getDefaultExpandedServiceTypeId,
@@ -559,7 +561,7 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
 
               <Text style={styles.containerSummarySubtitle}>
 
-                {container.containerSize} • {container.containerType}
+                {formatContainerCardSubtitle(container)}
 
               </Text>
 

@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import {Badge} from '../../components/Badge';
-import {Button} from '../../components/Button';
 import {PersistentOrderHeader} from '../../components/PersistentOrderHeader';
 import {FlowStep, OrderData, WasteStream, ContainerType} from '../../types/wasteCollection';
 import {SyncStatus} from '../../services/syncService';
@@ -143,6 +142,7 @@ export const ContainerSelectionScreen: React.FC<ContainerSelectionScreenProps> =
                 onPress={() => {
                   if (!isCurrentOrderCompleted) {
                     setSelectedContainerType(container);
+                    setCurrentStep('container-entry');
                   }
                 }}
                 disabled={isCurrentOrderCompleted}
@@ -177,19 +177,6 @@ export const ContainerSelectionScreen: React.FC<ContainerSelectionScreenProps> =
           </View>
         )}
       </ScrollView>
-
-      {selectedContainerType ? (
-        <View style={styles.footer}>
-          <Button
-            title="Continue"
-            variant="primary"
-            size="md"
-            fullWidth
-            disabled={isCurrentOrderCompleted}
-            onPress={() => setCurrentStep('container-entry')}
-          />
-        </View>
-      ) : null}
     </View>
   );
 };

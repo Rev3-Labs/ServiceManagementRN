@@ -211,26 +211,17 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
           const label = photoService.getCategoryLabel(category);
           const isShippingDoc =
             photoService.getShippingDocumentCategories().includes(category);
+          const isMilestone =
+            category === 'before-service' || category === 'after-service';
           reasons.push({
             id: `missing-photo-${category}`,
             reason: isShippingDoc
               ? `${label} photo required (capture at least one page)`
-              : `${label} photo required`,
+              : isMilestone
+                ? `${label} photo required (capture at least one)`
+                : `${label} photo required`,
             severity: 'error',
             waivable: false,
-          });
-        });
-
-      photoService
-        .getMissingServiceMilestonePhotoCategories(
-          selectedOrderData.orderNumber,
-        )
-        .forEach(category => {
-          const label = photoService.getCategoryLabel(category);
-          reasons.push({
-            id: `missing-milestone-photo-${category}`,
-            reason: `${label} photo not captured`,
-            severity: 'warning',
           });
         });
     }
@@ -421,25 +412,6 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
         // Don't clear selectedOrderData - let user see the order and start next service type
       }
     };
-
-    const missingMilestonePhotos =
-      photoService.getMissingServiceMilestonePhotoCategories(
-        selectedOrderData.orderNumber,
-      );
-    if (missingMilestonePhotos.length > 0) {
-      const labels = missingMilestonePhotos.map(category =>
-        photoService.getCategoryLabel(category),
-      );
-      Alert.alert(
-        'Service Photos Missing',
-        `This order is missing the following recommended photo${labels.length > 1 ? 's' : ''}:\n\n${labels.map(label => `• ${label}`).join('\n')}\n\nYou can continue without them, but capturing service photos is recommended.`,
-        [
-          {text: 'Go Back', style: 'cancel'},
-          {text: 'Continue', onPress: () => void performCompletion()},
-        ],
-      );
-      return;
-    }
 
     await performCompletion();
   };
@@ -903,13 +875,7 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
                         {item.id.startsWith('missing-photo-') && (
                           <Text style={styles.incompleteReasonHint}>
                             Open Photos from the quick actions bar to capture
-                            required documents
-                          </Text>
-                        )}
-                        {item.id.startsWith('missing-milestone-photo-') && (
-                          <Text style={styles.incompleteReasonHint}>
-                            Open Photos from the quick actions bar to capture
-                            service milestone photos
+                            required photos
                           </Text>
                         )}
                       </View>

@@ -714,8 +714,8 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
 
   // Per-section expanded state. Defaults are recomputed when the selected order or
   // ack state changes (see effect below), but users can manually toggle within a state.
-  // Keep hierarchy consistent: Primary Contact -> Order Information -> Service Notes,
-  // with Service Notes collapsed by default.
+  // Hierarchy: Primary Contact -> Order Information -> Service Notes.
+  // When notes need acknowledgment, expand Service Notes so Acknowledge is visible.
   const [sectionsExpanded, setSectionsExpanded] = useState<{
     contact: boolean;
     order: boolean;
@@ -728,7 +728,11 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     useState<AcknowledgePromptState | null>(null);
 
   useEffect(() => {
-    setSectionsExpanded({ contact: false, order: true, notes: false });
+    setSectionsExpanded({
+      contact: false,
+      order: notesAcknowledged,
+      notes: !notesAcknowledged,
+    });
     setAllContactsExpanded(false);
   }, [selectedOrderNumber, notesAcknowledged]);
 
@@ -1921,7 +1925,11 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     useState<AcknowledgePromptState | null>(null);
 
   useEffect(() => {
-    setDashboardSectionsExpanded({ contact: false, order: true, notes: false });
+    setDashboardSectionsExpanded({
+      contact: false,
+      order: dashboardNotesAcknowledged,
+      notes: !dashboardNotesAcknowledged,
+    });
     setDashboardAllContactsExpanded(false);
   }, [dashboardSelectedOrderNumber, dashboardNotesAcknowledged]);
 
@@ -2804,10 +2812,23 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                             ? colors.info
                             : colors.warning;
                       const canEditOrder = !isOrderCompleted(order.orderNumber);
+                      const lockedByAck =
+                        hasOrderNotes(order) &&
+                        !serviceNotesAckService.isAcknowledged(order.orderNumber);
+                      const isInteractive = canEditOrder && !lockedByAck;
                       return (
                         <Pressable
                           key={i}
-                          onPress={(e) => {
+                          onPress={() => {
+                            if (lockedByAck) {
+                              if (isOrderWorkBlocked(order.orderNumber)) {
+                                checkCanWorkOnOrder(order.orderNumber);
+                                return;
+                              }
+                              // Open order detail with Service Notes expanded for ack.
+                              setDashboardSelectedOrder(order);
+                              return;
+                            }
                             if (canEditOrder) {
                               handleDashboardServiceTypeBadgePress(
                                 order,
@@ -2817,8 +2838,10 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                               );
                             }
                           }}
+                          disabled={!canEditOrder && !lockedByAck}
                           style={({ pressed }) => [
-                            canEditOrder && pressed && { opacity: 0.7 },
+                            isInteractive && pressed && { opacity: 0.7 },
+                            lockedByAck && { opacity: 0.55 },
                           ]}
                           hitSlop={8}>
                           <Badge
@@ -2836,7 +2859,15 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                               ) : undefined
                             }
                             trailingIcon={
-                              <Icon name="chevron-right" size={20} color={chevronColor} />
+                              <Icon
+                                name={lockedByAck ? 'lock' : 'chevron-right'}
+                                size={20}
+                                color={
+                                  lockedByAck
+                                    ? colors.mutedForeground
+                                    : chevronColor
+                                }
+                              />
                             }>
                             {serviceOrderNumber
                               ? `${serviceTypeService.formatForBadge(program)} • ${serviceOrderNumber}`

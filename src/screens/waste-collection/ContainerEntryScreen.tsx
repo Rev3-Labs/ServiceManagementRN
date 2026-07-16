@@ -171,16 +171,27 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
   wasteStreams,
 }) => {
   const parsedGrossWeight = parseInt(grossWeight || '0');
-  const netWeight = parsedGrossWeight - parseInt(tareWeight || '0');
 
   const currentStream = wasteStreams.find(s => s.id === selectedStreamId);
   const isCylinderProfile = currentStream?.requiresCylinderCount || false;
+  const unitCountTitle = isCylinderProfile
+    ? 'Cylinder Count'
+    : 'Container Count';
+  const unitCountLabel = isCylinderProfile
+    ? 'Enter unit count'
+    : 'Enter container count';
   const parsedUnitCount = parseInt(unitCount, 10);
   const hasValidUnitCount =
     unitCount.trim().length > 0 &&
     !Number.isNaN(parsedUnitCount) &&
     parsedUnitCount >= 1;
   const containersToAdd = isCylinderProfile ? 1 : parsedUnitCount;
+  const selectionSummary = [
+    currentStream?.profileName || selectedStream,
+    selectedContainerType?.code || selectedContainerType?.size,
+  ]
+    .filter(Boolean)
+    .join(' | ');
 
   // Manual weight override: the scale field is read-only until the user opts
   // into manual entry and selects a reason code (e.g. scale unavailable).
@@ -333,20 +344,24 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
         showsVerticalScrollIndicator={true}
         removeClippedSubviews={false}
         scrollEventThrottle={16}>
+        {selectionSummary ? (
+          <Text style={localStyles.selectionSummary}>{selectionSummary}</Text>
+        ) : null}
+
         <Card style={styles.unitCountCard}>
           <CardHeader>
             <CardTitle>
-              <CardTitleText>Units</CardTitleText>
+              <CardTitleText>{unitCountTitle}</CardTitleText>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Input
-              label="Number of Units"
+              label={unitCountLabel}
               required
               value={unitCount}
               onChangeText={setUnitCount}
               keyboardType="numeric"
-              placeholder="Enter unit count"
+              placeholder={unitCountLabel}
               editable={!isCurrentOrderCompleted}
             />
           </CardContent>
@@ -366,7 +381,7 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                 showHardWarning && styles.netWeightDisplayCardHardWarning,
                 showSoftWarning && styles.netWeightDisplayCardSoftWarning,
               ]}>
-              <Text style={styles.netWeightDisplayLabel}>Gross Weight</Text>
+              <Text style={styles.netWeightDisplayLabel}>Container Weight</Text>
               <View style={styles.netWeightDisplayValue}>
                 <Text
                   style={[
@@ -456,18 +471,6 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                     {isScaleConnected ? 'Connected' : 'Disconnected'}
                   </Text>
                 </View>
-              </View>
-              <View style={styles.compactWeightDivider} />
-              <View style={styles.compactWeightItem}>
-                <Text style={styles.compactWeightLabel}>Net Weight</Text>
-                <Text
-                  style={[
-                    styles.compactWeightValue,
-                    styles.compactWeightValueNet,
-                  ]}>
-                  {netWeight}
-                </Text>
-                <Text style={styles.compactWeightUnit}>lbs (Waste)</Text>
               </View>
             </View>
 
@@ -616,7 +619,9 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
               if (!hasValidUnitCount) {
                 Alert.alert(
                   'Required Field',
-                  'Please enter a valid unit count before adding containers.',
+                  isCylinderProfile
+                    ? 'Please enter a valid unit count before adding containers.'
+                    : 'Please enter a valid container count before adding containers.',
                 );
                 return;
               }
@@ -710,6 +715,12 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
 };
 
 const localStyles = StyleSheet.create({
+  selectionSummary: {
+    ...typography.base,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: spacing.md,
+  },
   scaleStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -67,7 +67,7 @@ export const ServiceRequestPicker: React.FC<ServiceRequestPickerProps> = ({
 
 const pickerStyles = StyleSheet.create({
   section: {
-    marginBottom: spacing.md,
+    marginBottom: 0,
   },
   label: {
     ...typography.sm,

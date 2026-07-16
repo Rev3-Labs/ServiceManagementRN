@@ -106,6 +106,7 @@ import {photoService} from '../services/photoService';
 import {pListedAuthorizationService, PListedCode} from '../services/pListedAuthorizationService';
 import {serviceTypeService, getServiceEntryStep} from '../services/serviceTypeService';
 import {serviceTypeTimeService, ServiceTypeTimeEntry} from '../services/serviceTypeTimeService';
+import {serviceNotesAckService} from '../services/serviceNotesAckService';
 import {
   NO_SHIP_REASON_CODES,
   NO_SHIP_OTHER_CODE,
@@ -1396,23 +1397,40 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       if (pending && !checkCanWorkOnOrder(order.orderNumber)) {
         return;
       }
+      // Service notes must be acknowledged before starting or editing a request.
+      if (
+        hasOrderNotes(order) &&
+        !serviceNotesAckService.isAcknowledged(order.orderNumber)
+      ) {
+        setDashboardSelectedOrder(order);
+        return;
+      }
       setBadgePromptPayload({ order, program, pending, noship });
       setBadgePromptNoShipMode(false);
       setShowBadgeStartEditModal(true);
     },
-    [checkCanWorkOnOrder],
+    [checkCanWorkOnOrder, hasOrderNotes],
   );
 
   const handleBadgePromptEdit = useCallback(() => {
     if (!badgePromptPayload) return;
     const { order, program, noship } = badgePromptPayload;
+    if (
+      hasOrderNotes(order) &&
+      !serviceNotesAckService.isAcknowledged(order.orderNumber)
+    ) {
+      setShowBadgeStartEditModal(false);
+      setBadgePromptPayload(null);
+      setDashboardSelectedOrder(order);
+      return;
+    }
     setSelectedOrderData(order);
     setActiveServiceTypeTimer(program);
     setDashboardSelectedOrder(null);
     setCurrentStep(getServiceEntryStep(program, noship));
     setShowBadgeStartEditModal(false);
     setBadgePromptPayload(null);
-  }, [badgePromptPayload]);
+  }, [badgePromptPayload, hasOrderNotes]);
 
   const handleBadgePromptStart = useCallback(async () => {
     if (!badgePromptPayload) return;
@@ -1420,10 +1438,19 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     if (!checkCanWorkOnOrder(order.orderNumber)) {
       return;
     }
+    if (
+      hasOrderNotes(order) &&
+      !serviceNotesAckService.isAcknowledged(order.orderNumber)
+    ) {
+      setShowBadgeStartEditModal(false);
+      setBadgePromptPayload(null);
+      setDashboardSelectedOrder(order);
+      return;
+    }
     setShowBadgeStartEditModal(false);
     setBadgePromptPayload(null);
     beginStartService({type: 'serviceType', order, program});
-  }, [badgePromptPayload, beginStartService, checkCanWorkOnOrder]);
+  }, [badgePromptPayload, beginStartService, checkCanWorkOnOrder, hasOrderNotes]);
 
   // No-Ship helpers (FR-3a.UI.8.3)
   const isServiceTypeNoShip = useCallback(
@@ -6128,14 +6155,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                         />
                       </View>
 
-                      {needsMaterialServiceRequestPicker && selectedOrderData && (
-                        <ServiceRequestPicker
-                          order={selectedOrderData}
-                          selectedServiceTypeId={materialServiceTypeId}
-                          onSelect={setMaterialServiceTypeId}
-                        />
-                      )}
-
                       <View style={styles.materialInputSection}>
                         <Text style={styles.inputLabel}>Type</Text>
                         <Text style={styles.sectionDescription}>
@@ -6178,6 +6197,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                           </TouchableOpacity>
                         </View>
                       </View>
+
+                      {needsMaterialServiceRequestPicker && selectedOrderData && (
+                        <View style={styles.materialInputSection}>
+                          <ServiceRequestPicker
+                            order={selectedOrderData}
+                            selectedServiceTypeId={materialServiceTypeId}
+                            onSelect={setMaterialServiceTypeId}
+                          />
+                        </View>
+                      )}
                     </>
                   ) : (
                     <View style={styles.noSelectionPlaceholder}>
@@ -9381,7 +9410,7 @@ export const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   materialInputSection: {
-    // marginBottom: spacing.lg,
+    marginBottom: spacing.lg,
   },
   materialTypeCards: {
     flexDirection: 'row',

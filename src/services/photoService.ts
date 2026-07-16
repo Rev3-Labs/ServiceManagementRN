@@ -64,6 +64,7 @@ export const PHOTO_CATEGORY_DEFINITIONS: ReadonlyArray<PhotoCategoryDefinition> 
       label: 'After Service',
       icon: 'camera-alt',
       group: 'service-milestone',
+      requirement: 'closeout',
       maxPhotos: 10,
       description: 'Site condition after work is complete',
     },
@@ -442,8 +443,14 @@ class PhotoService {
   }
 
   getCloseoutRequiredCategories(): PhotoCategory[] {
-    return PHOTO_CATEGORY_DEFINITIONS.filter(d => d.requirement === 'closeout')
-      .map(d => d.category);
+    const closeout = PHOTO_CATEGORY_DEFINITIONS.filter(
+      d => d.requirement === 'closeout',
+    ).map(d => d.category);
+    // Before-service is gated at start; still require it when acknowledging complete.
+    if (!closeout.includes('before-service')) {
+      return ['before-service', ...closeout];
+    }
+    return closeout;
   }
 
   getMissingCloseoutPhotoCategories(orderNumber: string): PhotoCategory[] {

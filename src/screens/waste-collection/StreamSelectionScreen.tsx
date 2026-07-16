@@ -213,7 +213,7 @@ export const StreamSelectionScreen: React.FC<StreamSelectionScreenProps> = ({
         removeClippedSubviews={false}>
         <Input
           ref={searchInputRef}
-          placeholder="Search waste streams..."
+          placeholder="Search by waste profile or shipping label"
           value={streamSearchQuery}
           onChangeText={handleSearchChange}
           onFocus={handleSearchFocus}

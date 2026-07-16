@@ -704,14 +704,6 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                       </Text>
                     </View>
 
-                    {needsEquipmentServicePicker && (
-                      <ServiceRequestPicker
-                        order={selectedOrderData}
-                        selectedServiceTypeId={equipmentServiceTypeId}
-                        onSelect={setEquipmentServiceTypeId}
-                      />
-                    )}
-
                     <View style={styles.materialInputSection}>
                       <Input
                         label="Quantity"
@@ -721,6 +713,16 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                         placeholder="1"
                       />
                     </View>
+
+                    {needsEquipmentServicePicker && (
+                      <View style={styles.materialInputSection}>
+                        <ServiceRequestPicker
+                          order={selectedOrderData}
+                          selectedServiceTypeId={equipmentServiceTypeId}
+                          onSelect={setEquipmentServiceTypeId}
+                        />
+                      </View>
+                    )}
                   </>
                 ) : (
                   <View style={styles.noSelectionPlaceholder}>

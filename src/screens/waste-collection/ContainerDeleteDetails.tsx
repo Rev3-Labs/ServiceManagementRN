@@ -2,7 +2,7 @@ import React from 'react';
 import {View, Text, StyleSheet} from 'react-native';
 import {AddedContainer, OrderData} from '../../types/wasteCollection';
 import {colors, spacing, borderRadius, typography} from '../../styles/theme';
-import {formatServiceRequestLabel} from './containerGrouping';
+import {formatServiceRequestLabel, formatContainerCardSubtitle} from './containerGrouping';
 
 interface ContainerDeleteDetailsProps {
   container: AddedContainer;
@@ -32,13 +32,8 @@ export const ContainerDeleteDetails: React.FC<ContainerDeleteDetailsProps> = ({
           {container.streamName}
         </Text>
         <Text style={styles.segment} numberOfLines={1}>
-          {container.containerSize} • {container.containerType}
+          {formatContainerCardSubtitle(container)}
         </Text>
-        {container.unitCount != null ? (
-          <Text style={[styles.segment, styles.unitCount]} numberOfLines={1}>
-            Unit Count: {container.unitCount}
-          </Text>
-        ) : null}
         {serviceRequestLabel ? (
           <Text style={[styles.segment, styles.serviceRequest]} numberOfLines={1}>
             {serviceRequestLabel}
@@ -81,11 +76,6 @@ const styles = StyleSheet.create({
   serviceRequest: {
     flexShrink: 1,
     minWidth: 0,
-  },
-  unitCount: {
-    color: colors.foreground,
-    fontWeight: '600',
-    flexShrink: 0,
   },
   shippingLabel: {
     color: colors.foreground,

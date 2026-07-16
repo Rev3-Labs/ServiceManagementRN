@@ -19,6 +19,7 @@ import {SyncStatus} from '../../services/syncService';
 import {TimeTrackingRecord} from '../../services/timeTrackingService';
 import {styles} from './styles';
 import {
+  formatContainerCardSubtitle,
   formatServiceRequestLabel,
   getDefaultExpandedServiceTypeId,
   groupContainersByServiceRequest,
@@ -236,7 +237,7 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
               {container.streamName}
             </Text>
             <Text style={styles.containerSummarySubtitle}>
-              {container.containerSize} • {container.containerType}
+              {formatContainerCardSubtitle(container)}
             </Text>
           </View>
         </View>
