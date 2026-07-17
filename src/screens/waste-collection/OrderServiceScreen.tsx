@@ -5,6 +5,8 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  TextInput,
+  Image,
 } from 'react-native';
 import {Button} from '../../components/Button';
 import {
@@ -12,11 +14,10 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  CardTitleText,
 } from '../../components/Card';
 import {Icon} from '../../components/Icon';
-import {Input} from '../../components/Input';
 import {PersistentOrderHeader} from '../../components/PersistentOrderHeader';
+import {SignatureCaptureModal} from '../../components/modals/SignatureCaptureModal';
 import {
   OrderData,
   FlowStep,
@@ -94,6 +95,8 @@ export interface OrderServiceScreenProps {
   handleMarkServiceTypeComplete: () => void;
   showDocumentTypeSelector: boolean;
   setShowDocumentTypeSelector: (show: boolean) => void;
+  /** Logged-in technician name shown on the Service Summary. */
+  technicianName?: string;
 }
 
 export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
@@ -149,6 +152,7 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
   handleMarkServiceTypeComplete,
   showDocumentTypeSelector,
   setShowDocumentTypeSelector,
+  technicianName,
 }) => {
   const totalNetWeight = activeContainers.reduce(
     (sum, c) => sum + c.netWeight,
@@ -181,8 +185,22 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
   const [customerFirstName, setCustomerFirstName] = useState('');
   const [customerLastName, setCustomerLastName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
+  const [customerSignature, setCustomerSignature] = useState<string | null>(
+    null,
+  );
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [acknowledgeIncomplete, setAcknowledgeIncomplete] = useState(false);
   const [orderPhotos, setOrderPhotos] = useState<OrderPhoto[]>([]);
+
+  // Reset acknowledgment fields when switching orders.
+  useEffect(() => {
+    setCustomerFirstName('');
+    setCustomerLastName('');
+    setCustomerEmail('');
+    setCustomerSignature(null);
+    setShowSignatureModal(false);
+    setAcknowledgeIncomplete(false);
+  }, [selectedOrderData?.orderNumber]);
 
   useEffect(() => {
     if (!selectedOrderData?.orderNumber) {
@@ -261,7 +279,15 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
     if (!customerFirstName.trim() || !customerLastName.trim()) {
       Alert.alert(
         'Required Fields',
-        'Please enter customer first name and last name.',
+        'Please enter customer first name and last name on the Service Summary.',
+      );
+      return;
+    }
+
+    if (!customerSignature) {
+      Alert.alert(
+        'Signature Required',
+        'Please capture the customer signature on the Service Summary.',
       );
       return;
     }
@@ -347,6 +373,7 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
             firstName: customerFirstName,
             lastName: customerLastName,
             email: customerEmail || undefined,
+            signatureImageUri: customerSignature || undefined,
             acknowledgedAt: new Date().toISOString(),
           },
         });
@@ -452,6 +479,24 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           removeClippedSubviews={false}>
+          {/* Page toolbar */}
+          <View style={styles.serviceSummaryPageToolbar}>
+            <TouchableOpacity
+              style={styles.serviceSummaryPrintBtn}
+              onPress={() => {
+                Alert.alert(
+                  'Printing Service Summary',
+                  `Order: ${selectedOrderData?.orderNumber}\n\nService Summary printer integration will be implemented here.`,
+                  [{text: 'OK'}],
+                );
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Print Service Summary"
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+              <Icon name="print" size={22} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+
           {/* Service Summary - Matching Print Layout */}
           <View style={styles.serviceSummaryContainer}>
             {/* Header */}
@@ -793,21 +838,85 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
               <View style={styles.serviceSummaryAckMiddle}>
                 <View style={styles.serviceSummaryAckField}>
                   <Text style={styles.serviceSummaryAckLabel}>Last Name:</Text>
-                  <View style={styles.serviceSummaryAckInputLine} />
+                  <View style={styles.serviceSummaryAckInputLine}>
+                    <TextInput
+                      style={styles.serviceSummaryAckInput}
+                      value={customerLastName}
+                      onChangeText={setCustomerLastName}
+                      placeholder="Tap to type name"
+                      placeholderTextColor="#9ca3af"
+                      autoCorrect={false}
+                      autoCapitalize="words"
+                      returnKeyType="next"
+                      accessibilityLabel="Customer last name"
+                    />
+                  </View>
                 </View>
                 <View style={styles.serviceSummaryAckField}>
                   <Text style={styles.serviceSummaryAckLabel}>First Name:</Text>
-                  <View style={styles.serviceSummaryAckInputLine} />
+                  <View style={styles.serviceSummaryAckInputLine}>
+                    <TextInput
+                      style={styles.serviceSummaryAckInput}
+                      value={customerFirstName}
+                      onChangeText={setCustomerFirstName}
+                      placeholder="Tap to type name"
+                      placeholderTextColor="#9ca3af"
+                      autoCorrect={false}
+                      autoCapitalize="words"
+                      returnKeyType="next"
+                      accessibilityLabel="Customer first name"
+                    />
+                  </View>
                 </View>
                 <View style={styles.serviceSummaryAckField}>
                   <Text style={styles.serviceSummaryAckLabel}>Email:</Text>
-                  <View style={styles.serviceSummaryAckInputLine} />
+                  <View style={styles.serviceSummaryAckInputLine}>
+                    <TextInput
+                      style={styles.serviceSummaryAckInput}
+                      value={customerEmail}
+                      onChangeText={setCustomerEmail}
+                      placeholder="Tap to type email"
+                      placeholderTextColor="#9ca3af"
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                      accessibilityLabel="Customer email"
+                    />
+                  </View>
+                </View>
+                <View style={styles.serviceSummaryAckField}>
+                  <Text style={styles.serviceSummaryAckLabel}>Signature:</Text>
+                  <TouchableOpacity
+                    style={styles.serviceSummaryAckSignatureLine}
+                    onPress={() => setShowSignatureModal(true)}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      customerSignature
+                        ? 'Customer signature, tap to resign'
+                        : 'Customer signature, tap to sign'
+                    }>
+                    {customerSignature ? (
+                      <Image
+                        source={{uri: customerSignature}}
+                        style={styles.serviceSummaryAckSignatureImage}
+                        resizeMode="contain"
+                      />
+                    ) : (
+                      <Text style={styles.serviceSummaryAckSignaturePlaceholder}>
+                        Tap to sign
+                      </Text>
+                    )}
+                  </TouchableOpacity>
                 </View>
               </View>
               <View style={styles.serviceSummaryAckRight}>
                 <View style={styles.serviceSummaryAckField}>
                   <Text style={styles.serviceSummaryAckLabel}>Technician:</Text>
-                  <Text style={styles.serviceSummaryAckValue}>Rashad Sayles</Text>
+                  <Text style={styles.serviceSummaryAckValue}>
+                    {(technicianName || '').trim() || '—'}
+                  </Text>
                 </View>
               </View>
             </View>
@@ -904,48 +1013,6 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
               </CardContent>
             </Card>
           )}
-
-          {/* Customer Information Form */}
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <CardTitleText>Customer Information</CardTitleText>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Text style={styles.cardDescription}>
-                Enter customer information to acknowledge this order
-              </Text>
-
-              <Input
-                label="First Name"
-                required
-                value={customerFirstName}
-                onChangeText={setCustomerFirstName}
-                placeholder="Enter first name"
-                style={styles.customerInput}
-              />
-
-              <Input
-                label="Last Name"
-                required
-                value={customerLastName}
-                onChangeText={setCustomerLastName}
-                placeholder="Enter last name"
-                style={styles.customerInput}
-              />
-
-              <Input
-                label="Email (Optional)"
-                value={customerEmail}
-                onChangeText={setCustomerEmail}
-                placeholder="Enter email address"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                style={styles.customerInput}
-              />
-            </CardContent>
-          </Card>
         </ScrollView>
       </View>
 
@@ -982,12 +1049,23 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
           disabled={
             !customerFirstName.trim() ||
             !customerLastName.trim() ||
+            !customerSignature ||
             hasHardBlockingErrors ||
             (hasWaivableBlockingErrors && !acknowledgeIncomplete)
           }
           onPress={handleCompleteOrder}
         />
       </View>
+
+      <SignatureCaptureModal
+        visible={showSignatureModal}
+        title="Customer Signature"
+        onClose={() => setShowSignatureModal(false)}
+        onSave={dataUri => {
+          setCustomerSignature(dataUri);
+          setShowSignatureModal(false);
+        }}
+      />
     </View>
   );
 };

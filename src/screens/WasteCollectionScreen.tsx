@@ -3900,6 +3900,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             noShipItems={currentOrderNoShipItems}
             printNoShip={printNoShip}
             setSelectedOrderData={setSelectedOrderData}
+            technicianName={username}
           />
         );
       case 'materials-supplies':
@@ -4058,6 +4059,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
             showDocumentTypeSelector={showDocumentTypeSelector}
             setShowDocumentTypeSelector={setShowDocumentTypeSelector}
+            technicianName={username}
           />
         );
       default:
@@ -10588,6 +10590,22 @@ export const styles = StyleSheet.create({
     color: '#FF6600',
   },
   // Service Summary Styles (matching print layout)
+  serviceSummaryPageToolbar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  serviceSummaryPrintBtn: {
+    width: touchTargets.comfortable,
+    height: touchTargets.comfortable,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   serviceSummaryContainer: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
@@ -10804,23 +10822,54 @@ export const styles = StyleSheet.create({
   },
   serviceSummaryAckField: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: spacing.sm,
   },
   serviceSummaryAckLabel: {
     fontSize: 14,
     color: '#666666',
     width: 85,
+    paddingBottom: 6,
   },
   serviceSummaryAckInputLine: {
     flex: 1,
-    height: 1,
-    backgroundColor: '#333333',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333333',
     minWidth: 100,
+    minHeight: 32,
+    justifyContent: 'flex-end',
+  },
+  serviceSummaryAckInput: {
+    fontSize: 14,
+    color: '#333333',
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    margin: 0,
+    minHeight: 28,
+  },
+  serviceSummaryAckSignatureLine: {
+    flex: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333333',
+    minWidth: 100,
+    minHeight: 40,
+    justifyContent: 'flex-end',
+  },
+  serviceSummaryAckSignatureImage: {
+    width: '100%',
+    height: 36,
+  },
+  serviceSummaryAckSignaturePlaceholder: {
+    fontSize: 13,
+    color: '#9ca3af',
+    fontStyle: 'italic',
+    paddingBottom: 4,
+    paddingHorizontal: 2,
   },
   serviceSummaryAckValue: {
     fontSize: 14,
     color: '#333333',
+    paddingBottom: 6,
   },
   serviceSummaryFooter: {
     flexDirection: 'row',

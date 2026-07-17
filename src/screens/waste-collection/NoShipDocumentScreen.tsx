@@ -1,17 +1,38 @@
-import React, {useEffect, useMemo} from 'react';
-import {View, Text, ScrollView, StyleSheet} from 'react-native';
+import React, {useEffect, useMemo, useState} from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  Image,
+  TextInput,
+  TouchableOpacity,
+} from 'react-native';
 import {Button} from '../../components/Button';
 import {PersistentOrderHeader} from '../../components/PersistentOrderHeader';
+import {SignatureCaptureModal} from '../../components/modals/SignatureCaptureModal';
 import {OrderData, FlowStep} from '../../types/wasteCollection';
 import {SyncStatus} from '../../services/syncService';
 import {TimeTrackingRecord} from '../../services/timeTrackingService';
 import {serviceTypeService} from '../../services/serviceTypeService';
-import {
-  getNoShipReasonLabel,
-  type NoShipReasonCode,
-} from '../../constants/noShipReasons';
+import {type NoShipReasonCode} from '../../constants/noShipReasons';
 import {colors, spacing, borderRadius, typography} from '../../styles/theme';
 import {styles} from './styles';
+
+const LOGO = require('../../assets/noship/cleanearth-logo.png');
+const CHECKBOX_EMPTY = require('../../assets/noship/checkbox-empty.png');
+const CHECKBOX_CHECKED = require('../../assets/noship/checkbox-checked.png');
+
+/** Retail On-Site No Ship Record section keys (matches PDF). */
+export type NoShipSectionKey = 'pharmacy' | 'retail' | 'sump' | 'fuel';
+
+/** Keys for interactive printed-name / signature fields on the form. */
+export type NoShipFieldKey =
+  | 'pharmacy'
+  | 'retail'
+  | 'sump'
+  | 'fuel'
+  | 'technician';
 
 /** A single No-Ship service type record for the current order. */
 export interface NoShipItem {
@@ -51,7 +72,230 @@ export interface NoShipDocumentScreenProps {
   noShipItems: NoShipItem[];
   printNoShip: () => Promise<void>;
   setSelectedOrderData: (order: OrderData | null) => void;
+  /** Printed technician name on the No Ship Record. */
+  technicianName?: string;
 }
+
+type PrintedNames = Record<NoShipFieldKey, string>;
+type Signatures = Record<NoShipFieldKey, string | null>;
+
+const EMPTY_PRINTED: PrintedNames = {
+  pharmacy: '',
+  retail: '',
+  sump: '',
+  fuel: '',
+  technician: '',
+};
+
+const EMPTY_SIGNATURES: Signatures = {
+  pharmacy: null,
+  retail: null,
+  sump: null,
+  fuel: null,
+  technician: null,
+};
+
+const SIGNATURE_TITLES: Record<NoShipFieldKey, string> = {
+  pharmacy: 'Pharmacist In Charge Signature',
+  retail: 'Store Management Team Member Signature',
+  sump: 'Store Management Team Member Signature',
+  fuel: 'Store Management Team Member Signature',
+  technician: 'Clean Earth Technician Signature',
+};
+
+/** Map app service types / notes onto the PDF's four No Ship sections. */
+export function resolveNoShipSections(items: NoShipItem[]): Set<NoShipSectionKey> {
+  const sections = new Set<NoShipSectionKey>();
+  for (const item of items) {
+    const id = item.serviceTypeId.toUpperCase();
+    const name = serviceTypeService.getServiceTypeName(id).toLowerCase();
+    const notes = (item.notes || '').toLowerCase();
+    const blob = `${id} ${name} ${notes}`;
+
+    if (
+      id === 'HCS' ||
+      blob.includes('pharma') ||
+      blob.includes('health') ||
+      blob.includes('rx') ||
+      blob.includes('dea')
+    ) {
+      sections.add('pharmacy');
+      continue;
+    }
+    if (blob.includes('sump')) {
+      sections.add('sump');
+      continue;
+    }
+    if (blob.includes('fuel')) {
+      sections.add('fuel');
+      continue;
+    }
+    if (
+      blob.includes('front store') ||
+      blob.includes('retail') ||
+      id === 'WS' ||
+      id === 'WCS' ||
+      id === 'SDO'
+    ) {
+      sections.add('retail');
+      continue;
+    }
+    // Unknown service types still belong on the retail/front-store section.
+    sections.add('retail');
+  }
+  return sections;
+}
+
+function formatServiceDate(order: OrderData): string {
+  if (order.requiredDate) {
+    const parts = order.requiredDate.split('/');
+    if (parts.length === 3) {
+      const [m, d, y] = parts.map(p => parseInt(p, 10));
+      if (!Number.isNaN(m) && !Number.isNaN(d) && !Number.isNaN(y)) {
+        return `${m}/${d}/${y}`;
+      }
+    }
+    return order.requiredDate;
+  }
+  const now = new Date();
+  return `${now.getMonth() + 1}/${now.getDate()}/${now.getFullYear()}`;
+}
+
+function formatStoreNumber(order: OrderData): string {
+  const site = (order.site || '').trim();
+  const customer = (order.customer || '').trim();
+  if (site && customer) {
+    const siteLower = site.toLowerCase();
+    const customerLower = customer.toLowerCase();
+    if (siteLower.includes(customerLower)) {
+      return site;
+    }
+    return `${customer} ${site}`;
+  }
+  return site || customer || '—';
+}
+
+function formatStoreAddress(order: OrderData): string {
+  const city = (order.city || '').trim();
+  const state = (order.state || '').trim();
+  const zip = (order.zip || '').trim();
+  const cityState = [city, state].filter(Boolean).join(', ');
+  return [cityState, zip].filter(Boolean).join(' ') || '—';
+}
+
+const Checkbox: React.FC<{checked?: boolean; size?: number}> = ({
+  checked = false,
+  size = 14,
+}) => (
+  <Image
+    source={checked ? CHECKBOX_CHECKED : CHECKBOX_EMPTY}
+    style={{width: size, height: size}}
+    resizeMode="contain"
+    accessibilityRole="checkbox"
+    accessibilityState={{checked}}
+  />
+);
+
+const CheckLine: React.FC<{
+  checked?: boolean;
+  children: React.ReactNode;
+  rightAligned?: boolean;
+}> = ({checked = false, children, rightAligned = true}) => (
+  <View style={ns.checkLine}>
+    <Text style={ns.bodyText}>{children}</Text>
+    {rightAligned ? (
+      <View style={ns.checkLineBox}>
+        <Checkbox checked={checked} />
+      </View>
+    ) : (
+      <Checkbox checked={checked} />
+    )}
+  </View>
+);
+
+const YesNo: React.FC<{yes?: boolean; no?: boolean}> = ({
+  yes = false,
+  no = false,
+}) => (
+  <View style={ns.yesNoRow}>
+    <View style={ns.yesNoItem}>
+      <Checkbox checked={yes} />
+      <Text style={ns.yesNoLabel}>Yes</Text>
+    </View>
+    <View style={ns.yesNoItem}>
+      <Checkbox checked={no} />
+      <Text style={ns.yesNoLabel}>No</Text>
+    </View>
+  </View>
+);
+
+/** Interactive printed-name input + tap-to-sign signature line pair. */
+const SignaturePair: React.FC<{
+  leftLabel: string;
+  leftLabelSecondLine?: string;
+  rightLabel: string;
+  printedValue: string;
+  onPrintedChange: (value: string) => void;
+  signatureUri: string | null;
+  onPressSignature: () => void;
+  printedPlaceholder?: string;
+  editable?: boolean;
+}> = ({
+  leftLabel,
+  leftLabelSecondLine,
+  rightLabel,
+  printedValue,
+  onPrintedChange,
+  signatureUri,
+  onPressSignature,
+  printedPlaceholder = 'Tap to type name',
+  editable = true,
+}) => (
+  <View style={ns.signPair}>
+    <View style={ns.signCol}>
+      <View style={ns.signLine}>
+        <TextInput
+          style={ns.printedInput}
+          value={printedValue}
+          onChangeText={onPrintedChange}
+          placeholder={printedPlaceholder}
+          placeholderTextColor="#9ca3af"
+          editable={editable}
+          autoCorrect={false}
+          autoCapitalize="words"
+          returnKeyType="done"
+          accessibilityLabel={leftLabel}
+        />
+      </View>
+      <Text style={ns.signLabel}>{leftLabel}</Text>
+      {leftLabelSecondLine ? (
+        <Text style={ns.signLabel}>{leftLabelSecondLine}</Text>
+      ) : null}
+    </View>
+    <View style={ns.signCol}>
+      <TouchableOpacity
+        style={ns.signLine}
+        onPress={onPressSignature}
+        disabled={!editable}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={
+          signatureUri ? `${rightLabel}, tap to resign` : `${rightLabel}, tap to sign`
+        }>
+        {signatureUri ? (
+          <Image
+            source={{uri: signatureUri}}
+            style={ns.signatureImage}
+            resizeMode="contain"
+          />
+        ) : (
+          <Text style={ns.signaturePlaceholder}>Tap to sign</Text>
+        )}
+      </TouchableOpacity>
+      <Text style={ns.signLabel}>{rightLabel}</Text>
+    </View>
+  </View>
+);
 
 export const NoShipDocumentScreen: React.FC<NoShipDocumentScreenProps> = ({
   selectedOrderData,
@@ -77,18 +321,52 @@ export const NoShipDocumentScreen: React.FC<NoShipDocumentScreenProps> = ({
   noShipItems,
   printNoShip,
   setSelectedOrderData,
+  technicianName,
 }) => {
   const isCurrentOrderCompleted = selectedOrderData
     ? isOrderCompleted(selectedOrderData.orderNumber)
     : false;
 
-  const todayStr = useMemo(() => {
-    const now = new Date();
-    return `${(now.getMonth() + 1).toString().padStart(2, '0')}/${now
-      .getDate()
-      .toString()
-      .padStart(2, '0')}/${now.getFullYear()}`;
-  }, []);
+  const activeSections = useMemo(
+    () => resolveNoShipSections(noShipItems),
+    [noShipItems],
+  );
+
+  const pharmacy = activeSections.has('pharmacy');
+  const retail = activeSections.has('retail');
+  const sump = activeSections.has('sump');
+  const fuel = activeSections.has('fuel');
+
+  const [printedNames, setPrintedNames] = useState<PrintedNames>(() => ({
+    ...EMPTY_PRINTED,
+    technician: (technicianName || '').trim(),
+  }));
+  const [signatures, setSignatures] = useState<Signatures>(EMPTY_SIGNATURES);
+  const [activeSignatureField, setActiveSignatureField] =
+    useState<NoShipFieldKey | null>(null);
+
+  // Keep technician printed name in sync when username loads/changes,
+  // but don't overwrite if the user already typed something different.
+  useEffect(() => {
+    const next = (technicianName || '').trim();
+    if (!next) return;
+    setPrintedNames(prev => {
+      if (prev.technician && prev.technician !== next) {
+        return prev;
+      }
+      return {...prev, technician: next};
+    });
+  }, [technicianName]);
+
+  // Reset form fields when switching orders.
+  useEffect(() => {
+    setPrintedNames({
+      ...EMPTY_PRINTED,
+      technician: (technicianName || '').trim(),
+    });
+    setSignatures(EMPTY_SIGNATURES);
+    setActiveSignatureField(null);
+  }, [selectedOrderData?.orderNumber]);
 
   // Completed orders cannot open documentation — redirect to dashboard
   useEffect(() => {
@@ -98,7 +376,26 @@ export const NoShipDocumentScreen: React.FC<NoShipDocumentScreenProps> = ({
     }
   }, [selectedOrderData, isOrderCompleted]);
 
+  const setPrinted = (key: NoShipFieldKey, value: string) => {
+    setPrintedNames(prev => ({...prev, [key]: value}));
+  };
+
+  const openSignature = (key: NoShipFieldKey) => {
+    if (isCurrentOrderCompleted) return;
+    setActiveSignatureField(key);
+  };
+
+  const handleSignatureSave = (dataUri: string) => {
+    if (!activeSignatureField) return;
+    setSignatures(prev => ({...prev, [activeSignatureField]: dataUri}));
+  };
+
   if (!selectedOrderData) return null;
+
+  const storeNumber = formatStoreNumber(selectedOrderData);
+  const storeAddress = formatStoreAddress(selectedOrderData);
+  const serviceDate = formatServiceDate(selectedOrderData);
+  const fieldsEditable = !isCurrentOrderCompleted;
 
   return (
     <View style={styles.container}>
@@ -128,93 +425,179 @@ export const NoShipDocumentScreen: React.FC<NoShipDocumentScreenProps> = ({
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}>
-        <Text style={ns.cardTitle}>No-Ship Certificate</Text>
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled">
+        <Text style={ns.cardTitle}>No Ship Record</Text>
         <Text style={ns.cardSubtitle}>
-          Documentation of service types not shipped on this order.
+          Retail On-Site Waste Management Systems — print when a service type is
+          marked No-Ship.
         </Text>
 
         <View style={ns.sheet}>
-          <View style={ns.sheetTitleRow}>
-            <Text style={ns.sheetTitle}>CERTIFICATE OF NO-SHIP</Text>
-            <Text style={ns.sheetTitleSub}>Service Documentation</Text>
-          </View>
-
-          <View style={ns.metaRow}>
-            <View style={ns.metaItem}>
-              <Text style={ns.metaLabel}>Order</Text>
-              <Text style={ns.metaValue}>{selectedOrderData.orderNumber}</Text>
-            </View>
-            <View style={ns.metaItem}>
-              <Text style={ns.metaLabel}>Date</Text>
-              <Text style={ns.metaValue}>{todayStr}</Text>
-            </View>
-          </View>
-
-          <View style={ns.party}>
-            <Text style={ns.partyLabel}>Generator / Site</Text>
-            <Text style={ns.partyName}>{selectedOrderData.customer}</Text>
-            <Text style={ns.partyText}>{selectedOrderData.site}</Text>
-            <Text style={ns.partyText}>
-              {selectedOrderData.city}, {selectedOrderData.state}
-              {selectedOrderData.zip ? ` ${selectedOrderData.zip}` : ''}
+          {/* Header: Order Number | Title | Logo */}
+          <View style={ns.headerRow}>
+            <Text style={ns.orderNumber}>
+              Order Number:  {selectedOrderData.orderNumber}
             </Text>
-            {selectedOrderData.genNumber ? (
-              <Text style={ns.partyText}>
-                Generator #: {selectedOrderData.genNumber}
+            <Text style={ns.docTitle}>No Ship Record</Text>
+            <Image source={LOGO} style={ns.logo} resizeMode="contain" />
+          </View>
+
+          <View style={ns.rule} />
+
+          {/* Top category checkboxes */}
+          <View style={ns.categoryRow}>
+            <View style={ns.categoryItem}>
+              <Checkbox checked={pharmacy} size={16} />
+              <Text style={ns.categoryLabel}>Pharmacy</Text>
+            </View>
+            <View style={ns.categoryItem}>
+              <Checkbox checked={retail} size={16} />
+              <Text style={ns.categoryLabel}>Retail / Front Store</Text>
+            </View>
+            <View style={ns.categoryItem}>
+              <Checkbox checked={sump} size={16} />
+              <Text style={ns.categoryLabel}>Sump</Text>
+            </View>
+            <View style={ns.categoryItem}>
+              <Checkbox checked={fuel} size={16} />
+              <Text style={ns.categoryLabel}>Fuel Center</Text>
+            </View>
+          </View>
+
+          {/* Store meta */}
+          <View style={ns.metaBlock}>
+            <View style={ns.metaLine}>
+              <Text style={ns.metaLabel}>Store Number:</Text>
+              <Text style={ns.metaValue}>{storeNumber}</Text>
+              <Text style={[ns.metaLabel, ns.metaLabelRight]}>Service Date :</Text>
+              <Text style={ns.metaValueDate}>{serviceDate}</Text>
+            </View>
+            <View style={ns.metaLine}>
+              <Text style={ns.metaLabel}>Store Address:</Text>
+              <Text style={[ns.metaValue, {flex: 1}]}>{storeAddress}</Text>
+            </View>
+          </View>
+
+          {/* —— Pharmacy —— */}
+          <View style={ns.section}>
+            <Text style={ns.sectionTitle}>Pharmacy</Text>
+            <View style={ns.sectionQuestionRow}>
+              <Text style={ns.smallText}>
+                Does store have a pharmacy? (if no, go to Retail / Front Store)
               </Text>
-            ) : null}
-          </View>
-
-          <Text style={ns.sectionHeading}>No-Ship Service Types</Text>
-          <View style={ns.table}>
-            <View style={ns.tableHeaderRow}>
-              <Text style={[ns.th, {flex: 1.4}]}>Service Type</Text>
-              <Text style={[ns.th, {width: 90}]}>Reason Code</Text>
-              <Text style={[ns.th, {flex: 1.6}]}>Reason / Notes</Text>
+              <YesNo yes={pharmacy} no={false} />
             </View>
-            {noShipItems.length > 0 ? (
-              noShipItems.map((item, idx) => (
-                <View
-                  key={item.serviceTypeId}
-                  style={[ns.tableRow, idx % 2 === 1 && ns.tableRowAlt]}>
-                  <Text style={[ns.td, {flex: 1.4}]} numberOfLines={2}>
-                    {serviceTypeService.formatForBadge(item.serviceTypeId)}
-                  </Text>
-                  <Text style={[ns.td, ns.tdMono, {width: 90}]}>
-                    {item.reasonCode}
-                  </Text>
-                  <Text style={[ns.td, {flex: 1.6}]} numberOfLines={3}>
-                    {getNoShipReasonLabel(item.reasonCode)}
-                    {item.notes ? ` — ${item.notes}` : ''}
-                  </Text>
-                </View>
-              ))
-            ) : (
-              <View style={ns.tableRow}>
-                <Text style={[ns.td, {flex: 1}]}>
-                  No no-ship service types recorded.
-                </Text>
-              </View>
-            )}
+            <CheckLine checked={pharmacy}>
+              Clean Earth Serviced Store -{' '}
+              <Text style={ns.boldInline}>No acute Rx waste</Text> to ship.
+            </CheckLine>
+            <CheckLine checked={pharmacy}>
+              Clean Earth Serviced Store -{' '}
+              <Text style={ns.boldInline}>No non-acute Rx waste</Text> to ship.
+            </CheckLine>
+            <CheckLine checked={pharmacy}>
+              Clean Earth Serviced Store -{' '}
+              <Text style={ns.boldInline}>No DEA controlled substance Rx waste</Text>{' '}
+              to ship.
+            </CheckLine>
+            <CheckLine checked={pharmacy}>
+              Clean Earth Serviced Store -{' '}
+              <Text style={ns.boldInline}>No State controlled substance Rx waste</Text>{' '}
+              to ship.
+            </CheckLine>
+            <SignaturePair
+              leftLabel="Pharmacist In Charge Name (printed)"
+              rightLabel="Pharmacist In Charge Signature"
+              printedValue={printedNames.pharmacy}
+              onPrintedChange={v => setPrinted('pharmacy', v)}
+              signatureUri={signatures.pharmacy}
+              onPressSignature={() => openSignature('pharmacy')}
+              editable={fieldsEditable}
+            />
           </View>
 
-          <Text style={ns.certText}>
-            I certify that the service type(s) listed above were not shipped on
-            this order for the reason(s) indicated, and that the information
-            recorded is accurate to the best of my knowledge.
+          {/* —— Retail / Front Store —— */}
+          <View style={ns.section}>
+            <Text style={ns.sectionTitle}>Retail / Front Store</Text>
+            <View style={ns.retailLeadRow}>
+              <Text style={ns.bodyText}>Clean Earth Serviced Store</Text>
+            </View>
+            <CheckLine checked={retail}>
+              - <Text style={ns.boldInline}>No Front Store Area (retail) waste</Text>{' '}
+              to ship.
+            </CheckLine>
+            <SignaturePair
+              leftLabel="Store Management Team Member  and Title"
+              leftLabelSecondLine="(printed)"
+              rightLabel="Store Management Team Member Signature"
+              printedValue={printedNames.retail}
+              onPrintedChange={v => setPrinted('retail', v)}
+              signatureUri={signatures.retail}
+              onPressSignature={() => openSignature('retail')}
+              editable={fieldsEditable}
+            />
+          </View>
+
+          {/* —— Sump Service —— */}
+          <View style={ns.section}>
+            <Text style={ns.sectionTitle}>Sump Service</Text>
+            <View style={ns.sectionQuestionRow}>
+              <Text style={ns.bodyText}>Does store have a sump?</Text>
+              <YesNo yes={sump} no={false} />
+            </View>
+            <CheckLine checked={sump}>
+              If Yes, Clean Earth Services Store -{' '}
+              <Text style={ns.boldInline}>No sump waste</Text> to ship.
+            </CheckLine>
+            <SignaturePair
+              leftLabel="Store Management Team Member  and Title"
+              leftLabelSecondLine="(printed)"
+              rightLabel="Store Management Team Member Signature"
+              printedValue={printedNames.sump}
+              onPrintedChange={v => setPrinted('sump', v)}
+              signatureUri={signatures.sump}
+              onPressSignature={() => openSignature('sump')}
+              editable={fieldsEditable}
+            />
+          </View>
+
+          {/* —— Fuel Center —— */}
+          <View style={ns.section}>
+            <Text style={ns.sectionTitle}>Fuel Center</Text>
+            <CheckLine checked={fuel}>
+              Clean Earth Serviced Store -{' '}
+              <Text style={ns.boldInline}>No Fuel Center waste</Text> to ship.
+            </CheckLine>
+            <SignaturePair
+              leftLabel="Store Management Team Member  and Title"
+              leftLabelSecondLine="(printed)"
+              rightLabel="Store Management Team Member Signature"
+              printedValue={printedNames.fuel}
+              onPrintedChange={v => setPrinted('fuel', v)}
+              signatureUri={signatures.fuel}
+              onPressSignature={() => openSignature('fuel')}
+              editable={fieldsEditable}
+            />
+          </View>
+
+          {/* Technician */}
+          <View style={ns.techBlock}>
+            <SignaturePair
+              leftLabel="Clean Earth Technican Name (printed)"
+              rightLabel="Clean Earth Technican Signature"
+              printedValue={printedNames.technician}
+              onPrintedChange={v => setPrinted('technician', v)}
+              signatureUri={signatures.technician}
+              onPressSignature={() => openSignature('technician')}
+              editable={fieldsEditable}
+            />
+          </View>
+
+          <View style={ns.footerRule} />
+          <Text style={ns.footerText}>
+            Retail On-Site Waste Management Systems
           </Text>
-
-          <View style={ns.signRow}>
-            <View style={ns.signBlock}>
-              <View style={ns.signLine} />
-              <Text style={ns.signLabel}>Technician Signature</Text>
-            </View>
-            <View style={ns.signBlock}>
-              <View style={ns.signLine} />
-              <Text style={ns.signLabel}>Date</Text>
-            </View>
-          </View>
         </View>
       </ScrollView>
 
@@ -227,6 +610,7 @@ export const NoShipDocumentScreen: React.FC<NoShipDocumentScreenProps> = ({
         />
         <Button
           title="Print No-Ship"
+          icon="print"
           variant="outline"
           size="md"
           disabled={isCurrentOrderCompleted}
@@ -244,6 +628,17 @@ export const NoShipDocumentScreen: React.FC<NoShipDocumentScreenProps> = ({
           }}
         />
       </View>
+
+      <SignatureCaptureModal
+        visible={activeSignatureField != null}
+        title={
+          activeSignatureField
+            ? SIGNATURE_TITLES[activeSignatureField]
+            : 'Capture Signature'
+        }
+        onClose={() => setActiveSignatureField(null)}
+        onSave={handleSignatureSave}
+      />
     </View>
   );
 };
@@ -261,151 +656,218 @@ const ns = StyleSheet.create({
     marginBottom: spacing.md,
   },
   sheet: {
-    backgroundColor: colors.card,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: borderRadius.md,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
   },
-  sheetTitleRow: {
-    alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: colors.foreground,
-    paddingBottom: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  sheetTitle: {
-    ...typography.lg,
-    fontWeight: '800',
-    color: colors.foreground,
-    letterSpacing: 0.5,
-    textAlign: 'center',
-  },
-  sheetTitleSub: {
-    ...typography.xs,
-    color: colors.mutedForeground,
-    marginTop: spacing.xs / 2,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  metaRow: {
+  headerRow: {
     flexDirection: 'row',
-    gap: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  metaItem: {
-    flex: 1,
-    minWidth: 0,
-  },
-  metaLabel: {
-    ...typography.xs,
-    fontWeight: '700',
-    color: colors.mutedForeground,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  metaValue: {
-    ...typography.base,
-    fontWeight: '700',
-    color: colors.foreground,
-    fontFamily: 'monospace',
-  },
-  party: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: borderRadius.sm,
-    padding: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  partyLabel: {
-    ...typography.xs,
-    fontWeight: '700',
-    color: colors.mutedForeground,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: spacing.xs / 2,
-  },
-  partyName: {
-    ...typography.base,
-    fontWeight: '700',
-    color: colors.foreground,
-  },
-  partyText: {
-    ...typography.sm,
-    color: colors.foreground,
-  },
-  sectionHeading: {
-    ...typography.sm,
-    fontWeight: '700',
-    color: colors.foreground,
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: spacing.sm,
   },
-  table: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: borderRadius.sm,
-    overflow: 'hidden',
+  orderNumber: {
+    flex: 1,
+    fontSize: 11,
+    color: '#111',
+    fontWeight: '400',
+  },
+  docTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111',
+    textAlign: 'center',
+  },
+  logo: {
+    flex: 1,
+    height: 22,
+    maxWidth: 120,
+    alignSelf: 'flex-end',
+  },
+  rule: {
+    height: 1.5,
+    backgroundColor: '#111',
     marginBottom: spacing.md,
   },
-  tableHeaderRow: {
+  categoryRow: {
     flexDirection: 'row',
-    backgroundColor: colors.muted,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderBottomWidth: 2,
-    borderBottomColor: colors.border,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.xs,
   },
-  th: {
-    ...typography.xs,
+  categoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  categoryLabel: {
+    fontSize: 11,
+    color: '#111',
     fontWeight: '700',
-    color: colors.mutedForeground,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    paddingRight: spacing.xs,
   },
-  tableRow: {
+  metaBlock: {
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
+  },
+  metaLine: {
     flexDirection: 'row',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
+    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  metaLabel: {
+    fontSize: 11,
+    color: '#111',
+    fontWeight: '400',
+    paddingBottom: 2,
+  },
+  metaLabelRight: {
+    marginLeft: 'auto',
+  },
+  metaValue: {
+    fontSize: 11,
+    color: '#111',
+    fontWeight: '400',
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.card,
+    borderBottomColor: '#111',
+    paddingBottom: 1,
+    paddingHorizontal: 4,
+    minWidth: 160,
   },
-  tableRowAlt: {
-    backgroundColor: colors.background,
+  metaValueDate: {
+    fontSize: 11,
+    color: '#111',
+    fontWeight: '400',
+    borderBottomWidth: 1,
+    borderBottomColor: '#111',
+    paddingBottom: 1,
+    paddingHorizontal: 4,
+    minWidth: 72,
+    textAlign: 'left',
   },
-  td: {
-    ...typography.sm,
-    color: colors.foreground,
-    paddingRight: spacing.xs,
-  },
-  tdMono: {
-    fontFamily: 'monospace',
-    fontWeight: '700',
-  },
-  certText: {
-    ...typography.sm,
-    color: colors.foreground,
-    lineHeight: 22,
+  section: {
     marginBottom: spacing.lg,
   },
-  signRow: {
-    flexDirection: 'row',
-    gap: spacing.lg,
-    marginTop: spacing.sm,
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111',
+    borderBottomWidth: 1.2,
+    borderBottomColor: '#111',
+    alignSelf: 'flex-start',
+    marginBottom: spacing.xs,
+    paddingBottom: 1,
   },
-  signBlock: {
+  sectionQuestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+    gap: spacing.md,
+  },
+  retailLeadRow: {
+    marginBottom: 2,
+  },
+  bodyText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#111',
+    lineHeight: 16,
+  },
+  smallText: {
+    flex: 1,
+    fontSize: 9,
+    color: '#111',
+    lineHeight: 13,
+  },
+  boldInline: {
+    fontWeight: '700',
+    color: '#111',
+  },
+  checkLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: spacing.sm,
+  },
+  checkLineBox: {
+    width: 28,
+    alignItems: 'flex-end',
+  },
+  yesNoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.lg,
+  },
+  yesNoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  yesNoLabel: {
+    fontSize: 11,
+    color: '#111',
+  },
+  signPair: {
+    flexDirection: 'row',
+    gap: spacing.xl,
+    marginTop: spacing.md,
+  },
+  signCol: {
     flex: 1,
     minWidth: 0,
   },
   signLine: {
     borderBottomWidth: 1,
-    borderBottomColor: colors.foreground,
-    height: spacing.xl,
+    borderBottomColor: '#111',
+    minHeight: 36,
+    justifyContent: 'flex-end',
+    marginBottom: 2,
+  },
+  printedInput: {
+    fontSize: 12,
+    color: '#111',
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    margin: 0,
+    minHeight: 32,
+  },
+  signatureImage: {
+    width: '100%',
+    height: 34,
+  },
+  signaturePlaceholder: {
+    fontSize: 11,
+    color: '#9ca3af',
+    fontStyle: 'italic',
+    paddingBottom: 4,
+    paddingHorizontal: 2,
   },
   signLabel: {
-    ...typography.xs,
-    color: colors.mutedForeground,
-    marginTop: spacing.xs / 2,
+    fontSize: 11,
+    color: '#111',
+    lineHeight: 14,
+    fontStyle: 'italic',
+  },
+  techBlock: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  footerRule: {
+    height: 1.5,
+    backgroundColor: '#111',
+    marginTop: spacing.sm,
+  },
+  footerText: {
+    fontSize: 9,
+    color: '#111',
+    textAlign: 'right',
+    marginTop: spacing.xs,
   },
 });

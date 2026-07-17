@@ -6,7 +6,9 @@ import {
   ViewStyle,
   TextStyle,
   ActivityIndicator,
+  View,
 } from 'react-native';
+import {Icon} from './Icon';
 import {colors, spacing, borderRadius, touchTargets, typography} from '../styles/theme';
 
 interface ButtonProps {
@@ -19,6 +21,8 @@ interface ButtonProps {
   style?: ViewStyle;
   textStyle?: TextStyle;
   fullWidth?: boolean;
+  /** Optional Material icon name shown before the title. */
+  icon?: string;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -31,6 +35,7 @@ export const Button: React.FC<ButtonProps> = ({
   style,
   textStyle,
   fullWidth = false,
+  icon,
 }) => {
   const buttonStyle = [
     styles.button,
@@ -48,6 +53,12 @@ export const Button: React.FC<ButtonProps> = ({
     textStyle,
   ];
 
+  const iconColor =
+    variant === 'primary' || variant === 'destructive'
+      ? colors.primaryForeground
+      : colors.foreground;
+  const iconSize = size === 'sm' ? 18 : size === 'lg' || size === 'xl' ? 24 : 20;
+
   return (
     <TouchableOpacity
       style={buttonStyle}
@@ -62,7 +73,10 @@ export const Button: React.FC<ButtonProps> = ({
           size="small"
         />
       ) : (
-        <Text style={textStyles}>{title}</Text>
+        <View style={styles.content}>
+          {icon ? <Icon name={icon} size={iconSize} color={iconColor} /> : null}
+          <Text style={textStyles}>{title}</Text>
+        </View>
       )}
     </TouchableOpacity>
   );
@@ -74,6 +88,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: touchTargets.comfortable,
+  },
+  content: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
   },
   buttonFullWidth: {
     width: '100%',
