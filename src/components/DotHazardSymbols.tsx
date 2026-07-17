@@ -7,7 +7,11 @@ interface DotHazardSymbolProps {
   color: string;
 }
 
-/** DOT-style hazard pictograms scaled for the 100×100 label viewBox. */
+/**
+ * DOT placard pictograms for the 100×100 diamond viewBox.
+ * Geometry follows U.S. DOT / TDG placarding chart proportions:
+ * large upper-third glyphs, high-contrast fills, bold strokes.
+ */
 export const DotHazardSymbol: React.FC<DotHazardSymbolProps> = ({
   labelType,
   color,
@@ -36,228 +40,273 @@ export const DotHazardSymbol: React.FC<DotHazardSymbolProps> = ({
     case 'radioactive':
       return <RadioactiveSymbol color={color} />;
     case 'class9':
-      return <Class9Symbol color={color} />;
+      // Class 9 placards have no upper pictogram — stripes only.
+      return null;
     default:
       return null;
   }
 };
 
+/** Classic DOT flame (used on flammable / dangerous-when-wet placards). */
 function FlameSymbol({color}: {color: string}) {
   return (
-    <G transform="translate(50, 21)">
+    <G transform="translate(50, 24) scale(1.15)">
+      {/* Outer flame body */}
       <Path
-        d="M0,-10 C-3,-4 -5,0 -3,5 C-1,8 1,8 3,5 C5,0 3,-4 0,-10 Z"
+        d="M0,-16
+           C-2.5,-12 -6,-8 -8,-2
+           C-10,4 -8,10 -4,12
+           C-6,6 -4,2 -1,0
+           C1,4 3,6 4,12
+           C8,10 10,4 8,-2
+           C6,-8 2.5,-12 0,-16 Z"
         fill={color}
       />
+      {/* Inner flame tongue */}
       <Path
-        d="M-2,5 C-3,8 -2,11 0,12 C2,11 3,8 2,5 C1,7 0,7 -2,5 Z"
+        d="M0,-2
+           C-2,2 -2.5,6 -1,10
+           C0,8 1.5,6 2,3
+           C2.5,6 3.5,8 4,10
+           C6,7 6,2 4,-1
+           C2,-4 1,-5 0,-2 Z"
         fill={color}
+        opacity={0.92}
       />
     </G>
   );
 }
 
+/** Horizontal compressed-gas cylinder with valve (Class 2.2). */
 function GasCylinderSymbol({color}: {color: string}) {
   return (
-    <G transform="translate(50, 22)">
-      <Rect
-        x={-16}
-        y={-5}
-        width={32}
-        height={10}
-        rx={5}
-        ry={5}
-        fill={color}
+    <G transform="translate(50, 24)">
+      {/* Cylinder body */}
+      <Rect x={-18} y={-6} width={34} height={12} rx={6} ry={6} fill={color} />
+      {/* Valve / neck */}
+      <Rect x={-22} y={-4} width={5} height={8} rx={1.2} fill={color} />
+      {/* Valve stem */}
+      <Rect x={-25} y={-1.5} width={4} height={3} rx={0.8} fill={color} />
+      {/* Cap highlight ring */}
+      <Ellipse
+        cx={14}
+        cy={0}
+        rx={2.2}
+        ry={5.2}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
       />
-      <Rect x={-20} y={-3} width={5} height={6} rx={1} fill={color} />
-      <Circle cx={-17.5} cy={0} r={1.2} fill={color} />
     </G>
   );
 }
 
+/** Flaming circle / “O” oxidizer symbol (Class 5.1 / 5.2). */
 function OxidizerSymbol({color}: {color: string}) {
   return (
-    <G transform="translate(50, 21)">
-      <Circle cx={0} cy={2} r={9} fill="none" stroke={color} strokeWidth={2.2} />
+    <G transform="translate(50, 24)">
+      <Circle
+        cx={0}
+        cy={4}
+        r={10}
+        fill="none"
+        stroke={color}
+        strokeWidth={2.8}
+      />
+      {/* Flame rising from the O */}
       <Path
-        d="M-4,2 C-4,-1 4,-1 4,2"
+        d="M0,-12
+           C-2,-8 -4,-5 -3.5,-1
+           C-3,2 -1,3 0,1.5
+           C1,3 3,2 3.5,-1
+           C4,-5 2,-8 0,-12 Z"
+        fill={color}
+      />
+      <Path
+        d="M-1.2,-3 C-1.5,-0.5 -0.5,1 0,0.5 C0.5,1 1.5,-0.5 1.2,-3 C0.5,-5 0,-5 -1.2,-3 Z"
+        fill={color}
+      />
+    </G>
+  );
+}
+
+/** Skull and crossbones (poison / toxic / poison gas). */
+function SkullSymbol({color}: {color: string}) {
+  return (
+    <G transform="translate(50, 22)">
+      {/* Crossbones behind skull */}
+      <Line
+        x1={-14}
+        y1={10}
+        x2={14}
+        y2={10}
+        stroke={color}
+        strokeWidth={3.2}
+        strokeLinecap="round"
+      />
+      <Line
+        x1={-12}
+        y1={4}
+        x2={-4}
+        y2={12}
+        stroke={color}
+        strokeWidth={3.2}
+        strokeLinecap="round"
+      />
+      <Line
+        x1={12}
+        y1={4}
+        x2={4}
+        y2={12}
+        stroke={color}
+        strokeWidth={3.2}
+        strokeLinecap="round"
+      />
+      {/* Bone ends */}
+      <Circle cx={-14} cy={10} r={2.2} fill={color} />
+      <Circle cx={14} cy={10} r={2.2} fill={color} />
+      <Circle cx={-12} cy={4} r={2.2} fill={color} />
+      <Circle cx={12} cy={4} r={2.2} fill={color} />
+      <Circle cx={-4} cy={12} r={2.2} fill={color} />
+      <Circle cx={4} cy={12} r={2.2} fill={color} />
+
+      {/* Skull */}
+      <Ellipse cx={0} cy={-2} rx={10} ry={11} fill={color} />
+      {/* Eye sockets */}
+      <Ellipse cx={-4} cy={-3} rx={3} ry={3.4} fill="#FFFFFF" />
+      <Ellipse cx={4} cy={-3} rx={3} ry={3.4} fill="#FFFFFF" />
+      {/* Nasal cavity */}
+      <Path d="M0,1 L-2,5 L2,5 Z" fill="#FFFFFF" />
+      {/* Jaw teeth suggestion */}
+      <Rect x={-4.5} y={5.5} width={9} height={3.5} rx={1} fill={color} />
+      <Line x1={-1.5} y1={5.5} x2={-1.5} y2={9} stroke="#FFFFFF" strokeWidth={1} />
+      <Line x1={1.5} y1={5.5} x2={1.5} y2={9} stroke="#FFFFFF" strokeWidth={1} />
+    </G>
+  );
+}
+
+/** Exploding bomb (Class 1 explosives). */
+function ExplosionSymbol({color}: {color: string}) {
+  return (
+    <G transform="translate(50, 24)">
+      {/* Burst rays */}
+      {[0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300, 320, 340].map(
+        angle => {
+          const rad = (angle * Math.PI) / 180;
+          const inner = 7;
+          const outer = angle % 40 === 0 ? 16 : 12;
+          return (
+            <Line
+              key={angle}
+              x1={Math.cos(rad) * inner}
+              y1={Math.sin(rad) * inner}
+              x2={Math.cos(rad) * outer}
+              y2={Math.sin(rad) * outer}
+              stroke={color}
+              strokeWidth={angle % 40 === 0 ? 2.6 : 1.8}
+              strokeLinecap="round"
+            />
+          );
+        },
+      )}
+      {/* Bomb body */}
+      <Circle cx={0} cy={1} r={7.5} fill={color} />
+      {/* Fuse stub */}
+      <Rect x={-1.4} y={-12} width={2.8} height={5} rx={1} fill={color} />
+      <Path
+        d="M0,-12 C2,-14 4,-13 3,-11 C5,-12 6,-10 4,-9"
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+      />
+    </G>
+  );
+}
+
+/** Corrosive: test tubes pouring onto hand / metal bar (Class 8). */
+function CorrosiveSymbol({color}: {color: string}) {
+  return (
+    <G transform="translate(50, 20)">
+      {/* Left test tube (tilted) */}
+      <G transform="rotate(-28 -10 -2)">
+        <Path
+          d="M-14,-10 L-14,4 L-6,4 L-6,-10 Z"
+          fill="none"
+          stroke={color}
+          strokeWidth={2}
+          strokeLinejoin="round"
+        />
+        <Line x1={-15} y1={-10} x2={-5} y2={-10} stroke={color} strokeWidth={2} />
+        <Path
+          d="M-12,4 C-11,8 -9,9 -8,7"
+          fill="none"
+          stroke={color}
+          strokeWidth={1.8}
+          strokeLinecap="round"
+        />
+      </G>
+      {/* Right test tube (tilted) */}
+      <G transform="rotate(28 10 -2)">
+        <Path
+          d="M6,-10 L6,4 L14,4 L14,-10 Z"
+          fill="none"
+          stroke={color}
+          strokeWidth={2}
+          strokeLinejoin="round"
+        />
+        <Line x1={5} y1={-10} x2={15} y2={-10} stroke={color} strokeWidth={2} />
+        <Path
+          d="M8,4 C9,8 11,9 12,7"
+          fill="none"
+          stroke={color}
+          strokeWidth={1.8}
+          strokeLinecap="round"
+        />
+      </G>
+      {/* Hand / bar being corroded */}
+      <Rect x={-16} y={10} width={14} height={3.5} rx={1} fill={color} />
+      <Ellipse
+        cx={10}
+        cy={12}
+        rx={6}
+        ry={3.5}
         fill="none"
         stroke={color}
         strokeWidth={2}
       />
+      {/* Drip / damage mark between them */}
       <Path
-        d="M-3,-6 C-1,-9 1,-9 3,-6 C2,-8 0,-9 -1,-8 C-2,-8 -3,-7 -3,-6 Z"
-        fill={color}
-      />
-      <Path d="M-6,-4 C-7,-7 -5,-8 -3,-6" fill={color} />
-      <Path d="M6,-4 C7,-7 5,-8 3,-6" fill={color} />
-    </G>
-  );
-}
-
-function SkullSymbol({color}: {color: string}) {
-  return (
-    <G transform="translate(50, 21)">
-      <Ellipse cx={0} cy={-1} rx={8} ry={9} fill={color} />
-      <Circle cx={-3} cy={-2} r={2} fill="#FFFFFF" />
-      <Circle cx={3} cy={-2} r={2} fill="#FFFFFF" />
-      <Circle cx={-3} cy={-2} r={1} fill={color} />
-      <Circle cx={3} cy={-2} r={1} fill={color} />
-      <Rect x={-2} y={2} width={4} height={3} rx={1} fill="#FFFFFF" />
-      <Line
-        x1={-10}
-        y1={8}
-        x2={10}
-        y2={8}
+        d="M-2,10 C0,13 2,13 4,10"
+        fill="none"
         stroke={color}
-        strokeWidth={2.5}
-        strokeLinecap="round"
-      />
-      <Line
-        x1={-10}
-        y1={8}
-        x2={-4}
-        y2={2}
-        stroke={color}
-        strokeWidth={2.5}
-        strokeLinecap="round"
-      />
-      <Line
-        x1={10}
-        y1={8}
-        x2={4}
-        y2={2}
-        stroke={color}
-        strokeWidth={2.5}
+        strokeWidth={1.6}
         strokeLinecap="round"
       />
     </G>
   );
 }
 
-function ExplosionSymbol({color}: {color: string}) {
-  const rays = Array.from({length: 8}, (_, index) => {
-    const angle = (index * Math.PI) / 4;
-    const inner = 4;
-    const outer = 12;
-    const x1 = Math.cos(angle) * inner;
-    const y1 = Math.sin(angle) * inner;
-    const x2 = Math.cos(angle) * outer;
-    const y2 = Math.sin(angle) * outer;
-    return (
-      <Line
-        key={index}
-        x1={x1}
-        y1={y1}
-        x2={x2}
-        y2={y2}
-        stroke={color}
-        strokeWidth={2.4}
-        strokeLinecap="round"
-      />
-    );
-  });
-
-  return (
-    <G transform="translate(50, 21)">
-      <Circle cx={0} cy={0} r={3.5} fill={color} />
-      {rays}
-      {Array.from({length: 8}, (_, index) => {
-        const angle = ((index + 0.5) * Math.PI) / 4;
-        const x1 = Math.cos(angle) * 5;
-        const y1 = Math.sin(angle) * 5;
-        const x2 = Math.cos(angle) * 10;
-        const y2 = Math.sin(angle) * 10;
-        return (
-          <Line
-            key={`mid-${index}`}
-            x1={x1}
-            y1={y1}
-            x2={x2}
-            y2={y2}
-            stroke={color}
-            strokeWidth={2}
-            strokeLinecap="round"
-          />
-        );
-      })}
-    </G>
-  );
-}
-
-function CorrosiveSymbol({color}: {color: string}) {
-  return (
-    <G transform="translate(50, 18)">
-      <Path
-        d="M-12,-4 L-8,8 L-4,-4 Z"
-        fill="none"
-        stroke={color}
-        strokeWidth={1.8}
-        strokeLinejoin="round"
-      />
-      <Path
-        d="M2,-4 L6,8 L10,-4 Z"
-        fill="none"
-        stroke={color}
-        strokeWidth={1.8}
-        strokeLinejoin="round"
-      />
-      <Path
-        d="M-10,2 L-6,2 C-5,6 -3,7 -2,5"
-        fill="none"
-        stroke={color}
-        strokeWidth={1.5}
-      />
-      <Path
-        d="M4,2 L8,2 C9,6 11,7 12,5"
-        fill="none"
-        stroke={color}
-        strokeWidth={1.5}
-      />
-      <Rect x={-14} y={6} width={10} height={2} rx={1} fill={color} />
-      <Ellipse
-        cx={8}
-        cy={8}
-        rx={4}
-        ry={2.5}
-        fill="none"
-        stroke={color}
-        strokeWidth={1.5}
-      />
-      <Path
-        d="M-3,8 C-1,10 1,10 3,8"
-        fill="none"
-        stroke={color}
-        strokeWidth={1.2}
-      />
-    </G>
-  );
-}
-
+/** Biohazard / infectious substance trefoil. */
 function BiohazardSymbol({color}: {color: string}) {
   return (
-    <G transform="translate(50, 20)">
-      <Circle cx={0} cy={0} r={2.5} fill={color} />
+    <G transform="translate(50, 24)">
+      <Circle cx={0} cy={0} r={3} fill={color} />
       {[0, 120, 240].map(angle => {
         const rad = (angle * Math.PI) / 180;
-        const cx = Math.cos(rad) * 6;
-        const cy = Math.sin(rad) * 6;
+        const cx = Math.cos(rad) * 7.5;
+        const cy = Math.sin(rad) * 7.5;
         return (
-          <G key={angle} transform={`translate(${cx}, ${cy})`}>
+          <G key={angle} transform={`translate(${cx}, ${cy}) rotate(${angle})`}>
             <Circle
               cx={0}
               cy={0}
-              r={5}
+              r={6.5}
               fill="none"
               stroke={color}
-              strokeWidth={2}
+              strokeWidth={2.6}
             />
-            <Circle
-              cx={Math.cos(rad) * 5}
-              cy={Math.sin(rad) * 5}
-              r={2.2}
-              fill={color}
-            />
+            <Circle cx={0} cy={-6.5} r={2.8} fill={color} />
           </G>
         );
       })}
@@ -265,37 +314,27 @@ function BiohazardSymbol({color}: {color: string}) {
   );
 }
 
+/** Radioactive trefoil (Class 7). */
 function RadioactiveSymbol({color}: {color: string}) {
   return (
-    <G transform="translate(50, 21)">
-      <Circle cx={0} cy={0} r={2.5} fill={color} />
-      {[30, 150, 270].map(angle => (
-        <Path
-          key={angle}
-          d={`M0,0 L${Math.cos(((angle - 30) * Math.PI) / 180) * 11},${Math.sin(((angle - 30) * Math.PI) / 180) * 11} A11,11 0 0,1 ${Math.cos(((angle + 30) * Math.PI) / 180) * 11},${Math.sin(((angle + 30) * Math.PI) / 180) * 11} Z`}
-          fill={color}
-        />
-      ))}
-    </G>
-  );
-}
-
-function Class9Symbol({color}: {color: string}) {
-  return (
-    <G transform="translate(50, 21)">
-      <Rect
-        x={-10}
-        y={-8}
-        width={20}
-        height={16}
-        rx={2}
-        fill="none"
-        stroke={color}
-        strokeWidth={2}
-      />
-      <Line x1={-6} y1={-3} x2={6} y2={-3} stroke={color} strokeWidth={1.5} />
-      <Line x1={-6} y1={1} x2={6} y2={1} stroke={color} strokeWidth={1.5} />
-      <Line x1={-6} y1={5} x2={2} y2={5} stroke={color} strokeWidth={1.5} />
+    <G transform="translate(50, 24)">
+      <Circle cx={0} cy={0} r={3.2} fill={color} />
+      {[90, 210, 330].map(angle => {
+        const start = angle - 50;
+        const end = angle + 50;
+        const r = 13;
+        const x1 = Math.cos((start * Math.PI) / 180) * r;
+        const y1 = Math.sin((start * Math.PI) / 180) * r;
+        const x2 = Math.cos((end * Math.PI) / 180) * r;
+        const y2 = Math.sin((end * Math.PI) / 180) * r;
+        return (
+          <Path
+            key={angle}
+            d={`M0,0 L${x1},${y1} A${r},${r} 0 0,1 ${x2},${y2} Z`}
+            fill={color}
+          />
+        );
+      })}
     </G>
   );
 }

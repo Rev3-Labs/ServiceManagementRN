@@ -1,5 +1,5 @@
 import React, {useId} from 'react';
-import {View, StyleSheet} from 'react-native';
+import {View, StyleSheet, Image} from 'react-native';
 import Svg, {
   G,
   Polygon,
@@ -11,17 +11,29 @@ import Svg, {
 import {DOT_HAZARD_COLORS} from '../constants/dotHazardColors';
 import {DotHazardLabelSpec} from '../utils/dotHazardLabel';
 import {DotHazardSymbol} from './DotHazardSymbols';
+import {
+  DOT_HAZARD_SPRITE_MAP,
+  DOT_HAZARD_SPRITESHEET,
+  getDotHazardSpriteFrame,
+  getDotHazardTile,
+} from './dotHazard/dotHazardAssets';
 
 interface DotHazardDiamondProps {
   spec: DotHazardLabelSpec;
   size?: number;
   /** When false, only the symbol and class number are shown (for very small sizes). */
   showTitle?: boolean;
+  /**
+   * Prefer raster placard artwork (individual tile or spritesheet) when available.
+   * Falls back to the SVG reconstruction when no image asset exists.
+   */
+  preferImage?: boolean;
   accessibilityLabel?: string;
 }
 
-const OUTER_DIAMOND = '50,3 97,50 50,97 3,50';
-const INNER_DIAMOND = '50,9 91,50 50,91 9,50';
+/** Slightly inset diamond so the outer black border stays fully visible. */
+const OUTER_DIAMOND = '50,2.5 97.5,50 50,97.5 2.5,50';
+const INNER_DIAMOND = '50,8 92,50 50,92 8,50';
 
 function renderStripes(
   stripeCount: number,
@@ -112,18 +124,24 @@ function renderPattern(spec: DotHazardLabelSpec) {
   }
 }
 
-function renderTitleLines(
-  spec: DotHazardLabelSpec,
-  showTitle: boolean,
-) {
+function renderTitleLines(spec: DotHazardLabelSpec, showTitle: boolean) {
   if (!showTitle || spec.titleLines.length === 0) {
     return null;
   }
 
   const isCorrosive = spec.labelType === 'corrosive';
-  const lineHeight = spec.titleLines.length > 1 ? 5.5 : 0;
-  const startY = isCorrosive ? 62 : spec.titleLines.length > 1 ? 48 : 50;
-  const fontSize = spec.titleLines.some(line => line.length > 10) ? 5.2 : 6;
+  const isClass9 = spec.labelType === 'class9';
+  const lineCount = spec.titleLines.length;
+  const lineHeight = lineCount > 1 ? 6.2 : 0;
+  const startY = isCorrosive
+    ? 64
+    : isClass9
+      ? 58
+      : lineCount > 1
+        ? 52
+        : 54;
+  const longest = Math.max(...spec.titleLines.map(line => line.length));
+  const fontSize = longest > 12 ? 5.4 : longest > 9 ? 6.2 : 7;
 
   return spec.titleLines.map((line, index) => (
     <SvgText
@@ -131,32 +149,107 @@ function renderTitleLines(
       x="50"
       y={startY + index * lineHeight}
       fontSize={fontSize}
-      fontWeight="700"
-      fill={isCorrosive ? spec.textColor : spec.textColor}
+      fontWeight="800"
+      letterSpacing={0.4}
+      fill={spec.textColor}
       textAnchor="middle">
       {line}
     </SvgText>
   ));
 }
 
+/** Raster placard via dedicated tile PNG (preferred) or spritesheet clip. */
+const DotHazardImage: React.FC<{
+  labelType: DotHazardLabelSpec['labelType'];
+  size: number;
+  accessibilityLabel: string;
+}> = ({labelType, size, accessibilityLabel}) => {
+  const tile = getDotHazardTile(labelType);
+  if (tile) {
+    return (
+      <Image
+        source={tile}
+        style={{width: size, height: size}}
+        resizeMode="contain"
+        accessibilityRole="image"
+        accessibilityLabel={accessibilityLabel}
+      />
+    );
+  }
+
+  const frame = getDotHazardSpriteFrame(labelType);
+  if (!frame) {
+    return null;
+  }
+
+  const {tileSize, columns} = DOT_HAZARD_SPRITE_MAP;
+  const scale = size / tileSize;
+  const sheetWidth = columns * tileSize * scale;
+  const sheetHeight = DOT_HAZARD_SPRITE_MAP.rows * tileSize * scale;
+
+  return (
+    <View
+      style={[styles.spriteWindow, {width: size, height: size}]}
+      accessibilityRole="image"
+      accessibilityLabel={accessibilityLabel}>
+      <Image
+        source={DOT_HAZARD_SPRITESHEET}
+        style={{
+          width: sheetWidth,
+          height: sheetHeight,
+          transform: [
+            {translateX: -frame.col * size},
+            {translateY: -frame.row * size},
+          ],
+        }}
+        resizeMode="stretch"
+      />
+    </View>
+  );
+};
+
 export const DotHazardDiamond: React.FC<DotHazardDiamondProps> = ({
   spec,
-  size = 88,
+  size = 120,
   showTitle,
+  preferImage = true,
   accessibilityLabel,
 }) => {
   const clipId = useId().replace(/:/g, '');
-  const resolvedShowTitle = showTitle ?? size >= 72;
+  const resolvedShowTitle = showTitle ?? size >= 64;
   const titleForA11y = spec.titleLines.join(' ');
+  const a11y =
+    accessibilityLabel ??
+    `DOT ${titleForA11y} hazard class ${spec.divisionLabel}`;
+
+  if (preferImage) {
+    // Prefer sharp individual tiles from src/assets/dotHazard/tiles.
+    // Chart-derived spritesheet crops are too soft at card size, so we only
+    // use dedicated tiles here (spritesheet remains available for tooling).
+    if (getDotHazardTile(spec.labelType)) {
+      return (
+        <View style={[styles.container, {width: size, height: size}]}>
+          <DotHazardImage
+            labelType={spec.labelType}
+            size={size}
+            accessibilityLabel={a11y}
+          />
+        </View>
+      );
+    }
+  }
+
+  const strokeScale = Math.max(1, 100 / size);
+  const outerStroke = 2.8 * strokeScale;
+  const innerStroke = 1.4 * strokeScale;
+  const divisionFontSize =
+    spec.divisionLabel.length > 2 ? 12 : spec.divisionLabel.length > 1 ? 14 : 16;
 
   return (
     <View
       style={[styles.container, {width: size, height: size}]}
       accessibilityRole="image"
-      accessibilityLabel={
-        accessibilityLabel ??
-        `DOT ${titleForA11y} hazard class ${spec.divisionLabel}`
-      }>
+      accessibilityLabel={a11y}>
       <Svg width={size} height={size} viewBox="0 0 100 100">
         <Defs>
           <ClipPath id={clipId}>
@@ -173,9 +266,9 @@ export const DotHazardDiamond: React.FC<DotHazardDiamondProps> = ({
         {!spec.hideDivision ? (
           <SvgText
             x="50"
-            y={spec.labelType === 'corrosive' ? 88 : 90}
-            fontSize="13"
-            fontWeight="700"
+            y={spec.labelType === 'corrosive' ? 89 : 91}
+            fontSize={divisionFontSize}
+            fontWeight="800"
             fill={spec.divisionTextColor}
             textAnchor="middle">
             {spec.divisionLabel}
@@ -186,13 +279,15 @@ export const DotHazardDiamond: React.FC<DotHazardDiamondProps> = ({
           points={OUTER_DIAMOND}
           fill="none"
           stroke={DOT_HAZARD_COLORS.black}
-          strokeWidth={2.5}
+          strokeWidth={outerStroke}
+          strokeLinejoin="miter"
         />
         <Polygon
           points={INNER_DIAMOND}
           fill="none"
           stroke={spec.innerBorderColor}
-          strokeWidth={1.5}
+          strokeWidth={innerStroke}
+          strokeLinejoin="miter"
         />
       </Svg>
     </View>
@@ -202,5 +297,8 @@ export const DotHazardDiamond: React.FC<DotHazardDiamondProps> = ({
 const styles = StyleSheet.create({
   container: {
     flexShrink: 0,
+  },
+  spriteWindow: {
+    overflow: 'hidden',
   },
 });

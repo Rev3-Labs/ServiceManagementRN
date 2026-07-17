@@ -1,0 +1,68 @@
+{
+  "tileSize": 256,
+  "columns": 5,
+  "rows": 3,
+  "image": "placard-sprites.png",
+  "frames": {
+    "explosives": {
+      "col": 0,
+      "row": 0
+    },
+    "flammable-gas": {
+      "col": 1,
+      "row": 0
+    },
+    "non-flammable-gas": {
+      "col": 2,
+      "row": 0
+    },
+    "poison-gas": {
+      "col": 3,
+      "row": 0
+    },
+    "flammable-liquid": {
+      "col": 4,
+      "row": 0
+    },
+    "flammable-solid": {
+      "col": 0,
+      "row": 1
+    },
+    "spontaneously-combustible": {
+      "col": 1,
+      "row": 1
+    },
+    "dangerous-when-wet": {
+      "col": 2,
+      "row": 1
+    },
+    "oxidizer": {
+      "col": 3,
+      "row": 1
+    },
+    "organic-peroxide": {
+      "col": 4,
+      "row": 1
+    },
+    "toxic": {
+      "col": 0,
+      "row": 2
+    },
+    "biohazard": {
+      "col": 1,
+      "row": 2
+    },
+    "radioactive": {
+      "col": 2,
+      "row": 2
+    },
+    "corrosive": {
+      "col": 3,
+      "row": 2
+    },
+    "class9": {
+      "col": 4,
+      "row": 2
+    }
+  }
+}

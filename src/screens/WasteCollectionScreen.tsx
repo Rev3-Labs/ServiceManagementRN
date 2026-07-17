@@ -7602,7 +7602,7 @@ export const styles = StyleSheet.create({
     padding: spacing.lg,
     borderWidth: 2,
     borderColor: colors.border,
-    minHeight: 200,
+    minHeight: 220,
   },
   streamCardHeader: {
     flexDirection: 'row',
@@ -7610,7 +7610,7 @@ export const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: spacing.sm,
     marginBottom: spacing.md,
-    minHeight: 88,
+    minHeight: 60,
   },
   streamCardBadges: {
     flexDirection: 'row',

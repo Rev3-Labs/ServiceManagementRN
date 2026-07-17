@@ -309,7 +309,7 @@ export const StreamSelectionScreen: React.FC<StreamSelectionScreenProps> = ({
                     {dotLabelSpec ? (
                       <DotHazardDiamond
                         spec={dotLabelSpec}
-                        size={88}
+                        size={60}
                         accessibilityLabel={`DOT hazard class ${stream.hazardClass}`}
                       />
                     ) : null}
