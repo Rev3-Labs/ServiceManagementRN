@@ -221,8 +221,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     useState<PendingStartService | null>(null);
   const [showVehicleSelectionGate, setShowVehicleSelectionGate] = useState(false);
   const [vehicleSelectionConfirmed, setVehicleSelectionConfirmed] = useState(false);
-  const [pendingAfterVehicleSelection, setPendingAfterVehicleSelection] =
-    useState<PendingStartService | null>(null);
   const postLoginVehiclePromptShownRef = useRef(false);
   const [editingServiceTypeId, setEditingServiceTypeId] = useState<string | null>(null);
   const [editingTimeField, setEditingTimeField] = useState<'start' | 'end' | null>(null);
@@ -1132,11 +1130,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     vehicleSelectionConfirmed,
   ]);
 
-  const handleVehicleSelectionCancel = useCallback(() => {
-    setShowVehicleSelectionGate(false);
-    setPendingAfterVehicleSelection(null);
-  }, []);
-
   // Handle manual sync (from header Sync button); show overlay, close after 10s (real sync runs in background)
   const handleManualSync = useCallback(async () => {
     setPostLoginSyncPhase(null);
@@ -1348,26 +1341,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       );
       setVehicleSelectionConfirmed(true);
       setShowVehicleSelectionGate(false);
-
-      const pending = pendingAfterVehicleSelection;
-      setPendingAfterVehicleSelection(null);
-      if (pending) {
-        proceedStartServiceFlow(pending);
-      }
     },
-    [username, pendingAfterVehicleSelection, proceedStartServiceFlow],
+    [username],
   );
 
+  // Vehicle selection happens once post-login; start service uses the saved truck/trailer.
   const beginStartService = useCallback(
     (pending: PendingStartService) => {
-      if (!vehicleSelectionConfirmed) {
-        setPendingAfterVehicleSelection(pending);
-        setShowVehicleSelectionGate(true);
-        return;
-      }
       proceedStartServiceFlow(pending);
     },
-    [vehicleSelectionConfirmed, proceedStartServiceFlow],
+    [proceedStartServiceFlow],
   );
 
   // Handle starting service - shows service type selection first if multiple service types
@@ -4946,16 +4929,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         </View>
       )}
 
-      {/* Vehicle Selection Gate (post-login and before starting service) */}
+      {/* Vehicle Selection Gate (post-login only) */}
       {showVehicleSelectionGate && (
         <VehicleSelectionModal
           visible
           serviceCenterName={serviceCenter?.name ?? null}
           initialTruck={resolveInitialTruckForModal()}
           initialTrailer={resolveInitialTrailerForModal()}
-          allowCancel={pendingAfterVehicleSelection !== null}
+          allowCancel={false}
           onConfirm={handleVehicleSelectionConfirm}
-          onCancel={handleVehicleSelectionCancel}
         />
       )}
 
@@ -6830,14 +6812,15 @@ export const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.card,
+    minHeight: touchTargets.comfortable,
   },
   dashboardTabGroup: {
     flexDirection: 'row',
     alignItems: 'stretch',
   },
   dashboardTab: {
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
     minHeight: touchTargets.comfortable,
     justifyContent: 'center',
     borderBottomWidth: 3,
@@ -6847,7 +6830,7 @@ export const styles = StyleSheet.create({
     borderBottomColor: colors.primary,
   },
   dashboardTabText: {
-    ...typography.base,
+    ...typography.sm,
     fontWeight: '500',
     color: colors.mutedForeground,
   },
@@ -6855,12 +6838,22 @@ export const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.primary,
   },
+  dashboardTabMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    flexShrink: 1,
+  },
+  dashboardTabMetaTotal: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
   dashboardTabDateLabel: {
-    ...typography.lg,
-    fontWeight: '700',
+    ...typography.sm,
+    fontWeight: '600',
     color: colors.mutedForeground,
-    alignSelf: 'center',
-    paddingHorizontal: spacing.lg,
   },
   dashboardContentRow: {
     flex: 1,
@@ -7609,8 +7602,11 @@ export const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: spacing.sm,
-    marginBottom: spacing.md,
-    minHeight: 60,
+  },
+  streamCardInfo: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing.sm,
   },
   streamCardBadges: {
     flexDirection: 'row',
@@ -7620,6 +7616,7 @@ export const styles = StyleSheet.create({
   },
   recentlyUsedBadge: {
     // Transparent background (handled by outline variant)
+    alignSelf: 'flex-start',
   },
   recentlyUsedBadgeText: {
     color: colors.mutedForeground,
@@ -7628,7 +7625,6 @@ export const styles = StyleSheet.create({
     ...typography.lg,
     fontWeight: '600',
     color: colors.foreground,
-    marginBottom: spacing.sm,
   },
   streamCardProfileNumber: {
     ...typography.base,

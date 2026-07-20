@@ -8,7 +8,6 @@ import {
   Pressable,
   Modal,
   Alert,
-  ActivityIndicator,
   ViewStyle,
   LayoutAnimation,
   Platform,
@@ -26,8 +25,7 @@ import {
 } from '../../components/Card';
 import {colors} from '../../styles/theme';
 import {isTablet, isLandscape, getSidebarWidth} from '../../utils/responsive';
-import {formatDuration} from '../../services/timeTrackingService';
-import {serviceCenterService, ServiceCenter} from '../../services/serviceCenterService';
+import {ServiceCenter} from '../../services/serviceCenterService';
 import {serviceTypeService} from '../../services/serviceTypeService';
 import {serviceTypeTimeService} from '../../services/serviceTypeTimeService';
 import {serviceNotesAckService} from '../../services/serviceNotesAckService';
@@ -40,6 +38,8 @@ import {styles} from './styles';
 import {DASHBOARD_INVENTORY_COLUMNS, SIMULATED_CONTAINERS_BY_ORDER_INDEX, getBusinessTypeStyle} from './constants';
 import {InventoryOnTruckCell} from './InventoryOnTruckCell';
 import {AcknowledgeServiceNotesModal} from './AcknowledgeServiceNotesModal';
+import {DashboardHeaderChrome} from '../../components/DashboardHeaderChrome';
+import {DashboardContextBar} from '../../components/DashboardContextBar';
 
 // Enable LayoutAnimation on Android for smooth section expand/collapse transitions
 if (
@@ -647,7 +647,6 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     dashboardRouteId,
     dashboardDutyStatus,
     serviceCenter,
-    setShowServiceCenterModal,
     syncStatus,
     pendingSyncCount,
     handleManualSync,
@@ -832,154 +831,57 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity
-            style={styles.headerContent}
-            onPress={() => onNavigate?.('Settings')}
-            activeOpacity={0.7}>
-            <Text style={styles.dashboardWelcomeTitle}>
-              {username ? `Welcome, ${username}` : 'Welcome'}
-            </Text>
-            <View style={styles.dashboardHeaderBar}>
-              <View style={styles.dashboardHeaderItem}>
-                <Text style={styles.dashboardHeaderItemLabel}>Truck</Text>
-                <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
-                  {selectedTruck ? selectedTruck.number : truckId || '—'}
-                </Text>
-              </View>
-              <View style={styles.dashboardHeaderDivider} />
-              <View style={styles.dashboardHeaderItem}>
-                <Text style={styles.dashboardHeaderItemLabel}>Trailer</Text>
-                <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
-                  {selectedTrailer ? selectedTrailer.number : '—'}
-                </Text>
-              </View>
-              <View style={styles.dashboardHeaderDivider} />
-              <View style={styles.dashboardHeaderDivider} />
-              <View style={styles.dashboardHeaderItem}>
-                <Text style={styles.dashboardHeaderItemLabel}>Route</Text>
-                <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
-                  {dashboardRouteId || '—'}
-                </Text>
-              </View>
-              <View style={styles.dashboardHeaderDivider} />
-              <View style={styles.dashboardHeaderItem}>
-                <Text style={styles.dashboardHeaderItemLabel}>Start of day</Text>
-                <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
-                  {dashboardStartOfDay ? serviceTypeTimeService.formatTime(dashboardStartOfDay) : '—'}
-                </Text>
-              </View>
-              <View style={styles.dashboardHeaderDivider} />
-              <View style={styles.dashboardHeaderItem}>
-                <Text style={styles.dashboardHeaderItemLabel}>Time on duty</Text>
-                <Text style={styles.dashboardHeaderItemValue} numberOfLines={1}>
-                  {formatDuration(dashboardDutyElapsedMs)}
-                </Text>
-              </View>
-              <View style={styles.dashboardHeaderDivider} />
-              <View style={[styles.dashboardHeaderItem, styles.dashboardHeaderItemStatus]}>
-                <Text style={styles.dashboardHeaderItemLabel}>Status</Text>
-                <View style={[styles.dashboardHeaderStatusBadge, dashboardDutyStatus === 'On duty' && styles.dashboardHeaderStatusBadgeActive]}>
-                  <Text style={[styles.dashboardHeaderStatusText, dashboardDutyStatus === 'On duty' && styles.dashboardHeaderStatusTextActive]} numberOfLines={1}>
-                    {dashboardDutyStatus}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.dashboardHeaderDivider} />
-              <View>
-                {serviceCenter && (
-                  <View style={styles.dashboardHeaderServiceCenterWrap}>
-                    <TouchableOpacity
-                      style={styles.serviceCenterBadge}
-                      activeOpacity={0.7}>
-                      <Icon name="business" size={16} color={colors.primary} />
-                      <Text style={styles.serviceCenterText} numberOfLines={1}>
-                        {serviceCenterService.getDisplayFormat(false)}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            </View>
-          </TouchableOpacity>
+      <DashboardHeaderChrome
+        variant="expanded"
+        username={username}
+        dashboardDutyStatus={dashboardDutyStatus}
+        dashboardDutyElapsedMs={dashboardDutyElapsedMs}
+        selectedTruck={selectedTruck}
+        truckId={truckId}
+        selectedTrailer={selectedTrailer}
+        dashboardRouteId={dashboardRouteId}
+        syncStatus={syncStatus}
+        pendingSyncCount={pendingSyncCount}
+        offlineStatus={offlineStatus}
+        handleManualSync={handleManualSync}
+        onNavigate={onNavigate}
+        offlineLimitMessage={getOfflineLimitMessage()}
+        actions={
+          <>
+            {activeContainerCount > 0 ? (
+              <Button
+                title="Drop"
+                variant="primary"
+                size="sm"
+                onPress={() => setShowDropWasteModal(true)}
+              />
+            ) : null}
+            <TouchableOpacity
+              style={styles.headerMoreButton}
+              onPress={() => setUseMasterDetail(false)}
+              hitSlop={8}
+              activeOpacity={0.7}
+              accessibilityLabel="Exit master-detail full screen">
+              <Icon name="fullscreen-exit" size={22} color={colors.foreground} />
+            </TouchableOpacity>
+            {onLogout && (
+              <TouchableOpacity
+                style={styles.headerMoreButton}
+                onPress={onLogout}
+                hitSlop={8}
+                activeOpacity={0.7}
+                accessibilityLabel="Logout">
+                <Icon name="logout" size={22} color={colors.foreground} />
+              </TouchableOpacity>
+            )}
+          </>
+        }
+      />
 
-          {getOfflineLimitMessage()}
-        </View>
-        <View style={styles.headerActions}>
-          <View style={styles.headerSyncRow}>
-            <View
-              style={[
-                styles.syncStatus,
-                (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncStatusSynced,
-                syncStatus === 'syncing' && styles.syncStatusSyncing,
-                (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncStatusError,
-              ]}>
-              {syncStatus === 'syncing' ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <View
-                  style={[
-                    styles.syncDot,
-                    (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncDotSynced,
-                    (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncDotError,
-                  ]}
-                />
-              )}
-              <Text
-                style={[
-                  styles.syncText,
-                  (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncTextSynced,
-                  (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncTextError,
-                ]}>
-                {syncStatus === 'syncing'
-                  ? 'Syncing...'
-                  : !offlineStatus.isOnline
-                    ? 'Offline'
-                    : syncStatus === 'error'
-                      ? 'Connection failed'
-                      : syncStatus === 'pending' && pendingSyncCount > 0
-                        ? `Pending (${pendingSyncCount})`
-                        : 'Synced'}
-              </Text>
-            </View>
-            <Button
-              title="Sync"
-              variant="outline"
-              size="sm"
-              onPress={handleManualSync}
-              disabled={syncStatus === 'syncing' || !offlineStatus.isOnline}
-            />
-          </View>
-          <Button
-            title="Drop"
-            variant="primary"
-            size="md"
-            onPress={() => setShowDropWasteModal(true)}
-          />
-          <Button
-            title="Full Screen"
-            variant="ghost"
-            size="sm"
-            onPress={() => setUseMasterDetail(false)}
-          />
-          {onLogout && (
-            <Button
-              title="Logout"
-              variant="ghost"
-              size="sm"
-              onPress={onLogout}
-            />
-          )}
-        </View>
-      </View>
-
-      <View style={styles.runningTotalRow}>
-        <Text style={styles.runningTotalLabel}>Running total:</Text>
-        <Text style={styles.runningTotalValue}>
-          {activeContainerCount} container{activeContainerCount !== 1 ? 's' : ''} • {currentTotalWeight.toLocaleString()} lbs
-        </Text>
-      </View>
+      <DashboardContextBar
+        serviceCenter={serviceCenter}
+        dashboardStartOfDay={dashboardStartOfDay}
+      />
 
       <View style={styles.dashboardTabBar}>
         <View style={styles.dashboardTabGroup}>
@@ -1000,9 +902,14 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
             <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Current Orders</Text>
           </TouchableOpacity>
         </View>
-        <Text style={styles.dashboardTabDateLabel} numberOfLines={1}>
-          {dashboardDate}
-        </Text>
+        <View style={styles.dashboardTabMeta}>
+          <Text style={styles.dashboardTabMetaTotal} numberOfLines={1}>
+            {activeContainerCount} ctr · {currentTotalWeight.toLocaleString()} lbs
+          </Text>
+          <Text style={styles.dashboardTabDateLabel} numberOfLines={1}>
+            {dashboardDate}
+          </Text>
+        </View>
       </View>
 
       {dashboardViewTab === 'dashboard' ? (
@@ -1849,7 +1756,6 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     dashboardRouteId,
     dashboardDutyStatus,
     serviceCenter,
-    setShowServiceCenterModal,
     syncStatus,
     pendingSyncCount,
     handleManualSync,
@@ -1857,7 +1763,6 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     setUseMasterDetail,
     onLogout,
     onNavigate,
-    onGoBack,
     activeContainerCount,
     currentTotalWeight,
     dashboardViewTab,
@@ -2024,85 +1929,42 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerCompact}>
-        <View style={styles.headerCompactLeft}>
-          {/* <TouchableOpacity
-            style={styles.headerCompactDashboard}
-            onPress={() => setDashboardViewTab('dashboard')}
-            activeOpacity={0.7}
-            hitSlop={8}
-            accessibilityLabel="Dashboard tab"
-            accessibilityRole="button">
-            <Icon name="home" size={22} color={colors.primary} />
-            <Text style={styles.headerCompactDashboardText}>Dashboard</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerCompactTitle} numberOfLines={1}>
-            Upcoming Orders
-          </Text> */}
-
-          <TouchableOpacity
-            style={styles.headerCompactUser}
-            onPress={() => onNavigate?.('Settings')}
-            activeOpacity={0.7}
-            hitSlop={8}>
-            <View style={styles.dashboardHeaderCompactMeta}>
-              <View style={styles.dashboardHeaderCompactRow}>
-                <Text style={styles.dashboardHeaderCompactName} numberOfLines={1}>
-                  {username || 'User'}
-                </Text>
-                <View style={[styles.dashboardHeaderCompactStatusBadge, dashboardDutyStatus === 'On duty' && styles.dashboardHeaderStatusBadgeActive]}>
-                  <Text style={[styles.dashboardHeaderCompactStatusText, dashboardDutyStatus === 'On duty' && styles.dashboardHeaderStatusTextActive]} numberOfLines={1}>
-                    {dashboardDutyStatus}
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.dashboardHeaderCompactDetail} numberOfLines={2}>
-                {selectedTruck ? selectedTruck.number : truckId || '—'}
-                {'  ·  '}
-                {selectedTrailer ? selectedTrailer.number : '—'}
-                {dashboardRouteId ? `  ·  ${dashboardRouteId}` : ''}
-                {'  ·  '}
-                {dashboardStartOfDay
-                  ? `Start ${serviceTypeTimeService.formatTime(dashboardStartOfDay)} • Time on duty ${formatDuration(
-                      dashboardDutyElapsedMs,
-                    )}`
-                  : `Time on duty ${formatDuration(dashboardDutyElapsedMs)}`}
-                {serviceCenter && `  ·  ${serviceCenterService.getDisplayFormat(false)}`}
-              </Text>
-
-            </View>
-          </TouchableOpacity>
-          {getOfflineLimitMessage()}
-        </View>
-        <View style={styles.headerCompactActions}>
-          {activeContainerCount > 0 ? (
-            <Button
-              title="Drop"
-              variant="primary"
-              size="sm"
-              onPress={() => setShowDropWasteModal(true)}
-            />
-          ) : (
-            <Button
-              title={
-                upcomingOrdersWithNotes.length > 0
-                  ? `View Notes (${upcomingOrdersWithNotes.length})`
-                  : 'View Notes'
-              }
-              variant="outline"
-              size="sm"
-              onPress={() => setShowAllNotesModal(true)}
-            />
-          )}
-          <TouchableOpacity
-            style={styles.headerMoreButton}
-            onPress={() => setShowHeaderMenuModal(true)}
-            hitSlop={8}
-            activeOpacity={0.7}>
-            <Icon name="more-vert" size={24} color={colors.foreground} />
-          </TouchableOpacity>
-        </View>
-      </View>
+      <DashboardHeaderChrome
+        variant="compact"
+        username={username}
+        dashboardDutyStatus={dashboardDutyStatus}
+        dashboardDutyElapsedMs={dashboardDutyElapsedMs}
+        selectedTruck={selectedTruck}
+        truckId={truckId}
+        selectedTrailer={selectedTrailer}
+        dashboardRouteId={dashboardRouteId}
+        syncStatus={syncStatus}
+        pendingSyncCount={pendingSyncCount}
+        offlineStatus={offlineStatus}
+        handleManualSync={handleManualSync}
+        onNavigate={onNavigate}
+        offlineLimitMessage={getOfflineLimitMessage()}
+        actions={
+          <>
+            {activeContainerCount > 0 ? (
+              <Button
+                title="Drop"
+                variant="primary"
+                size="sm"
+                onPress={() => setShowDropWasteModal(true)}
+              />
+            ) : null}
+            <TouchableOpacity
+              style={styles.headerMoreButton}
+              onPress={() => setShowHeaderMenuModal(true)}
+              hitSlop={8}
+              activeOpacity={0.7}
+              accessibilityLabel="More header actions">
+              <Icon name="more-vert" size={24} color={colors.foreground} />
+            </TouchableOpacity>
+          </>
+        }
+      />
 
       {/* Header "More" menu — progressive disclosure for Sync, View Notes, Master-Detail, Back */}
       <Modal
@@ -2116,66 +1978,30 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
             onPress={() => setShowHeaderMenuModal(false)}
           />
           <View style={styles.headerMenuCard} pointerEvents="box-none">
-            {activeContainerCount > 0 && (
-              <TouchableOpacity
-                style={styles.headerMenuItem}
-                onPress={() => {
-                  setShowHeaderMenuModal(false);
-                  setShowAllNotesModal(true);
-                }}
-                activeOpacity={0.7}>
-                <Text style={styles.headerMenuItemText}>
-                  {upcomingOrdersWithNotes.length > 0
-                    ? `View Notes (${upcomingOrdersWithNotes.length})`
-                    : 'View Notes'}
-                </Text>
-              </TouchableOpacity>
-            )}
             <TouchableOpacity
               style={styles.headerMenuItem}
               onPress={() => {
                 setShowHeaderMenuModal(false);
-                if (!(syncStatus === 'syncing' || !offlineStatus.isOnline)) {
-                  handleManualSync();
-                }
+                setShowAllNotesModal(true);
               }}
-              disabled={syncStatus === 'syncing' || !offlineStatus.isOnline}
               activeOpacity={0.7}>
               <Text style={styles.headerMenuItemText}>
-                {syncStatus === 'syncing' ? 'Syncing...' : 'Sync'}
+                {upcomingOrdersWithNotes.length > 0
+                  ? `View Notes (${upcomingOrdersWithNotes.length})`
+                  : 'View Notes'}
               </Text>
-              {syncStatus !== 'syncing' && (
-                <View
-                  style={[
-                    styles.syncDot,
-                    (syncStatus === 'synced' || syncStatus === 'pending') && styles.syncDotSynced,
-                    (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) && styles.syncDotError,
-                  ]}
-                />
-              )}
             </TouchableOpacity>
-            {serviceCenter && (
-              <TouchableOpacity
-                style={styles.headerMenuItem}
-                onPress={() => {
-                  setShowHeaderMenuModal(false);
-                  setShowServiceCenterModal(true);
-                }}
-                activeOpacity={0.7}>
-                <Text style={styles.headerMenuItemText} numberOfLines={1}>
-                  {serviceCenterService.getDisplayFormat(false)}
-                </Text>
-              </TouchableOpacity>
-            )}
             {isTablet() && isLandscape() && (
               <TouchableOpacity
                 style={styles.headerMenuItem}
                 onPress={() => {
                   setShowHeaderMenuModal(false);
-                  const allOrders = MOCK_ORDERS || orders || [];
-                  const activeOrders = allOrders.filter(order => !isOrderCompleted(order.orderNumber));
-                  if (activeOrders.length > 0 && !dashboardSelectedOrder) {
-                    setDashboardSelectedOrder(activeOrders[0]);
+                  const allOrdersList = MOCK_ORDERS || orders || [];
+                  const remainingOrders = allOrdersList.filter(
+                    order => !isOrderCompleted(order.orderNumber),
+                  );
+                  if (remainingOrders.length > 0 && !dashboardSelectedOrder) {
+                    setDashboardSelectedOrder(remainingOrders[0]);
                   }
                   setUseMasterDetail(true);
                 }}
@@ -2183,28 +2009,14 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                 <Text style={styles.headerMenuItemText}>Master-Detail</Text>
               </TouchableOpacity>
             )}
-            {(onGoBack || onNavigate) && (
-              <TouchableOpacity
-                style={styles.headerMenuItem}
-                onPress={() => {
-                  setShowHeaderMenuModal(false);
-                  setDashboardViewTab('dashboard');
-                }}
-                activeOpacity={0.7}>
-                <Text style={styles.headerMenuItemText}>Back to Dashboard</Text>
-              </TouchableOpacity>
-            )}
           </View>
         </View>
       </Modal>
 
-      {/* FR-3a.EXT.3.3: Running total — current total weight and container count (active only); resets to 0 when all dropped */}
-      <View style={styles.runningTotalRow}>
-        <Text style={styles.runningTotalLabel}>Running total:</Text>
-        <Text style={styles.runningTotalValue}>
-          {activeContainerCount} container{activeContainerCount !== 1 ? 's' : ''} • {currentTotalWeight.toLocaleString()} lbs
-        </Text>
-      </View>
+      <DashboardContextBar
+        serviceCenter={serviceCenter}
+        dashboardStartOfDay={dashboardStartOfDay}
+      />
 
       <View style={styles.dashboardTabBar}>
         <View style={styles.dashboardTabGroup}>
@@ -2225,9 +2037,14 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
             <Text style={[styles.dashboardTabText, dashboardViewTab === 'orders' && styles.dashboardTabTextActive]}>Current Orders</Text>
           </TouchableOpacity>
         </View>
-        <Text style={styles.dashboardTabDateLabel} numberOfLines={1}>
-          {dashboardDate}
-        </Text>
+        <View style={styles.dashboardTabMeta}>
+          <Text style={styles.dashboardTabMetaTotal} numberOfLines={1}>
+            {activeContainerCount} ctr · {currentTotalWeight.toLocaleString()} lbs
+          </Text>
+          <Text style={styles.dashboardTabDateLabel} numberOfLines={1}>
+            {dashboardDate}
+          </Text>
+        </View>
       </View>
 
       {dashboardViewTab === 'dashboard' ? (

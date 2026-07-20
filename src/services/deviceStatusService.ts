@@ -92,6 +92,21 @@ class DeviceStatusService {
       .length;
   }
 
+  getDisconnectedCount(): number {
+    return this.getDevices().filter(
+      device =>
+        device.status === 'disconnected' || device.status === 'unavailable',
+    ).length;
+  }
+
+  getDeviceCount(): number {
+    return DEVICE_CATALOG.length;
+  }
+
+  hasConnectingDevice(): boolean {
+    return this.getDevices().some(device => device.status === 'connecting');
+  }
+
   isScaleConnected(): boolean {
     return this.statuses.get('scale') === 'connected';
   }

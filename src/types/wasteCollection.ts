@@ -135,6 +135,7 @@ export type Screen =
   | 'MaterialsSupplies'
   | 'ServiceCloseout'
   | 'Settings'
+  | 'Devices'
   | 'ProjectedInventory';
 
 export interface WasteCollectionScreenProps {

@@ -296,7 +296,16 @@ export const StreamSelectionScreen: React.FC<StreamSelectionScreenProps> = ({
                   disabled={isCurrentOrderCompleted}
                   activeOpacity={isCurrentOrderCompleted ? 1 : 0.7}>
                   <View style={styles.streamCardHeader}>
-                    <View style={styles.streamCardBadges}>
+                    <View style={styles.streamCardInfo}>
+                      <Text style={styles.streamCardTitle}>
+                        {stream.profileName}
+                      </Text>
+                      <Badge
+                        variant={categoryBadgeConfig.variant}
+                        style={categoryBadgeConfig.style}
+                        textStyle={categoryBadgeConfig.textStyle}>
+                        {stream.category}
+                      </Badge>
                       {recentlyUsedProfiles.includes(stream.id) && (
                         <Badge
                           variant="outline"
@@ -314,15 +323,6 @@ export const StreamSelectionScreen: React.FC<StreamSelectionScreenProps> = ({
                       />
                     ) : null}
                   </View>
-                  <Text style={styles.streamCardTitle}>
-                    {stream.profileName}
-                  </Text>
-                  <Badge
-                    variant={categoryBadgeConfig.variant}
-                    style={categoryBadgeConfig.style}
-                    textStyle={categoryBadgeConfig.textStyle}>
-                    {stream.category}
-                  </Badge>
                 </TouchableOpacity>
               );
             })}
