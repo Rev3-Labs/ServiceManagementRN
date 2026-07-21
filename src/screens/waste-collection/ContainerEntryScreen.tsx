@@ -9,6 +9,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import {Button} from '../../components/Button';
+import {Badge} from '../../components/Badge';
 import {Input} from '../../components/Input';
 import {
   Card,
@@ -186,12 +187,50 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
     !Number.isNaN(parsedUnitCount) &&
     parsedUnitCount >= 1;
   const containersToAdd = isCylinderProfile ? 1 : parsedUnitCount;
-  const selectionSummary = [
-    currentStream?.profileName || selectedStream,
-    selectedContainerType?.code || selectedContainerType?.size,
-  ]
-    .filter(Boolean)
-    .join(' | ');
+  const profileLabel = currentStream?.profileName || selectedStream;
+  const containerLabel =
+    selectedContainerType?.code || selectedContainerType?.size;
+  const wasteTypeLabel = currentStream?.category;
+  const selectionSummaryParts = [profileLabel, containerLabel].filter(Boolean);
+  const getCategoryBadgeConfig = (category: string) => {
+    const categoryLower = category.toLowerCase().trim();
+    if (categoryLower === 'non-haz') {
+      return {
+        variant: 'outline' as const,
+        style: styles.categoryBadgeGreen,
+        textStyle: styles.categoryBadgeTextWhite,
+      };
+    }
+    if (categoryLower === 'hazardous') {
+      return {
+        variant: 'outline' as const,
+        style: styles.categoryBadgeRed,
+        textStyle: styles.categoryBadgeTextWhite,
+      };
+    }
+    if (categoryLower === 'universal') {
+      return {
+        variant: 'outline' as const,
+        style: styles.categoryBadgeYellow,
+        textStyle: styles.categoryBadgeTextWhite,
+      };
+    }
+    if (categoryLower === 'dea') {
+      return {
+        variant: 'outline' as const,
+        style: styles.categoryBadgeBlue,
+        textStyle: styles.categoryBadgeTextWhite,
+      };
+    }
+    return {
+      variant: 'secondary' as const,
+      style: undefined,
+      textStyle: undefined,
+    };
+  };
+  const categoryBadgeConfig = wasteTypeLabel
+    ? getCategoryBadgeConfig(wasteTypeLabel)
+    : null;
 
   // Manual weight override: the scale field is read-only until the user opts
   // into manual entry and selects a reason code (e.g. scale unavailable).
@@ -309,9 +348,13 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
           setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)
         }
         onBackPress={() => setCurrentStep('container-selection')}
-        subtitle={`${selectedStream} • ${
-          selectedContainerType?.size || 'Container'
-        }`}
+        subtitle={[
+          selectedStream,
+          selectedContainerType?.size || 'Container',
+          currentStream?.category,
+        ]
+          .filter(Boolean)
+          .join(' • ')}
         elapsedTimeDisplay={
           elapsedTimeDisplay &&
           currentOrderTimeTracking &&
@@ -344,8 +387,22 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
         showsVerticalScrollIndicator={true}
         removeClippedSubviews={false}
         scrollEventThrottle={16}>
-        {selectionSummary ? (
-          <Text style={localStyles.selectionSummary}>{selectionSummary}</Text>
+        {selectionSummaryParts.length > 0 || categoryBadgeConfig ? (
+          <View style={localStyles.selectionSummaryRow}>
+            {selectionSummaryParts.length > 0 ? (
+              <Text style={localStyles.selectionSummary}>
+                {selectionSummaryParts.join(' | ')}
+              </Text>
+            ) : null}
+            {wasteTypeLabel && categoryBadgeConfig ? (
+              <Badge
+                variant={categoryBadgeConfig.variant}
+                style={categoryBadgeConfig.style}
+                textStyle={categoryBadgeConfig.textStyle}>
+                {wasteTypeLabel}
+              </Badge>
+            ) : null}
+          </View>
         ) : null}
 
         <Card style={styles.unitCountCard}>
@@ -715,11 +772,17 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
 };
 
 const localStyles = StyleSheet.create({
+  selectionSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
   selectionSummary: {
     ...typography.base,
     fontWeight: '600',
     color: colors.foreground,
-    marginBottom: spacing.md,
   },
   scaleStatusRow: {
     flexDirection: 'row',
