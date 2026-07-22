@@ -296,6 +296,11 @@ export interface DashboardScreenProps {
   orderStatuses: Record<string, string>;
   checkCanWorkOnOrder: (orderNumber: string) => boolean;
   isOrderWorkBlocked: (orderNumber: string) => boolean;
+  requestAcknowledgeWithIncompleteOrderCheck: (
+    targetOrder: OrderData,
+    onProceed: () => void,
+  ) => void;
+  focusOrderInformationNonce: number;
 
   // No-ship reason state
   noShipReasonOrderNumber: string | null;
@@ -675,6 +680,8 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     handleEmail,
     checkCanWorkOnOrder,
     isOrderWorkBlocked,
+    requestAcknowledgeWithIncompleteOrderCheck,
+    focusOrderInformationNonce,
   } = props;
 
   const allOrders = MOCK_ORDERS || orders || [];
@@ -735,6 +742,14 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     setAllContactsExpanded(false);
   }, [selectedOrderNumber, notesAcknowledged]);
 
+  useEffect(() => {
+    if (focusOrderInformationNonce <= 0) {
+      return;
+    }
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSectionsExpanded({contact: false, order: true, notes: false});
+  }, [focusOrderInformationNonce]);
+
   const toggleSection = (key: 'contact' | 'order' | 'notes') => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSectionsExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -749,14 +764,13 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
 
   const handleAcknowledgeServiceNotes = () => {
     if (!selectedOrder) return;
-    if (!checkCanWorkOnOrder(selectedOrder.orderNumber)) {
-      return;
-    }
-    setAcknowledgePrompt({
-      order: selectedOrder,
-      onConfirm: () => {
-        void acknowledgeServiceNotes();
-      },
+    requestAcknowledgeWithIncompleteOrderCheck(selectedOrder, () => {
+      setAcknowledgePrompt({
+        order: selectedOrder,
+        onConfirm: () => {
+          void acknowledgeServiceNotes();
+        },
+      });
     });
   };
   const focusServiceNotesSection = () => {
@@ -1461,11 +1475,6 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                                 variant="primary"
                                 size="lg"
                                 style={styles.acknowledgeButton}
-                                disabled={
-                                  selectedOrder
-                                    ? isOrderWorkBlocked(selectedOrder.orderNumber)
-                                    : false
-                                }
                                 onPress={handleAcknowledgeServiceNotes}
                               />
                             )}
@@ -1787,6 +1796,8 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     selectedOrderData,
     checkCanWorkOnOrder,
     isOrderWorkBlocked,
+    requestAcknowledgeWithIncompleteOrderCheck,
+    focusOrderInformationNonce,
   } = props;
 
   // Use MOCK_ORDERS directly to ensure it's accessible
@@ -1838,6 +1849,14 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     setDashboardAllContactsExpanded(false);
   }, [dashboardSelectedOrderNumber, dashboardNotesAcknowledged]);
 
+  useEffect(() => {
+    if (focusOrderInformationNonce <= 0) {
+      return;
+    }
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setDashboardSectionsExpanded({contact: false, order: true, notes: false});
+  }, [focusOrderInformationNonce]);
+
   const toggleDashboardSection = (key: 'contact' | 'order' | 'notes') => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setDashboardSectionsExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -1852,14 +1871,13 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
 
   const handleAcknowledgeDashboardServiceNotes = () => {
     if (!dashboardSelectedOrder) return;
-    if (!checkCanWorkOnOrder(dashboardSelectedOrder.orderNumber)) {
-      return;
-    }
-    setDashboardAcknowledgePrompt({
-      order: dashboardSelectedOrder,
-      onConfirm: () => {
-        void acknowledgeDashboardServiceNotes();
-      },
+    requestAcknowledgeWithIncompleteOrderCheck(dashboardSelectedOrder, () => {
+      setDashboardAcknowledgePrompt({
+        order: dashboardSelectedOrder,
+        onConfirm: () => {
+          void acknowledgeDashboardServiceNotes();
+        },
+      });
     });
   };
   const focusDashboardServiceNotesSection = () => {
@@ -2509,13 +2527,6 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                                 variant="primary"
                                 size="lg"
                                 style={styles.acknowledgeButton}
-                                disabled={
-                                  dashboardSelectedOrder
-                                    ? isOrderWorkBlocked(
-                                        dashboardSelectedOrder.orderNumber,
-                                      )
-                                    : false
-                                }
                                 onPress={handleAcknowledgeDashboardServiceNotes}
                               />
                             )}

@@ -118,6 +118,8 @@ import {
 } from '../constants/noShipReasons';
 import {DASHBOARD_INVENTORY_COLUMNS, DASHBOARD_INVENTORY_TABLE_MIN_WIDTH, SIMULATED_CONTAINERS_BY_ORDER_INDEX, CONTAINER_CODE_TO_PROJECTED_COLUMN, BUSINESS_TYPE_CONFIG, getBusinessTypeStyle, INVENTORY_SUMMARY_STORAGE_KEY, DEFAULT_INVENTORY_SUMMARY, ROUTE_IDS, DEFAULT_ROUTE_ID, APPROVED_TRANSFER_LOCATIONS, FOOTER_NAV_ICON_COLOR} from './waste-collection/constants';
 import {DashboardScreen as ExtDashboardScreen, DashboardScreenMasterDetail as ExtDashboardScreenMasterDetail} from './waste-collection/DashboardScreen';
+import {IncompleteOrderDataLossModal} from './waste-collection/IncompleteOrderDataLossModal';
+import {IncompleteOrderManifestVoidModal} from './waste-collection/IncompleteOrderManifestVoidModal';
 import {StreamSelectionScreen as ExtStreamSelectionScreen} from './waste-collection/StreamSelectionScreen';
 import {ContainerSelectionScreen as ExtContainerSelectionScreen} from './waste-collection/ContainerSelectionScreen';
 import {ContainerEntryScreen as ExtContainerEntryScreen} from './waste-collection/ContainerEntryScreen';
@@ -304,6 +306,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   >({});
   const [showVoidManifestConfirmModal, setShowVoidManifestConfirmModal] = useState(false);
   const [showVoidManifestSuccessModal, setShowVoidManifestSuccessModal] = useState(false);
+  const [showIncompleteDataLossModal, setShowIncompleteDataLossModal] =
+    useState(false);
+  const [showIncompleteManifestVoidModal, setShowIncompleteManifestVoidModal] =
+    useState(false);
+  const [incompleteOrderSwapOrderNumber, setIncompleteOrderSwapOrderNumber] =
+    useState<string | null>(null);
+  /** Incremented to ask Dashboard to expand Order Information for the selected order. */
+  const [focusOrderInformationNonce, setFocusOrderInformationNonce] =
+    useState(0);
+  const pendingAckProceedRef = useRef<(() => void) | null>(null);
   const [completedOrdersSectionCollapsed, setCompletedOrdersSectionCollapsed] = useState(true);
   const [showHeaderMenuModal, setShowHeaderMenuModal] = useState(false);
   const [materialsSupplies, setMaterialsSupplies] = useState<MaterialsSupply[]>([]);
@@ -975,6 +987,118 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     [getInProgressWorkOrderNumber],
   );
 
+  const findOrderByNumber = useCallback(
+    (orderNumber: string): OrderData | null => {
+      return (
+        (orders || MOCK_ORDERS || []).find(o => o.orderNumber === orderNumber) ??
+        null
+      );
+    },
+    [orders],
+  );
+
+  const hasServiceDataForOrder = useCallback(
+    (orderNumber: string): boolean => {
+      const hasContainers = addedContainers.some(
+        c => c.orderNumber === orderNumber && c.status !== 'dropped',
+      );
+      const hasSessionMaterialsOrEquipment =
+        selectedOrderData?.orderNumber === orderNumber &&
+        (materialsSupplies.length > 0 || equipmentPPE.length > 0);
+      const hasPhotos = photoService.getPhotoCount(orderNumber) > 0;
+      return (
+        hasContainers || hasSessionMaterialsOrEquipment || hasPhotos
+      );
+    },
+    [
+      addedContainers,
+      selectedOrderData?.orderNumber,
+      materialsSupplies.length,
+      equipmentPPE.length,
+    ],
+  );
+
+  const closeIncompleteOrderAndWipe = useCallback(
+    async (orderNumber: string) => {
+      setAddedContainers(prev =>
+        prev.filter(c => c.orderNumber !== orderNumber),
+      );
+
+      if (selectedOrderData?.orderNumber === orderNumber) {
+        setMaterialsSupplies([]);
+        setEquipmentPPE([]);
+        setSelectedOrderData(null);
+      }
+
+      await photoService.clearOrderPhotos(orderNumber);
+
+      const entries =
+        serviceTypeTimeService.getTimeEntriesForOrder(orderNumber);
+      await Promise.all(
+        entries.map(entry =>
+          serviceTypeTimeService.deleteTimeEntry(
+            entry.orderId,
+            entry.serviceTypeId,
+          ),
+        ),
+      );
+
+      if (activeTimeTracking?.orderNumber === orderNumber) {
+        try {
+          await stopTimeTracking(orderNumber);
+        } catch {
+          // Local wipe should continue even if stop fails.
+        }
+        setActiveTimeTracking(null);
+      }
+
+      setNoshipByOrderAndServiceType(prev => {
+        if (!prev[orderNumber]) {
+          return prev;
+        }
+        const next = {...prev};
+        delete next[orderNumber];
+        return next;
+      });
+
+      setOrderStatuses(prev => ({
+        ...prev,
+        [orderNumber]: 'Scheduled',
+      }));
+
+      await serviceNotesAckService.clear(orderNumber);
+
+      setSelectedPrograms({});
+      if (manifestOrderNumber === orderNumber) {
+        setManifestTrackingNumber(null);
+        setManifestOrderNumber(null);
+        setManifestData(null);
+      }
+
+      setScannedDocuments(prev =>
+        prev.filter(doc => doc.orderNumber !== orderNumber),
+      );
+    },
+    [
+      selectedOrderData?.orderNumber,
+      activeTimeTracking?.orderNumber,
+      manifestOrderNumber,
+    ],
+  );
+
+  const navigateToIncompleteOrderInformation = useCallback(
+    (orderNumber: string) => {
+      const order = findOrderByNumber(orderNumber);
+      if (!order) {
+        return;
+      }
+      setDashboardSelectedOrder(order);
+      setDashboardViewTab('orders');
+      setFocusOrderInformationNonce(n => n + 1);
+    },
+    [findOrderByNumber],
+  );
+
   const hasOrderNotes = useCallback((order: OrderData): boolean => {
     return Boolean(
       order.customerSpecialInstructions ||
@@ -982,6 +1106,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         order.orderNotes,
     );
   }, []);
+
 
   /** True when every service type on the order has both start and end time (ready for manifest). */
   const isAllServiceTypesCompleteForOrder = useCallback((order: OrderData): boolean => {
@@ -1010,6 +1135,87 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       Boolean(manifestTrackingNumber && manifestOrderNumber === orderNumber),
     [manifestTrackingNumber, manifestOrderNumber],
   );
+
+  /**
+   * Acknowledge & Continue gate: evaluate incomplete order before allowing
+   * notes ack on a different order (AC14). Does not replace Start Service hard block.
+   */
+  const requestAcknowledgeWithIncompleteOrderCheck = useCallback(
+    (targetOrder: OrderData, onProceed: () => void) => {
+      const inProgressOrderNumber = getInProgressWorkOrderNumber();
+      if (
+        !inProgressOrderNumber ||
+        inProgressOrderNumber === targetOrder.orderNumber
+      ) {
+        onProceed();
+        return;
+      }
+
+      if (hasManifestForOrder(inProgressOrderNumber)) {
+        setIncompleteOrderSwapOrderNumber(inProgressOrderNumber);
+        setShowIncompleteManifestVoidModal(true);
+        return;
+      }
+
+      if (hasServiceDataForOrder(inProgressOrderNumber)) {
+        setIncompleteOrderSwapOrderNumber(inProgressOrderNumber);
+        pendingAckProceedRef.current = onProceed;
+        setShowIncompleteDataLossModal(true);
+        return;
+      }
+
+      void (async () => {
+        await closeIncompleteOrderAndWipe(inProgressOrderNumber);
+        onProceed();
+      })();
+    },
+    [
+      getInProgressWorkOrderNumber,
+      hasManifestForOrder,
+      hasServiceDataForOrder,
+      closeIncompleteOrderAndWipe,
+    ],
+  );
+
+  const handleIncompleteOrderClearData = useCallback(() => {
+    const orderNumber = incompleteOrderSwapOrderNumber;
+    setShowIncompleteDataLossModal(false);
+    if (!orderNumber) {
+      pendingAckProceedRef.current = null;
+      return;
+    }
+
+    void (async () => {
+      await closeIncompleteOrderAndWipe(orderNumber);
+      setIncompleteOrderSwapOrderNumber(null);
+      const proceed = pendingAckProceedRef.current;
+      pendingAckProceedRef.current = null;
+      Alert.alert(
+        'Order Closed',
+        `Your incomplete order ${orderNumber} has been closed and all data have been wiped out!`,
+        [{text: 'OK', onPress: () => proceed?.()}],
+      );
+    })();
+  }, [incompleteOrderSwapOrderNumber, closeIncompleteOrderAndWipe]);
+
+  const handleIncompleteOrderReview = useCallback(() => {
+    const orderNumber = incompleteOrderSwapOrderNumber;
+    setShowIncompleteDataLossModal(false);
+    pendingAckProceedRef.current = null;
+    setIncompleteOrderSwapOrderNumber(null);
+    if (orderNumber) {
+      navigateToIncompleteOrderInformation(orderNumber);
+    }
+  }, [incompleteOrderSwapOrderNumber, navigateToIncompleteOrderInformation]);
+
+  const handleIncompleteOrderManifestVoidProceed = useCallback(() => {
+    const orderNumber = incompleteOrderSwapOrderNumber;
+    setShowIncompleteManifestVoidModal(false);
+    setIncompleteOrderSwapOrderNumber(null);
+    if (orderNumber) {
+      navigateToIncompleteOrderInformation(orderNumber);
+    }
+  }, [incompleteOrderSwapOrderNumber, navigateToIncompleteOrderInformation]);
 
   const upcomingOrders = useMemo(() => {
     const allOrders = MOCK_ORDERS || orders || [];
@@ -2901,6 +3107,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     orderStatuses,
     checkCanWorkOnOrder,
     isOrderWorkBlocked,
+    requestAcknowledgeWithIncompleteOrderCheck,
+    focusOrderInformationNonce,
     noShipReasonOrderNumber,
     noShipReasonServiceTypeId,
     noShipReasonCode,
@@ -4348,6 +4556,17 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           </View>
         </View>
       </Modal>
+
+      <IncompleteOrderDataLossModal
+        visible={showIncompleteDataLossModal}
+        onClearData={handleIncompleteOrderClearData}
+        onReview={handleIncompleteOrderReview}
+      />
+      <IncompleteOrderManifestVoidModal
+        visible={showIncompleteManifestVoidModal}
+        workOrderNumber={incompleteOrderSwapOrderNumber ?? ''}
+        onProceed={handleIncompleteOrderManifestVoidProceed}
+      />
 
       {/* Void Manifest – success */}
       <Modal
