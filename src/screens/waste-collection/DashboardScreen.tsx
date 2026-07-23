@@ -16,6 +16,7 @@ import {
 import {Button} from '../../components/Button';
 import {Badge} from '../../components/Badge';
 import {Icon} from '../../components/Icon';
+import {StickyNoteIcon} from '../../components/StickyNoteIcon';
 import {
   Card,
   CardContent,
@@ -273,6 +274,8 @@ export interface DashboardScreenProps {
   setShowAllNotesModal: (show: boolean) => void;
   upcomingOrdersWithNotes: OrderData[];
   showAllNotesModal: boolean;
+  getWorkOrderNotes: (orderNumber: string | null | undefined) => string;
+  openWorkOrderNotesForEdit: (orderNumber: string) => void;
 
   // Order status helpers
   getOrderStatus: (order: OrderData) => string;
@@ -667,6 +670,8 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     setShowAllNotesModal,
     getOrderStatus,
     hasOrderNotes,
+    getWorkOrderNotes,
+    openWorkOrderNotesForEdit,
     isOrderReadyForManifest,
     hasManifestForOrder,
     handleGenerateManifestForOrder,
@@ -1037,20 +1042,42 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                 <Text style={styles.detailPaneTitle} numberOfLines={1}>
                   {selectedOrder.orderNumber}
                 </Text>
-                <Badge
-                  variant={
-                    getOrderStatus(selectedOrder) === 'Scheduled'
-                      ? 'secondary'
-                      : getOrderStatus(selectedOrder) === 'Partial'
-                        ? 'default'
-                        : getOrderStatus(selectedOrder) === 'In Progress'
+                <View style={styles.detailPaneHeaderActions}>
+                  {!isSelectedOrderCompleted && (
+                    <TouchableOpacity
+                      onPress={() =>
+                        openWorkOrderNotesForEdit(selectedOrder.orderNumber)
+                      }
+                      style={styles.orderNotesHeaderButton}
+                      activeOpacity={0.7}
+                      accessibilityLabel="Order Notes"
+                      accessibilityHint="Open work order notes">
+                      <StickyNoteIcon
+                        size={18}
+                        hasContent={!!getWorkOrderNotes(selectedOrder.orderNumber).trim()}
+                      />
+                      <Text
+                        style={styles.orderNotesHeaderButtonText}
+                        numberOfLines={1}>
+                        Order Notes
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  <Badge
+                    variant={
+                      getOrderStatus(selectedOrder) === 'Scheduled'
+                        ? 'secondary'
+                        : getOrderStatus(selectedOrder) === 'Partial'
                           ? 'default'
-                          : getOrderStatus(selectedOrder) === 'Completed'
+                          : getOrderStatus(selectedOrder) === 'In Progress'
                             ? 'default'
-                            : 'destructive'
-                  }>
-                  {getOrderStatus(selectedOrder)}
-                </Badge>
+                            : getOrderStatus(selectedOrder) === 'Completed'
+                              ? 'default'
+                              : 'destructive'
+                    }>
+                    {getOrderStatus(selectedOrder)}
+                  </Badge>
+                </View>
               </View>
 
               {/* Render detail sections in a fixed hierarchy:
@@ -1782,6 +1809,8 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     setShowAllNotesModal,
     getOrderStatus,
     hasOrderNotes,
+    getWorkOrderNotes,
+    openWorkOrderNotesForEdit,
     isOrderReadyForManifest,
     hasManifestForOrder,
     handleGenerateManifestForOrder,
@@ -2084,28 +2113,63 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
           {/* Show order details if an order is selected */}
           {dashboardSelectedOrder ? (
             <>
-              <View style={styles.detailPaneHeader}>
+              <View style={styles.detailPaneHeaderStacked}>
                 <TouchableOpacity
                   onPress={() => setDashboardSelectedOrder(null)}
-                  activeOpacity={0.7}>
+                  style={styles.detailPaneBackButton}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Back to Orders">
                   <Icon name="arrow-back" size={20} color={colors.foreground} />
-                  <Text style={styles.backButtonText}>Back to Orders</Text>
+                  <Text style={styles.detailPaneBackButtonText}>
+                    Back to Orders
+                  </Text>
                 </TouchableOpacity>
-                <Text style={styles.detailPaneTitle} numberOfLines={1}>
-                  {dashboardSelectedOrder.orderNumber}
-                </Text>
-                <Badge
-                  variant={
-                    getOrderStatus(dashboardSelectedOrder) === 'Scheduled'
-                      ? 'secondary'
-                      : getOrderStatus(dashboardSelectedOrder) === 'Partial'
-                        ? 'default'
-                        : getOrderStatus(dashboardSelectedOrder) === 'In Progress'
-                          ? 'default'
-                          : 'destructive'
-                  }>
-                  {getOrderStatus(dashboardSelectedOrder)}
-                </Badge>
+                <View style={[styles.detailPaneHeader, styles.detailPaneHeaderInStack]}>
+                  <Text style={styles.detailPaneTitle} numberOfLines={1}>
+                    {dashboardSelectedOrder.orderNumber}
+                  </Text>
+                  <View style={styles.detailPaneHeaderActions}>
+                    {!isOrderCompleted(dashboardSelectedOrder.orderNumber) && (
+                      <TouchableOpacity
+                        onPress={() =>
+                          openWorkOrderNotesForEdit(
+                            dashboardSelectedOrder.orderNumber,
+                          )
+                        }
+                        style={styles.orderNotesHeaderButton}
+                        activeOpacity={0.7}
+                        accessibilityLabel="Order Notes"
+                        accessibilityHint="Open work order notes">
+                        <StickyNoteIcon
+                          size={18}
+                          hasContent={
+                            !!getWorkOrderNotes(
+                              dashboardSelectedOrder.orderNumber,
+                            ).trim()
+                          }
+                        />
+                        <Text
+                          style={styles.orderNotesHeaderButtonText}
+                          numberOfLines={1}>
+                          Order Notes
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    <Badge
+                      variant={
+                        getOrderStatus(dashboardSelectedOrder) === 'Scheduled'
+                          ? 'secondary'
+                          : getOrderStatus(dashboardSelectedOrder) === 'Partial'
+                            ? 'default'
+                            : getOrderStatus(dashboardSelectedOrder) ===
+                                'In Progress'
+                              ? 'default'
+                              : 'destructive'
+                      }>
+                      {getOrderStatus(dashboardSelectedOrder)}
+                    </Badge>
+                  </View>
+                </View>
               </View>
 
               {/* Render detail sections in a fixed hierarchy:

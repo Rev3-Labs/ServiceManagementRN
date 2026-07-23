@@ -49,6 +49,8 @@ export interface ManifestManagementScreenProps {
   handleRequestPause: () => void;
   handleResumeTracking: () => void;
   setShowJobNotesModal: (show: boolean) => void;
+  onOrderNotes: () => void;
+  hasWorkOrderNotes: boolean;
   validationState: {state: 'none' | 'warning' | 'error'; count: number};
   setShowValidationModal: (show: boolean) => void;
   setShowServiceCenterModal: (show: boolean) => void;
@@ -177,6 +179,8 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
   handleRequestPause,
   handleResumeTracking,
   setShowJobNotesModal,
+  onOrderNotes,
+  hasWorkOrderNotes,
   validationState,
   setShowValidationModal,
   setShowServiceCenterModal,
@@ -266,6 +270,8 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
         onViewNotes={() => {
           setShowJobNotesModal(true);
         }}
+        onOrderNotes={onOrderNotes}
+        hasWorkOrderNotes={hasWorkOrderNotes}
         validationState={validationState}
         onViewValidation={() => setShowValidationModal(true)}
         onViewServiceCenter={() => setShowServiceCenterModal(true)}

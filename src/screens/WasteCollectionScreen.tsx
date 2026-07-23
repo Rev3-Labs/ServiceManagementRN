@@ -120,6 +120,7 @@ import {DASHBOARD_INVENTORY_COLUMNS, DASHBOARD_INVENTORY_TABLE_MIN_WIDTH, SIMULA
 import {DashboardScreen as ExtDashboardScreen, DashboardScreenMasterDetail as ExtDashboardScreenMasterDetail} from './waste-collection/DashboardScreen';
 import {IncompleteOrderDataLossModal} from './waste-collection/IncompleteOrderDataLossModal';
 import {IncompleteOrderManifestVoidModal} from './waste-collection/IncompleteOrderManifestVoidModal';
+import {WorkOrderNotesModal} from './waste-collection/WorkOrderNotesModal';
 import {StreamSelectionScreen as ExtStreamSelectionScreen} from './waste-collection/StreamSelectionScreen';
 import {ContainerSelectionScreen as ExtContainerSelectionScreen} from './waste-collection/ContainerSelectionScreen';
 import {ContainerEntryScreen as ExtContainerEntryScreen} from './waste-collection/ContainerEntryScreen';
@@ -170,6 +171,18 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const postLoginSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [checklistAnswers, setChecklistAnswers] = useState<ChecklistAnswer[] | null>(null);
+  const [workOrderNotesByOrder, setWorkOrderNotesByOrder] = useState<
+    Record<string, string>
+  >({});
+  const [showWorkOrderNotesModal, setShowWorkOrderNotesModal] = useState(false);
+  const [workOrderNotesModalMode, setWorkOrderNotesModalMode] = useState<
+    'edit' | 'completion'
+  >('edit');
+  const [workOrderNotesModalOrderNumber, setWorkOrderNotesModalOrderNumber] =
+    useState<string | null>(null);
+  const workOrderNotesContinueRef = useRef<((notes: string) => void) | null>(
+    null,
+  );
   const [selectedOrderData, setSelectedOrderData] = useState<OrderData | null>(
     null,
   );
@@ -1068,6 +1081,15 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
       await serviceNotesAckService.clear(orderNumber);
 
+      setWorkOrderNotesByOrder(prev => {
+        if (!(orderNumber in prev)) {
+          return prev;
+        }
+        const next = {...prev};
+        delete next[orderNumber];
+        return next;
+      });
+
       setSelectedPrograms({});
       if (manifestOrderNumber === orderNumber) {
         setManifestTrackingNumber(null);
@@ -1106,6 +1128,111 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         order.orderNotes,
     );
   }, []);
+
+  const getWorkOrderNotes = useCallback(
+    (orderNumber: string | null | undefined): string => {
+      if (!orderNumber) {
+        return '';
+      }
+      return workOrderNotesByOrder[orderNumber] ?? '';
+    },
+    [workOrderNotesByOrder],
+  );
+
+  const setWorkOrderNotesForOrder = useCallback(
+    (orderNumber: string, notes: string) => {
+      setWorkOrderNotesByOrder(prev => {
+        const trimmed = notes.trim();
+        if (!trimmed) {
+          if (!(orderNumber in prev)) {
+            return prev;
+          }
+          const next = {...prev};
+          delete next[orderNumber];
+          return next;
+        }
+        return {...prev, [orderNumber]: trimmed};
+      });
+    },
+    [],
+  );
+
+  const clearWorkOrderNotes = useCallback((orderNumber: string) => {
+    setWorkOrderNotesByOrder(prev => {
+      if (!(orderNumber in prev)) {
+        return prev;
+      }
+      const next = {...prev};
+      delete next[orderNumber];
+      return next;
+    });
+  }, []);
+
+  const openWorkOrderNotesForEdit = useCallback((orderNumber: string) => {
+    workOrderNotesContinueRef.current = null;
+    setWorkOrderNotesModalOrderNumber(orderNumber);
+    setWorkOrderNotesModalMode('edit');
+    setShowWorkOrderNotesModal(true);
+  }, []);
+
+  const onOrderNotesFromHeader = useCallback(() => {
+    if (!selectedOrderData?.orderNumber) {
+      return;
+    }
+    openWorkOrderNotesForEdit(selectedOrderData.orderNumber);
+  }, [openWorkOrderNotesForEdit, selectedOrderData?.orderNumber]);
+
+  const onRequestNotesBeforeComplete = useCallback(
+    (continueWithNotes: (notes: string) => void) => {
+      if (!selectedOrderData?.orderNumber) {
+        continueWithNotes('');
+        return;
+      }
+      workOrderNotesContinueRef.current = continueWithNotes;
+      setWorkOrderNotesModalOrderNumber(selectedOrderData.orderNumber);
+      setWorkOrderNotesModalMode('completion');
+      setShowWorkOrderNotesModal(true);
+    },
+    [selectedOrderData?.orderNumber],
+  );
+
+  const handleWorkOrderNotesModalClose = useCallback(() => {
+    workOrderNotesContinueRef.current = null;
+    setShowWorkOrderNotesModal(false);
+    setWorkOrderNotesModalOrderNumber(null);
+  }, []);
+
+  const handleWorkOrderNotesModalSave = useCallback(
+    (notes: string) => {
+      const orderNumber = workOrderNotesModalOrderNumber;
+      if (orderNumber) {
+        setWorkOrderNotesForOrder(orderNumber, notes);
+      }
+      const continueWithNotes = workOrderNotesContinueRef.current;
+      workOrderNotesContinueRef.current = null;
+      setShowWorkOrderNotesModal(false);
+      setWorkOrderNotesModalOrderNumber(null);
+      if (continueWithNotes) {
+        continueWithNotes(notes.trim());
+      }
+    },
+    [setWorkOrderNotesForOrder, workOrderNotesModalOrderNumber],
+  );
+
+  const handleWorkOrderNotesModalSkip = useCallback(() => {
+    const continueWithNotes = workOrderNotesContinueRef.current;
+    workOrderNotesContinueRef.current = null;
+    setShowWorkOrderNotesModal(false);
+    setWorkOrderNotesModalOrderNumber(null);
+    if (continueWithNotes) {
+      continueWithNotes('');
+    }
+  }, []);
+
+  const hasWorkOrderNotesForSelectedOrder = Boolean(
+    selectedOrderData &&
+      getWorkOrderNotes(selectedOrderData.orderNumber).trim(),
+  );
 
 
   /** True when every service type on the order has both start and end time (ready for manifest). */
@@ -3090,6 +3217,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     showAllNotesModal,
     getOrderStatus,
     hasOrderNotes,
+    getWorkOrderNotes,
+    openWorkOrderNotesForEdit,
     isOrderReadyForManifest,
     hasManifestForOrder,
     handleGenerateManifestForOrder,
@@ -3844,6 +3973,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleRequestPause={handleRequestPause}
             handleResumeTracking={handleResumeTracking}
             setShowJobNotesModal={setShowJobNotesModal}
+            onOrderNotes={onOrderNotesFromHeader}
+            hasWorkOrderNotes={hasWorkOrderNotesForSelectedOrder}
             validationState={validationState}
             setShowValidationModal={setShowValidationModal}
             setShowServiceCenterModal={setShowServiceCenterModal}
@@ -3886,6 +4017,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleRequestPause={handleRequestPause}
             handleResumeTracking={handleResumeTracking}
             setShowJobNotesModal={setShowJobNotesModal}
+            onOrderNotes={onOrderNotesFromHeader}
+            hasWorkOrderNotes={hasWorkOrderNotesForSelectedOrder}
             validationState={validationState}
             setShowValidationModal={setShowValidationModal}
             setShowServiceCenterModal={setShowServiceCenterModal}
@@ -3917,6 +4050,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleRequestPause={handleRequestPause}
             handleResumeTracking={handleResumeTracking}
             setShowJobNotesModal={setShowJobNotesModal}
+            onOrderNotes={onOrderNotesFromHeader}
+            hasWorkOrderNotes={hasWorkOrderNotesForSelectedOrder}
             validationState={validationState}
             setShowValidationModal={setShowValidationModal}
             setShowServiceCenterModal={setShowServiceCenterModal}
@@ -3972,6 +4107,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleRequestPause={handleRequestPause}
             handleResumeTracking={handleResumeTracking}
             setShowJobNotesModal={setShowJobNotesModal}
+            onOrderNotes={onOrderNotesFromHeader}
+            hasWorkOrderNotes={hasWorkOrderNotesForSelectedOrder}
             validationState={validationState}
             setShowValidationModal={setShowValidationModal}
             setShowServiceCenterModal={setShowServiceCenterModal}
@@ -4007,6 +4144,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleRequestPause={handleRequestPause}
             handleResumeTracking={handleResumeTracking}
             setShowJobNotesModal={setShowJobNotesModal}
+            onOrderNotes={onOrderNotesFromHeader}
+            hasWorkOrderNotes={hasWorkOrderNotesForSelectedOrder}
             validationState={validationState}
             setShowValidationModal={setShowValidationModal}
             setShowServiceCenterModal={setShowServiceCenterModal}
@@ -4039,6 +4178,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleRequestPause={handleRequestPause}
             handleResumeTracking={handleResumeTracking}
             setShowJobNotesModal={setShowJobNotesModal}
+            onOrderNotes={onOrderNotesFromHeader}
+            hasWorkOrderNotes={hasWorkOrderNotesForSelectedOrder}
             validationState={validationState}
             setShowValidationModal={setShowValidationModal}
             setShowServiceCenterModal={setShowServiceCenterModal}
@@ -4077,6 +4218,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleRequestPause={handleRequestPause}
             handleResumeTracking={handleResumeTracking}
             setShowJobNotesModal={setShowJobNotesModal}
+            onOrderNotes={onOrderNotesFromHeader}
+            hasWorkOrderNotes={hasWorkOrderNotesForSelectedOrder}
             validationState={validationState}
             setShowValidationModal={setShowValidationModal}
             setShowServiceCenterModal={setShowServiceCenterModal}
@@ -4106,6 +4249,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleRequestPause={handleRequestPause}
             handleResumeTracking={handleResumeTracking}
             setShowJobNotesModal={setShowJobNotesModal}
+            onOrderNotes={onOrderNotesFromHeader}
+            hasWorkOrderNotes={hasWorkOrderNotesForSelectedOrder}
             validationState={validationState}
             setShowValidationModal={setShowValidationModal}
             setShowServiceCenterModal={setShowServiceCenterModal}
@@ -4138,6 +4283,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleRequestPause={handleRequestPause}
             handleResumeTracking={handleResumeTracking}
             setShowJobNotesModal={setShowJobNotesModal}
+            onOrderNotes={onOrderNotesFromHeader}
+            hasWorkOrderNotes={hasWorkOrderNotesForSelectedOrder}
             validationState={validationState}
             setShowValidationModal={setShowValidationModal}
             setShowServiceCenterModal={setShowServiceCenterModal}
@@ -4169,6 +4316,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleRequestPause={handleRequestPause}
             handleResumeTracking={handleResumeTracking}
             setShowJobNotesModal={setShowJobNotesModal}
+            onOrderNotes={onOrderNotesFromHeader}
+            hasWorkOrderNotes={hasWorkOrderNotesForSelectedOrder}
             validationState={validationState}
             setShowValidationModal={setShowValidationModal}
             setShowServiceCenterModal={setShowServiceCenterModal}
@@ -4198,6 +4347,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             handleRequestPause={handleRequestPause}
             handleResumeTracking={handleResumeTracking}
             setShowJobNotesModal={setShowJobNotesModal}
+            onOrderNotes={onOrderNotesFromHeader}
+            hasWorkOrderNotes={hasWorkOrderNotesForSelectedOrder}
+            workOrderNotes={getWorkOrderNotes(selectedOrderData?.orderNumber)}
+            onRequestNotesBeforeComplete={onRequestNotesBeforeComplete}
+            onClearWorkOrderNotes={clearWorkOrderNotes}
             validationState={validationState}
             setShowValidationModal={setShowValidationModal}
             setShowServiceCenterModal={setShowServiceCenterModal}
@@ -4566,6 +4720,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         visible={showIncompleteManifestVoidModal}
         workOrderNumber={incompleteOrderSwapOrderNumber ?? ''}
         onProceed={handleIncompleteOrderManifestVoidProceed}
+      />
+      <WorkOrderNotesModal
+        visible={showWorkOrderNotesModal}
+        mode={workOrderNotesModalMode}
+        initialNotes={getWorkOrderNotes(workOrderNotesModalOrderNumber)}
+        onClose={handleWorkOrderNotesModalClose}
+        onSave={handleWorkOrderNotesModalSave}
+        onSkip={handleWorkOrderNotesModalSkip}
       />
 
       {/* Void Manifest – success */}
@@ -9896,12 +10058,57 @@ export const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: colors.border,
   },
+  detailPaneHeaderStacked: {
+    marginBottom: spacing.xl,
+  },
+  detailPaneHeaderInStack: {
+    marginBottom: 0,
+  },
+  detailPaneBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  detailPaneBackButtonText: {
+    ...typography.base,
+    fontWeight: '500',
+    color: colors.foreground,
+  },
+  detailPaneHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexShrink: 0,
+  },
+  orderNotesHeaderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    gap: spacing.xs,
+    minHeight: 32,
+    flexShrink: 0,
+  },
+  orderNotesHeaderButtonText: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.foreground,
+  },
   detailPaneTitle: {
     ...typography['2xl'],
     fontWeight: '600',
     color: colors.foreground,
     flex: 1,
     minWidth: 0,
+    textAlignVertical: 'center',
+    includeFontPadding: false,
   },
   contactCard: {
     marginBottom: spacing.xl,
@@ -11073,7 +11280,7 @@ export const styles = StyleSheet.create({
   serviceSummaryAckSignatureImage: {
     width: '100%',
     height: 36,
-  },
+  } as ImageStyle,
   serviceSummaryAckSignaturePlaceholder: {
     fontSize: 13,
     color: '#9ca3af',

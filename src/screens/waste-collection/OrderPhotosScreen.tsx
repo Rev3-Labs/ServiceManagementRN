@@ -60,6 +60,8 @@ export interface OrderPhotosScreenProps {
   handleRequestPause: () => void;
   handleResumeTracking: () => void;
   setShowJobNotesModal: (show: boolean) => void;
+  onOrderNotes: () => void;
+  hasWorkOrderNotes: boolean;
   validationState: {state: 'none' | 'warning' | 'error'; count: number};
   setShowValidationModal: (show: boolean) => void;
   setShowServiceCenterModal: (show: boolean) => void;
@@ -90,6 +92,8 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
   handleRequestPause,
   handleResumeTracking,
   setShowJobNotesModal,
+  onOrderNotes,
+  hasWorkOrderNotes,
   validationState,
   setShowValidationModal,
   setShowServiceCenterModal,
@@ -777,6 +781,8 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
         onPause={handleRequestPause}
         onResume={handleResumeTracking}
         onViewNotes={() => setShowJobNotesModal(true)}
+        onOrderNotes={onOrderNotes}
+        hasWorkOrderNotes={hasWorkOrderNotes}
         validationState={validationState}
         onViewValidation={() => setShowValidationModal(true)}
         onViewServiceCenter={() => setShowServiceCenterModal(true)}

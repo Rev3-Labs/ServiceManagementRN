@@ -27,6 +27,8 @@ export interface StreamSelectionScreenProps {
   handleRequestPause: () => void;
   handleResumeTracking: () => void;
   setShowJobNotesModal: (show: boolean) => void;
+  onOrderNotes: () => void;
+  hasWorkOrderNotes: boolean;
   validationState?: {state: 'none' | 'warning' | 'error'; count: number};
   setShowValidationModal: (show: boolean) => void;
   setShowServiceCenterModal: (show: boolean) => void;
@@ -75,6 +77,8 @@ export const StreamSelectionScreen: React.FC<StreamSelectionScreenProps> = ({
   handleRequestPause,
   handleResumeTracking,
   setShowJobNotesModal,
+  onOrderNotes,
+  hasWorkOrderNotes,
   validationState,
   setShowValidationModal,
   setShowServiceCenterModal,
@@ -195,6 +199,8 @@ export const StreamSelectionScreen: React.FC<StreamSelectionScreenProps> = ({
         onViewNotes={() => {
           setShowJobNotesModal(true);
         }}
+        onOrderNotes={onOrderNotes}
+        hasWorkOrderNotes={hasWorkOrderNotes}
         validationState={validationState}
         onViewValidation={() => setShowValidationModal(true)}
         onViewServiceCenter={() => setShowServiceCenterModal(true)}

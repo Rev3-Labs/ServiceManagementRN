@@ -7,6 +7,7 @@ import {
   Alert,
   TextInput,
   Image,
+  ImageStyle,
 } from 'react-native';
 import {Button} from '../../components/Button';
 import {
@@ -46,6 +47,11 @@ export interface OrderServiceScreenProps {
   handleRequestPause: () => void;
   handleResumeTracking: () => void;
   setShowJobNotesModal: (show: boolean) => void;
+  onOrderNotes: () => void;
+  hasWorkOrderNotes: boolean;
+  workOrderNotes: string;
+  onRequestNotesBeforeComplete: (continueWithNotes: (notes: string) => void) => void;
+  onClearWorkOrderNotes: (orderNumber: string) => void;
   validationState: {state: 'none' | 'warning' | 'error'; count: number};
   setShowValidationModal: (show: boolean) => void;
   setShowServiceCenterModal: (show: boolean) => void;
@@ -109,6 +115,11 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
   handleRequestPause,
   handleResumeTracking,
   setShowJobNotesModal,
+  onOrderNotes,
+  hasWorkOrderNotes,
+  workOrderNotes,
+  onRequestNotesBeforeComplete,
+  onClearWorkOrderNotes,
   validationState,
   setShowValidationModal,
   setShowServiceCenterModal,
@@ -265,8 +276,17 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
       });
     }
 
+    // Soft warning: work order notes are optional but encouraged
+    if (!workOrderNotes.trim()) {
+      reasons.push({
+        id: 'no-work-order-notes',
+        reason: 'No work order notes have been entered',
+        severity: 'warning',
+      });
+    }
+
     return reasons;
-  }, [selectedOrderData, addedContainers, selectedPrograms, orderPhotos]);
+  }, [selectedOrderData, addedContainers, selectedPrograms, orderPhotos, workOrderNotes]);
 
   const hasHardBlockingErrors = incompleteReasons.some(
     r => r.severity === 'error' && r.waivable === false,
@@ -319,7 +339,7 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
 
     if (!selectedOrderData) return;
 
-    const performCompletion = async () => {
+    const performCompletion = async (notesForSync: string) => {
       // Store the service type that's being completed (before ending it)
       const completingServiceTypeId = activeServiceTypeTimer;
 
@@ -359,6 +379,7 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
 
       if (allServiceTypesCompleteNow) {
         // All service types are complete - complete the entire order
+        const trimmedNotes = notesForSync.trim();
         // Queue order completion for sync
         await syncService.addPendingOperation('order', {
           orderNumber: selectedOrderData.orderNumber,
@@ -376,6 +397,12 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
             signatureImageUri: customerSignature || undefined,
             acknowledgedAt: new Date().toISOString(),
           },
+          ...(trimmedNotes
+            ? {
+                workOrderNotes: trimmedNotes,
+                needsReview: true,
+              }
+            : {}),
         });
 
         // Stop overall order time tracking
@@ -396,6 +423,7 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
 
         // Mark order as completed
         setCompletedOrders(prev => [...prev, selectedOrderData.orderNumber]);
+        onClearWorkOrderNotes(selectedOrderData.orderNumber);
         // Update order status
         setOrderStatuses(prev => ({
           ...prev,
@@ -440,7 +468,14 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
       }
     };
 
-    await performCompletion();
+    const existingNotes = workOrderNotes.trim();
+    if (existingNotes || !allServiceTypesComplete) {
+      await performCompletion(existingNotes);
+    } else {
+      onRequestNotesBeforeComplete(notes => {
+        void performCompletion(notes);
+      });
+    }
   };
 
   // Customer Acknowledgment View
@@ -461,6 +496,8 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
         onViewNotes={() => {
           setShowJobNotesModal(true);
         }}
+        onOrderNotes={onOrderNotes}
+        hasWorkOrderNotes={hasWorkOrderNotes}
         validationState={validationState}
         onViewValidation={() => setShowValidationModal(true)}
         onViewServiceCenter={() => setShowServiceCenterModal(true)}
@@ -900,7 +937,9 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
                     {customerSignature ? (
                       <Image
                         source={{uri: customerSignature}}
-                        style={styles.serviceSummaryAckSignatureImage}
+                        style={
+                          styles.serviceSummaryAckSignatureImage as ImageStyle
+                        }
                         resizeMode="contain"
                       />
                     ) : (
@@ -985,6 +1024,12 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
                           <Text style={styles.incompleteReasonHint}>
                             Open Photos from the quick actions bar to capture
                             required photos
+                          </Text>
+                        )}
+                        {item.id === 'no-work-order-notes' && (
+                          <Text style={styles.incompleteReasonHint}>
+                            Use Order Notes in the header to capture customer,
+                            site, or service notes (optional)
                           </Text>
                         )}
                       </View>

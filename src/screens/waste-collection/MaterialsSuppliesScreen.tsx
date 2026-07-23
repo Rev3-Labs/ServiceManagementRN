@@ -49,6 +49,8 @@ export interface MaterialsSuppliesScreenProps {
   handleRequestPause: () => void;
   handleResumeTracking: () => void;
   setShowJobNotesModal: (show: boolean) => void;
+  onOrderNotes: () => void;
+  hasWorkOrderNotes: boolean;
   validationState: {state: 'none' | 'warning' | 'error'; count: number};
   setShowValidationModal: (show: boolean) => void;
   setShowServiceCenterModal: (show: boolean) => void;
@@ -86,6 +88,8 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
   handleRequestPause,
   handleResumeTracking,
   setShowJobNotesModal,
+  onOrderNotes,
+  hasWorkOrderNotes,
   validationState,
   setShowValidationModal,
   setShowServiceCenterModal,
@@ -432,6 +436,8 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
         onViewNotes={() => {
           setShowJobNotesModal(true);
         }}
+        onOrderNotes={onOrderNotes}
+        hasWorkOrderNotes={hasWorkOrderNotes}
         validationState={validationState}
         onViewValidation={() => setShowValidationModal(true)}
         onViewServiceCenter={() => setShowServiceCenterModal(true)}

@@ -2,6 +2,7 @@ import React, {useState, useEffect} from 'react';
 import {View, Text, TouchableOpacity, StyleSheet, ActivityIndicator} from 'react-native';
 import {Badge} from './Badge';
 import {Icon} from './Icon';
+import {StickyNoteIcon} from './StickyNoteIcon';
 import {OrderData} from '../types/wasteCollection';
 import {colors, spacing, typography, borderRadius} from '../styles/theme';
 import {offlineTrackingService, OfflineStatus} from '../services/offlineTrackingService';
@@ -19,6 +20,10 @@ interface PersistentOrderHeaderProps {
   onPause?: () => void;
   onResume?: () => void;
   onViewNotes?: () => void;
+  /** Opens technician Work Order Notes (distinct from inbound Job Notes). */
+  onOrderNotes?: () => void;
+  /** True when technician has saved non-empty work order notes. */
+  hasWorkOrderNotes?: boolean;
   validationState?: {
     state: 'none' | 'warning' | 'error';
     count: number;
@@ -50,6 +55,8 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
   onPause,
   onResume,
   onViewNotes,
+  onOrderNotes,
+  hasWorkOrderNotes = false,
   validationState,
   onViewValidation,
   onViewServiceCenter,
@@ -245,12 +252,29 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               </>
             )}
           </TouchableOpacity>
+          {onOrderNotes && (
+            <TouchableOpacity
+              onPress={onOrderNotes}
+              style={styles.orderNotesButton}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+              activeOpacity={0.7}
+              accessibilityLabel="Order Notes"
+              accessibilityHint="Open work order notes">
+              <StickyNoteIcon size={20} hasContent={hasWorkOrderNotes} />
+              {!isCollapsed && (
+                <Text style={styles.orderNotesButtonText} numberOfLines={1}>
+                  Order Notes
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
           {!isCollapsed && hasJobNotes && onViewNotes && (
             <TouchableOpacity
               onPress={onViewNotes}
               style={styles.notesButton}
               hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
-              activeOpacity={0.7}>
+              activeOpacity={0.7}
+              accessibilityLabel="Service Notes">
               <Icon name="assignment" size={20} color={colors.foreground} />
             </TouchableOpacity>
           )}
@@ -742,6 +766,21 @@ const styles = StyleSheet.create({
   notesButton: {
     padding: spacing.xs,
     marginRight: spacing.xs,
+  },
+  orderNotesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    marginRight: spacing.xs,
+    borderRadius: borderRadius.md,
+    gap: spacing.xs,
+    minHeight: 32,
+  },
+  orderNotesButtonText: {
+    ...typography.sm,
+    fontWeight: '600',
+    color: colors.foreground,
   },
   validationIndicator: {
     position: 'relative',

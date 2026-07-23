@@ -81,6 +81,8 @@ export interface ContainerSummaryScreenProps {
   handleResumeTracking: () => void;
 
   setShowJobNotesModal: (show: boolean) => void;
+  onOrderNotes: () => void;
+  hasWorkOrderNotes: boolean;
 
   validationState?: {state: 'none' | 'warning' | 'error'; count: number};
 
@@ -163,6 +165,8 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
   handleResumeTracking,
 
   setShowJobNotesModal,
+  onOrderNotes,
+  hasWorkOrderNotes,
 
   validationState,
 
@@ -761,6 +765,10 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
           setShowJobNotesModal(true);
 
         }}
+
+        onOrderNotes={onOrderNotes}
+
+        hasWorkOrderNotes={hasWorkOrderNotes}
 
         validationState={validationState}
 
