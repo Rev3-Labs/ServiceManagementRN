@@ -7,7 +7,6 @@ import {
   Pressable,
   StyleSheet,
   useWindowDimensions,
-  Alert,
 } from 'react-native';
 import {Button} from '../../components/Button';
 import {
@@ -37,6 +36,7 @@ import {
 } from './containerGrouping';
 import {ServiceRequestPicker} from './ServiceRequestPicker';
 import {isItemUnassigned} from './serviceRequestReview';
+import {ConfirmDeleteModal} from './ConfirmDeleteModal';
 
 export interface MaterialsSuppliesScreenProps {
   // PersistentOrderHeader props
@@ -76,6 +76,7 @@ export interface MaterialsSuppliesScreenProps {
   /** True when all service requests are complete and user is in review/manifest phase. */
   canAssignServiceRequests?: boolean;
   openAddMaterialModal?: () => void;
+  onBack: () => void;
 }
 
 export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = ({
@@ -108,6 +109,7 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
   handleMarkServiceTypeComplete,
   canAssignServiceRequests = false,
   openAddMaterialModal,
+  onBack,
 }) => {
   const {width: windowWidth} = useWindowDimensions();
   const useCompactMaterialsLayout = windowWidth < 1000;
@@ -116,23 +118,26 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
     ? isOrderCompleted(selectedOrderData.orderNumber)
     : false;
 
+  const [materialPendingDelete, setMaterialPendingDelete] =
+    useState<MaterialsSupply | null>(null);
+
   const handleDeleteMaterial = (id: string) => {
     setMaterialsSupplies(prev => prev.filter(m => m.id !== id));
   };
 
   const requestDeleteMaterial = (material: MaterialsSupply) => {
-    Alert.alert(
-      'Delete Item',
-      `Are you sure you want to delete ${material.itemNumber}?`,
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => handleDeleteMaterial(material.id),
-        },
-      ],
-    );
+    if (isCurrentOrderCompleted) {
+      return;
+    }
+    setMaterialPendingDelete(material);
+  };
+
+  const confirmDeleteMaterial = () => {
+    if (!materialPendingDelete) {
+      return;
+    }
+    handleDeleteMaterial(materialPendingDelete.id);
+    setMaterialPendingDelete(null);
   };
 
   const handleAdjustQuantity = (id: string, delta: number) => {
@@ -195,7 +200,11 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
     setExpandedServiceTypeId(
       getDefaultExpandedServiceTypeId(defaultGroups, activeServiceTypeTimer),
     );
-  }, [selectedOrderData?.orderNumber, activeServiceTypeTimer]);
+  }, [
+    selectedOrderData?.orderNumber,
+    activeServiceTypeTimer,
+    materialsSupplies.length,
+  ]);
 
   const handleToggleServiceRequestGroup = (serviceTypeId: string) => {
     setExpandedServiceTypeId(prev =>
@@ -237,7 +246,10 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
     <TouchableOpacity
       onPress={() => requestDeleteMaterial(material)}
       disabled={isCurrentOrderCompleted}
-      style={styles.deleteMaterialButton}>
+      style={[
+        styles.deleteMaterialButton,
+        isCurrentOrderCompleted && {opacity: 0.4},
+      ]}>
       <Text style={styles.deleteMaterialButtonText}>Delete</Text>
     </TouchableOpacity>
   );
@@ -427,7 +439,7 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
         orderData={selectedOrderData}
         isCollapsed={isOrderHeaderCollapsed}
         onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
-        onBackPress={() => setCurrentStep('manifest-management')}
+        onBackPress={onBack}
         subtitle="Supplies"
         elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
         isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
@@ -612,7 +624,7 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
           title="Back"
           variant="outline"
           size="md"
-          onPress={() => setCurrentStep('manifest-management')}
+          onPress={onBack}
         />
         <Button
           title="Mark service type complete"
@@ -622,6 +634,17 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
           onPress={handleMarkServiceTypeComplete}
         />
       </View>
+
+      <ConfirmDeleteModal
+        visible={materialPendingDelete != null}
+        message={
+          materialPendingDelete
+            ? `Are you sure you want to delete ${materialPendingDelete.itemNumber}?`
+            : ''
+        }
+        onCancel={() => setMaterialPendingDelete(null)}
+        onConfirm={confirmDeleteMaterial}
+      />
     </View>
   );
 };

@@ -136,6 +136,9 @@ export interface ContainerSummaryScreenProps {
 
   handleMarkServiceTypeComplete: () => void;
 
+  /** Soft-validation then advance when Mark Complete is replaced (order ready for manifest). */
+  handleContinueFromServiceRequest: () => void;
+
   returnToContainersReviewAfterAdd: boolean;
 
   setReturnToContainersReviewAfterAdd: (value: boolean) => void;
@@ -203,6 +206,8 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
   setAddedContainers,
 
   handleMarkServiceTypeComplete,
+
+  handleContinueFromServiceRequest,
 
   returnToContainersReviewAfterAdd,
 
@@ -1056,7 +1061,7 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
 
             disabled={isCurrentOrderCompleted}
 
-            onPress={() => setCurrentStep('containers-review')}
+            onPress={handleContinueFromServiceRequest}
 
           />
 

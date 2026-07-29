@@ -48,11 +48,22 @@ function App(): React.JSX.Element {
 
   const goBack = () => {
     setNavigationState(prev => {
+      if (prev.previousScreens.length === 0) {
+        // Avoid dumping a logged-in user onto Login when the stack is empty.
+        if (username && prev.currentScreen !== 'Login') {
+          return {
+            ...prev,
+            currentScreen: 'WasteCollection',
+            showPostLoginSyncOnWasteCollection: false,
+          };
+        }
+        return prev;
+      }
       const newPreviousScreens = [...prev.previousScreens];
       const previousScreen = newPreviousScreens.pop() as Screen;
       const landingOnWasteCollection = previousScreen === 'WasteCollection';
       return {
-        currentScreen: previousScreen || 'Login',
+        currentScreen: previousScreen,
         previousScreens: newPreviousScreens,
         showPostLoginSyncOnWasteCollection: landingOnWasteCollection
           ? false

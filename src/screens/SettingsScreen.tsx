@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useRef, useCallback} from 'react';
 import {
   View,
   Text,
@@ -77,6 +77,32 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [deviceCount, setDeviceCount] = useState(
     deviceStatusService.getDevices().length,
   );
+  const hasNavigatedBackRef = useRef(false);
+  const saveNavigateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  const navigateBackOnce = useCallback(() => {
+    if (hasNavigatedBackRef.current) {
+      return;
+    }
+    hasNavigatedBackRef.current = true;
+    if (saveNavigateTimeoutRef.current) {
+      clearTimeout(saveNavigateTimeoutRef.current);
+      saveNavigateTimeoutRef.current = null;
+    }
+    onGoBack?.();
+  }, [onGoBack]);
+
+  useEffect(() => {
+    hasNavigatedBackRef.current = false;
+    return () => {
+      if (saveNavigateTimeoutRef.current) {
+        clearTimeout(saveNavigateTimeoutRef.current);
+        saveNavigateTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     return deviceStatusService.onDevicesChange(devices => {
@@ -156,16 +182,16 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
       setSaving(true);
       await saveUserTruck(username, selectedTruck);
       await saveUserTrailer(username, selectedTrailer);
-      // Show success notification
+      // Show success notification, then return once (ignore extra Back presses).
       setSavedTruckId(selectedTruck.number);
       setShowSuccessNotification(true);
-      
-      // Auto-dismiss notification after 3 seconds and navigate back
-      setTimeout(() => {
+
+      if (saveNavigateTimeoutRef.current) {
+        clearTimeout(saveNavigateTimeoutRef.current);
+      }
+      saveNavigateTimeoutRef.current = setTimeout(() => {
         setShowSuccessNotification(false);
-        if (onGoBack) {
-          onGoBack();
-        }
+        navigateBackOnce();
       }, 3000);
     } catch (error) {
       console.error('Error saving truck ID:', error);
@@ -291,7 +317,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
             title="Back"
             variant="ghost"
             size="sm"
-            onPress={onGoBack}
+            onPress={navigateBackOnce}
           />
         )}
       </View>

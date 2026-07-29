@@ -444,7 +444,7 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
                 showHardWarning && styles.netWeightDisplayCardHardWarning,
                 showSoftWarning && styles.netWeightDisplayCardSoftWarning,
               ]}>
-              <Text style={styles.netWeightDisplayLabel}>Container Weight</Text>
+              <Text style={styles.netWeightDisplayLabel}>Net Weight</Text>
               <View style={styles.netWeightDisplayValue}>
                 <Text
                   style={[
@@ -501,7 +501,7 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
               </View>
               <View style={styles.compactWeightDivider} />
               <View style={styles.compactWeightItem}>
-                <Text style={styles.compactWeightLabel}>Scale Weight</Text>
+                <Text style={styles.compactWeightLabel}>Gross Weight</Text>
                 <Input
                   value={scaleWeight}
                   onChangeText={setScaleWeight}

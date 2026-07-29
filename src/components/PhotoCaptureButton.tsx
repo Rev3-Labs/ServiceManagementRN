@@ -10,7 +10,7 @@ import {
 import {Icon} from './Icon';
 import {colors, spacing, typography, borderRadius} from '../styles/theme';
 import {Input} from './Input';
-import {photoService, PhotoCategory, PHOTO_CATEGORY_OPTIONS} from '../services/photoService';
+import {photoService, PhotoCategory, getManualPhotoCategoryDefinitions} from '../services/photoService';
 import {launchCamera, ImagePickerResponse, CameraOptions} from 'react-native-image-picker';
 
 interface PhotoCaptureButtonProps {
@@ -142,11 +142,13 @@ export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
     }
   }, [pendingPhotoUri, pendingPhotoCategory, photoCaption, orderNumber, onPhotoAdded, resetPendingPhoto]);
 
-  const photoCategories = PHOTO_CATEGORY_OPTIONS.map(({category, label, icon}) => ({
-    category,
-    label,
-    icon,
-  }));
+  const photoCategories = getManualPhotoCategoryDefinitions().map(
+    ({category, label, icon}) => ({
+      category,
+      label,
+      icon,
+    }),
+  );
 
   return (
     <>

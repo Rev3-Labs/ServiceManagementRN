@@ -38,6 +38,7 @@ import {
 } from './containerGrouping';
 import {ServiceRequestPicker} from './ServiceRequestPicker';
 import {isItemUnassigned} from './serviceRequestReview';
+import {ConfirmDeleteModal} from './ConfirmDeleteModal';
 
 export interface EquipmentPPEScreenProps {
   // PersistentOrderHeader props
@@ -81,6 +82,7 @@ export interface EquipmentPPEScreenProps {
   inManifestCompletion?: boolean;
   /** True when all service requests are complete and user is in review/manifest phase. */
   canAssignServiceRequests?: boolean;
+  onBack: () => void;
 }
 
 export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
@@ -112,6 +114,7 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
   handleMarkServiceTypeComplete,
   inManifestCompletion = false,
   canAssignServiceRequests = false,
+  onBack,
 }) => {
   const [showAddEquipmentModal, setShowAddEquipmentModal] = useState(false);
   const [selectedEquipmentItem, setSelectedEquipmentItem] = useState<
@@ -133,6 +136,12 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
   const [assignServiceTypeId, setAssignServiceTypeId] = useState<string | null>(
     null,
   );
+  const [equipmentPendingDelete, setEquipmentPendingDelete] =
+    useState<EquipmentPPEType | null>(null);
+
+  const isCurrentOrderCompleted = selectedOrderData
+    ? isOrderCompleted(selectedOrderData.orderNumber)
+    : false;
 
   // Pre-determined equipment/PPE list
   const EQUIPMENT_PPE_CATALOG = [
@@ -225,6 +234,21 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
     setEquipmentPPE(prev => prev.filter(e => e.id !== id));
   };
 
+  const requestDeleteEquipment = (equipment: EquipmentPPEType) => {
+    if (isCurrentOrderCompleted) {
+      return;
+    }
+    setEquipmentPendingDelete(equipment);
+  };
+
+  const confirmDeleteEquipment = () => {
+    if (!equipmentPendingDelete) {
+      return;
+    }
+    handleDeleteEquipment(equipmentPendingDelete.id);
+    setEquipmentPendingDelete(null);
+  };
+
   const handleAdjustCount = (id: string, delta: number) => {
     setEquipmentPPE(prev =>
       prev.map(e =>
@@ -269,10 +293,6 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
     );
   }, [selectedOrderData?.orderNumber, activeServiceTypeTimer, equipmentPPE.length]);
 
-  const showGroupedEquipment =
-    canAssignServiceRequests &&
-    (selectedOrderData?.programs.length ?? 0) > 1;
-
   const needsEquipmentServicePicker =
     canAssignServiceRequests &&
     (selectedOrderData?.programs.length ?? 0) > 1;
@@ -311,7 +331,7 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
   };
 
   const renderAssignmentPanel = (equipment: EquipmentPPEType) => {
-    if (assigningEquipmentId !== equipment.id) {
+    if (!selectedOrderData || assigningEquipmentId !== equipment.id) {
       return null;
     }
 
@@ -359,6 +379,15 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
         <Text
           style={[
             styles.materialsTableCell,
+            styles.materialsTableCellServiceRequest,
+          ]}>
+          {selectedOrderData
+            ? formatServiceRequestLabel(groupServiceTypeId, selectedOrderData)
+            : groupServiceTypeId}
+        </Text>
+        <Text
+          style={[
+            styles.materialsTableCell,
             styles.materialsTableCellDescription,
           ]}>
           {equipment.name}
@@ -389,8 +418,12 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
         <View style={[styles.materialsTableCell, styles.materialCardActions]}>
           {renderAssignmentButton(equipment, groupServiceTypeId)}
           <TouchableOpacity
-            onPress={() => handleDeleteEquipment(equipment.id)}
-            style={styles.deleteMaterialButton}>
+            onPress={() => requestDeleteEquipment(equipment)}
+            disabled={isCurrentOrderCompleted}
+            style={[
+              styles.deleteMaterialButton,
+              isCurrentOrderCompleted && {opacity: 0.4},
+            ]}>
             <Text style={styles.deleteMaterialButtonText}>Delete</Text>
           </TouchableOpacity>
         </View>
@@ -407,7 +440,7 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
         orderData={selectedOrderData}
         isCollapsed={isOrderHeaderCollapsed}
         onToggleCollapse={() => setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)}
-        onBackPress={() => setCurrentStep('manifest-management')}
+        onBackPress={onBack}
         subtitle="Equipment"
         elapsedTimeDisplay={elapsedTimeDisplay && currentOrderTimeTracking && selectedOrderData ? elapsedTimeDisplay : undefined}
         isPaused={Boolean(currentOrderTimeTracking?.pausedAt)}
@@ -462,8 +495,15 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
               )}
 
               {equipmentPPE.length > 0 ? (
-                showGroupedEquipment ? (
-                  groupedEquipment.map(group => {
+                <>
+                  <Text style={styles.summaryText}>
+                    {equipmentPPE.length} item
+                    {equipmentPPE.length !== 1 ? 's' : ''} •{' '}
+                    {equipmentPPE.reduce((sum, item) => sum + item.count, 0)}{' '}
+                    total qty across this work order
+                  </Text>
+
+                  {groupedEquipment.map(group => {
                     const isExpanded = expandedServiceTypeId === group.serviceTypeId;
                     const groupCount = group.equipment.reduce(
                       (sum, item) => sum + item.count,
@@ -507,6 +547,18 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                               ])}
                               textStyle={StyleSheet.flatten([
                                 styles.serviceTypeBadgeText,
+                                serviceTypeStatusById.get(group.serviceTypeId) ===
+                                  'noship' && styles.serviceTypeBadgeTextNoship,
+                                serviceTypeStatusById.get(group.serviceTypeId) ===
+                                  'completed' &&
+                                  styles.serviceTypeBadgeTextCompleted,
+                                serviceTypeStatusById.get(group.serviceTypeId) ===
+                                  'in-progress' &&
+                                  styles.serviceTypeBadgeTextInProgress,
+                                (!serviceTypeStatusById.get(group.serviceTypeId) ||
+                                  serviceTypeStatusById.get(group.serviceTypeId) ===
+                                    'pending') &&
+                                  styles.serviceTypeBadgeTextPending,
                                 group.serviceTypeId ===
                                   UNASSIGNED_SERVICE_TYPE_ID &&
                                   styles.serviceTypeBadgeTextPending,
@@ -535,6 +587,13 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                                 <Text
                                   style={[
                                     styles.materialsTableHeaderText,
+                                    styles.materialsTableCellServiceRequest,
+                                  ]}>
+                                  Service Request
+                                </Text>
+                                <Text
+                                  style={[
+                                    styles.materialsTableHeaderText,
                                     styles.materialsTableCellDescription,
                                   ]}>
                                   Equipment
@@ -554,27 +613,8 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
                         )}
                       </View>
                     );
-                  })
-                ) : (
-                <View style={styles.materialsTable}>
-                  <View style={styles.materialsTableHeader}>
-                    <Text
-                      style={[
-                        styles.materialsTableHeaderText,
-                        styles.materialsTableCellDescription,
-                      ]}>
-                      Equipment
-                    </Text>
-                    <Text style={styles.materialsTableHeaderText}>Qty</Text>
-                    <Text style={styles.materialsTableHeaderText}>
-                      Action
-                    </Text>
-                  </View>
-                  {equipmentPPE.map(equipment =>
-                    renderEquipmentRow(equipment, equipment.serviceTypeId ?? UNASSIGNED_SERVICE_TYPE_ID),
-                  )}
-                </View>
-                )
+                  })}
+                </>
               ) : (
                 <View style={styles.emptyMaterialsState}>
                   <Text style={styles.emptyMaterialsText}>
@@ -595,7 +635,7 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
           title="Back"
           variant="outline"
           size="md"
-          onPress={() => setCurrentStep('manifest-management')}
+          onPress={onBack}
         />
         {!inManifestCompletion && (
           <Button
@@ -763,6 +803,17 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
           </View>
         </View>
       </Modal>
+
+      <ConfirmDeleteModal
+        visible={equipmentPendingDelete != null}
+        message={
+          equipmentPendingDelete
+            ? `Are you sure you want to delete ${equipmentPendingDelete.name}?`
+            : ''
+        }
+        onCancel={() => setEquipmentPendingDelete(null)}
+        onConfirm={confirmDeleteEquipment}
+      />
     </View>
   );
 };
