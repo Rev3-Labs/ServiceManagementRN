@@ -3,44 +3,83 @@ import {View, Text, Modal, StyleSheet} from 'react-native';
 import {Button} from '../../components/Button';
 import {colors, spacing, borderRadius, typography} from '../../styles/theme';
 
+export type IncompleteOrderDataLossPhase = 'confirm' | 'cleared';
+
 export interface IncompleteOrderDataLossModalProps {
   visible: boolean;
+  workOrderNumber: string;
+  phase?: IncompleteOrderDataLossPhase;
   onClearData: () => void;
   onReview: () => void;
+  /** Dismiss after successful clear (OK / Close). */
+  onCloseCleared: () => void;
 }
 
 export const IncompleteOrderDataLossModal: React.FC<
   IncompleteOrderDataLossModalProps
-> = ({visible, onClearData, onReview}) => {
+> = ({
+  visible,
+  workOrderNumber,
+  phase = 'confirm',
+  onClearData,
+  onReview,
+  onCloseCleared,
+}) => {
+  const isCleared = phase === 'cleared';
+
   return (
     <Modal
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onReview}>
+      onRequestClose={isCleared ? onCloseCleared : onReview}>
       <View style={styles.overlay}>
         <View style={styles.card}>
-          <Text style={styles.title}>Incomplete Order Found</Text>
-          <Text style={styles.message}>
-            You have an incomplete order. If you proceed, all your data
-            (including containers, materials/supplies, equipment, and/or photos)
-            will be wiped from the previous order.
+          <Text style={styles.title}>
+            {isCleared ? 'Order Reset' : 'Incomplete Order Found'}
           </Text>
+          {isCleared ? (
+            <Text style={styles.message}>
+              Your work order
+              {workOrderNumber ? ` ${workOrderNumber}` : ''} has been reset and
+              all data has been wiped out.
+            </Text>
+          ) : (
+            <Text style={styles.message}>
+              You have an incomplete order
+              {workOrderNumber ? ` ${workOrderNumber}` : ''}.{'\n\n'}
+              If you proceed, all your data (including containers,
+              materials/supplies, equipment, and/or photos) will be wiped from
+              the previous order.
+            </Text>
+          )}
           <View style={styles.footer}>
-            <Button
-              title="No, Review"
-              variant="outline"
-              size="md"
-              onPress={onReview}
-              style={styles.footerButton}
-            />
-            <Button
-              title="Yes, Clear Data"
-              variant="destructive"
-              size="md"
-              onPress={onClearData}
-              style={styles.footerButton}
-            />
+            {isCleared ? (
+              <Button
+                title="OK"
+                variant="primary"
+                size="md"
+                onPress={onCloseCleared}
+                style={styles.footerButton}
+              />
+            ) : (
+              <>
+                <Button
+                  title="No, Review"
+                  variant="outline"
+                  size="md"
+                  onPress={onReview}
+                  style={styles.footerButton}
+                />
+                <Button
+                  title="Yes, Clear Data"
+                  variant="destructive"
+                  size="md"
+                  onPress={onClearData}
+                  style={styles.footerButton}
+                />
+              </>
+            )}
           </View>
         </View>
       </View>

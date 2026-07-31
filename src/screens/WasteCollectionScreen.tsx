@@ -336,6 +336,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     useState(false);
   const [showIncompleteDataLossModal, setShowIncompleteDataLossModal] =
     useState(false);
+  const [incompleteDataLossPhase, setIncompleteDataLossPhase] = useState<
+    'confirm' | 'cleared'
+  >('confirm');
   const [showIncompleteManifestVoidModal, setShowIncompleteManifestVoidModal] =
     useState(false);
   const [incompleteOrderSwapOrderNumber, setIncompleteOrderSwapOrderNumber] =
@@ -1335,6 +1338,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       if (hasServiceDataForOrder(inProgressOrderNumber)) {
         setIncompleteOrderSwapOrderNumber(inProgressOrderNumber);
         pendingAckProceedRef.current = onProceed;
+        setIncompleteDataLossPhase('confirm');
         setShowIncompleteDataLossModal(true);
         return;
       }
@@ -1354,28 +1358,32 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
   const handleIncompleteOrderClearData = useCallback(() => {
     const orderNumber = incompleteOrderSwapOrderNumber;
-    setShowIncompleteDataLossModal(false);
     if (!orderNumber) {
       pendingAckProceedRef.current = null;
+      setShowIncompleteDataLossModal(false);
+      setIncompleteDataLossPhase('confirm');
       return;
     }
 
     void (async () => {
       await closeIncompleteOrderAndWipe(orderNumber);
-      setIncompleteOrderSwapOrderNumber(null);
-      const proceed = pendingAckProceedRef.current;
-      pendingAckProceedRef.current = null;
-      Alert.alert(
-        'Order Closed',
-        `Your incomplete order ${orderNumber} has been closed and all data have been wiped out!`,
-        [{text: 'OK', onPress: () => proceed?.()}],
-      );
+      setIncompleteDataLossPhase('cleared');
     })();
   }, [incompleteOrderSwapOrderNumber, closeIncompleteOrderAndWipe]);
+
+  const handleIncompleteOrderClearedClose = useCallback(() => {
+    setShowIncompleteDataLossModal(false);
+    setIncompleteDataLossPhase('confirm');
+    setIncompleteOrderSwapOrderNumber(null);
+    const proceed = pendingAckProceedRef.current;
+    pendingAckProceedRef.current = null;
+    proceed?.();
+  }, []);
 
   const handleIncompleteOrderReview = useCallback(() => {
     const orderNumber = incompleteOrderSwapOrderNumber;
     setShowIncompleteDataLossModal(false);
+    setIncompleteDataLossPhase('confirm');
     pendingAckProceedRef.current = null;
     setIncompleteOrderSwapOrderNumber(null);
     if (orderNumber) {
@@ -4808,8 +4816,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
       <IncompleteOrderDataLossModal
         visible={showIncompleteDataLossModal}
+        workOrderNumber={incompleteOrderSwapOrderNumber ?? ''}
+        phase={incompleteDataLossPhase}
         onClearData={handleIncompleteOrderClearData}
         onReview={handleIncompleteOrderReview}
+        onCloseCleared={handleIncompleteOrderClearedClose}
       />
       <IncompleteOrderManifestVoidModal
         visible={showIncompleteManifestVoidModal}
