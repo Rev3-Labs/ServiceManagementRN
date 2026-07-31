@@ -36,7 +36,7 @@ import {SyncStatus} from '../../services/syncService';
 
 import {TimeTrackingRecord} from '../../services/timeTrackingService';
 
-import {isSuppliesDropOffServiceType, shouldSkipContainerEntryFlow} from '../../services/serviceTypeService';
+import {shouldSkipContainerEntryFlow} from '../../services/serviceTypeService';
 
 import {styles} from './styles';
 
@@ -229,9 +229,6 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
 
   const canEditContainers = !manifestGenerated && !isCurrentOrderCompleted;
 
-  const isSuppliesDropOffActive = isSuppliesDropOffServiceType(
-    activeServiceTypeTimer ?? '',
-  );
   const isNoShipActive = Boolean(
     selectedOrderData &&
       activeServiceTypeTimer &&
@@ -244,7 +241,8 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
     activeServiceTypeTimer ?? '',
     isNoShipActive,
   );
-  const containersAddDisabled = isSuppliesDropOffActive || isNoShipActive;
+  // No-Ship has no containers to add. SDO still allows supply containers.
+  const containersAddDisabled = isNoShipActive;
 
 
 
