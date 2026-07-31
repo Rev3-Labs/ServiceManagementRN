@@ -115,8 +115,7 @@ const DevicesScreen: React.FC<DevicesScreenProps> = ({onGoBack}) => {
 
         {devices.map(device => {
           const isReconnecting = reconnectingId === device.id;
-          const showReconnect =
-            device.id !== 'camera' && device.status !== 'connected';
+          const showReconnect = device.status !== 'connected';
 
           return (
             <Card key={device.id} style={styles.deviceCard}>

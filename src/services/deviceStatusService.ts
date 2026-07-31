@@ -1,8 +1,7 @@
 export type DeviceId =
   | 'scale'
   | 'label-printer'
-  | 'document-printer'
-  | 'camera';
+  | 'document-printer';
 
 export type DeviceConnectionStatus =
   | 'connected'
@@ -30,7 +29,8 @@ const DEVICE_CATALOG: Array<
     id: 'scale',
     name: 'Truck scale',
     description: 'Live weight readings during container entry',
-    icon: 'monitor-weight',
+    // Kitchen-scale glyph (Material Icons `scale`)
+    icon: 'scale',
     detail: 'Bluetooth · Simulated',
   },
   {
@@ -47,13 +47,6 @@ const DEVICE_CATALOG: Array<
     icon: 'description',
     detail: 'Office printer · Network',
   },
-  {
-    id: 'camera',
-    name: 'Device camera',
-    description: 'Service photos and document capture',
-    icon: 'camera-alt',
-    detail: 'Built-in',
-  },
 ];
 
 class DeviceStatusService {
@@ -61,7 +54,6 @@ class DeviceStatusService {
     ['scale', 'connected'],
     ['label-printer', 'disconnected'],
     ['document-printer', 'disconnected'],
-    ['camera', 'connected'],
   ]);
 
   private lastUpdated = new Map<DeviceId, number>();
@@ -125,11 +117,6 @@ class DeviceStatusService {
   async reconnectDevice(id: DeviceId): Promise<void> {
     const device = DEVICE_CATALOG.find(entry => entry.id === id);
     if (!device) {
-      return;
-    }
-
-    if (id === 'camera') {
-      this.setDeviceStatus(id, 'connected');
       return;
     }
 

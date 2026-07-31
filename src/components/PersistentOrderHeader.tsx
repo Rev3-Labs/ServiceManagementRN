@@ -3,6 +3,7 @@ import {View, Text, TouchableOpacity, StyleSheet, ActivityIndicator} from 'react
 import {Badge} from './Badge';
 import {Icon} from './Icon';
 import {StickyNoteIcon} from './StickyNoteIcon';
+import {ConnectedDevicesControl} from './ConnectedDevicesControl';
 import {OrderData} from '../types/wasteCollection';
 import {colors, spacing, typography, borderRadius} from '../styles/theme';
 import {offlineTrackingService, OfflineStatus} from '../services/offlineTrackingService';
@@ -252,6 +253,7 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               </>
             )}
           </TouchableOpacity>
+          <ConnectedDevicesControl />
           {onOrderNotes && (
             <TouchableOpacity
               onPress={onOrderNotes}
