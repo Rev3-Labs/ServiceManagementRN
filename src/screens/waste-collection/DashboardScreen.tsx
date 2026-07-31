@@ -18,6 +18,10 @@ import {Badge} from '../../components/Badge';
 import {Icon} from '../../components/Icon';
 import {StickyNoteIcon} from '../../components/StickyNoteIcon';
 import {
+  ServiceNotesContent,
+  hasServiceNotes,
+} from '../../components/ServiceNotesContent';
+import {
   Card,
   CardContent,
   CardHeader,
@@ -535,12 +539,7 @@ export function renderDashboardTabContent(
                 const typeStyle = getBusinessTypeStyle(order.orderType);
                 const typeLabel = typeStyle.label;
                 const isExpanded = dashboardServiceListExpandedOrderNumber === order.orderNumber;
-                const hasNotes = Boolean(
-                  order.generatorStatus ||
-                  order.siteAccessNotes ||
-                  order.orderNotes ||
-                  order.customerSpecialInstructions,
-                );
+                const hasNotes = hasServiceNotes(order);
                 return (
                   <View key={order.orderNumber} style={styles.serviceListCardWrapper}>
                     <TouchableOpacity
@@ -599,32 +598,7 @@ export function renderDashboardTabContent(
                     </TouchableOpacity>
                     {isExpanded && hasNotes && (
                       <View style={styles.serviceListExpanded}>
-                        {order.generatorStatus && (
-                          <View style={styles.serviceListExpandedBlock}>
-                            <Text style={styles.serviceListExpandedLabel}>Generator notes</Text>
-                            <Text style={styles.serviceListExpandedValue}>
-                              {order.generatorStatus}{order.epaId ? '. EPA ID: Yes' : ''}
-                            </Text>
-                          </View>
-                        )}
-                        {order.customerSpecialInstructions && (
-                          <View style={styles.serviceListExpandedBlock}>
-                            <Text style={styles.serviceListExpandedLabel}>Customer notes</Text>
-                            <Text style={styles.serviceListExpandedValue}>{order.customerSpecialInstructions}</Text>
-                          </View>
-                        )}
-                        {order.siteAccessNotes && (
-                          <View style={styles.serviceListExpandedBlock}>
-                            <Text style={styles.serviceListExpandedLabel}>Site notes</Text>
-                            <Text style={styles.serviceListExpandedValue}>{order.siteAccessNotes}</Text>
-                          </View>
-                        )}
-                        {order.orderNotes && (
-                          <View style={styles.serviceListExpandedBlock}>
-                            <Text style={styles.serviceListExpandedLabel}>Order notes</Text>
-                            <Text style={styles.serviceListExpandedValue}>{order.orderNotes}</Text>
-                          </View>
-                        )}
+                        <ServiceNotesContent order={order} variant="compact" />
                       </View>
                     )}
                   </View>
@@ -697,11 +671,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     ? isOrderCompleted(selectedOrder.orderNumber)
     : false;
   const hasDetailNotes = Boolean(
-    selectedOrder && (
-      selectedOrder.customerSpecialInstructions ||
-      selectedOrder.siteAccessNotes ||
-      selectedOrder.orderNotes
-    ),
+    selectedOrder && hasServiceNotes(selectedOrder),
   );
 
   // ----- Service Notes acknowledgment + state-driven section layout -----
@@ -1451,50 +1421,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                       <View style={styles.detailNotesSection}>
                         {hasDetailNotes ? (
                           <>
-                            {selectedOrder.customerSpecialInstructions && (
-                              <Card style={styles.jobNotesCard}>
-                                <CardHeader>
-                                  <CardTitle>
-                                    <CardTitleText>Customer Notes</CardTitleText>
-                                  </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                  <Text style={styles.jobNotesText}>
-                                    {selectedOrder.customerSpecialInstructions}
-                                  </Text>
-                                </CardContent>
-                              </Card>
-                            )}
-
-                            {selectedOrder.siteAccessNotes && (
-                              <Card style={styles.jobNotesCard}>
-                                <CardHeader>
-                                  <CardTitle>
-                                    <CardTitleText>Site Notes</CardTitleText>
-                                  </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                  <Text style={styles.jobNotesText}>
-                                    {selectedOrder.siteAccessNotes}
-                                  </Text>
-                                </CardContent>
-                              </Card>
-                            )}
-
-                            {selectedOrder.orderNotes && (
-                              <Card style={styles.jobNotesCard}>
-                                <CardHeader>
-                                  <CardTitle>
-                                    <CardTitleText>Order Notes</CardTitleText>
-                                  </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                  <Text style={styles.jobNotesText}>
-                                    {selectedOrder.orderNotes}
-                                  </Text>
-                                </CardContent>
-                              </Card>
-                            )}
+                            <ServiceNotesContent order={selectedOrder} />
 
                             {!notesAcknowledged && (
                               <Button
@@ -2540,50 +2467,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                       <View style={styles.detailNotesSection}>
                         {hasDashboardNotes ? (
                           <>
-                            {dashboardSelectedOrder.customerSpecialInstructions && (
-                              <Card style={styles.jobNotesCard}>
-                                <CardHeader>
-                                  <CardTitle>
-                                    <CardTitleText>Customer Notes</CardTitleText>
-                                  </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                  <Text style={styles.jobNotesText}>
-                                    {dashboardSelectedOrder.customerSpecialInstructions}
-                                  </Text>
-                                </CardContent>
-                              </Card>
-                            )}
-
-                            {dashboardSelectedOrder.siteAccessNotes && (
-                              <Card style={styles.jobNotesCard}>
-                                <CardHeader>
-                                  <CardTitle>
-                                    <CardTitleText>Site Notes</CardTitleText>
-                                  </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                  <Text style={styles.jobNotesText}>
-                                    {dashboardSelectedOrder.siteAccessNotes}
-                                  </Text>
-                                </CardContent>
-                              </Card>
-                            )}
-
-                            {dashboardSelectedOrder.orderNotes && (
-                              <Card style={styles.jobNotesCard}>
-                                <CardHeader>
-                                  <CardTitle>
-                                    <CardTitleText>Order Notes</CardTitleText>
-                                  </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                  <Text style={styles.jobNotesText}>
-                                    {dashboardSelectedOrder.orderNotes}
-                                  </Text>
-                                </CardContent>
-                              </Card>
-                            )}
+                            <ServiceNotesContent order={dashboardSelectedOrder} />
 
                             {!dashboardNotesAcknowledged && (
                               <Button

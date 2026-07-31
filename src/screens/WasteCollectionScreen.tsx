@@ -33,6 +33,10 @@ import {ChecklistAnswer} from '../types/checklist';
 import {Button} from '../components/Button';
 import {Input} from '../components/Input';
 import {
+  ServiceNotesContent,
+  hasServiceNotes,
+} from '../components/ServiceNotesContent';
+import {
   Card,
   CardContent,
   CardHeader,
@@ -1170,11 +1174,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   );
 
   const hasOrderNotes = useCallback((order: OrderData): boolean => {
-    return Boolean(
-      order.customerSpecialInstructions ||
-        order.siteAccessNotes ||
-        order.orderNotes,
-    );
+    return hasServiceNotes(order);
   }, []);
 
   const getWorkOrderNotes = useCallback(
@@ -3136,12 +3136,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 const typeStyle = getBusinessTypeStyle(order.orderType);
                 const typeLabel = typeStyle.label;
                 const isExpanded = dashboardServiceListExpandedOrderNumber === order.orderNumber;
-                const hasNotes = Boolean(
-                  order.generatorStatus ||
-                  order.siteAccessNotes ||
-                  order.orderNotes ||
-                  order.customerSpecialInstructions,
-                );
+                const hasNotes = hasServiceNotes(order);
                 return (
                   <View key={order.orderNumber} style={styles.serviceListCardWrapper}>
                     <TouchableOpacity
@@ -3200,32 +3195,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     </TouchableOpacity>
                     {isExpanded && hasNotes && (
                       <View style={styles.serviceListExpanded}>
-                        {order.generatorStatus && (
-                          <View style={styles.serviceListExpandedBlock}>
-                            <Text style={styles.serviceListExpandedLabel}>Generator notes</Text>
-                            <Text style={styles.serviceListExpandedValue}>
-                              {order.generatorStatus}{order.epaId ? '. EPA ID: Yes' : ''}
-                            </Text>
-                          </View>
-                        )}
-                        {order.customerSpecialInstructions && (
-                          <View style={styles.serviceListExpandedBlock}>
-                            <Text style={styles.serviceListExpandedLabel}>Customer notes</Text>
-                            <Text style={styles.serviceListExpandedValue}>{order.customerSpecialInstructions}</Text>
-                          </View>
-                        )}
-                        {order.siteAccessNotes && (
-                          <View style={styles.serviceListExpandedBlock}>
-                            <Text style={styles.serviceListExpandedLabel}>Site notes</Text>
-                            <Text style={styles.serviceListExpandedValue}>{order.siteAccessNotes}</Text>
-                          </View>
-                        )}
-                        {order.orderNotes && (
-                          <View style={styles.serviceListExpandedBlock}>
-                            <Text style={styles.serviceListExpandedLabel}>Order notes</Text>
-                            <Text style={styles.serviceListExpandedValue}>{order.orderNotes}</Text>
-                          </View>
-                        )}
+                        <ServiceNotesContent order={order} variant="compact" />
                       </View>
                     )}
                   </View>
@@ -4577,12 +4547,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
   // Get order and notes data
   const jobNotesOrder = selectedOrderData;
-  const hasJobNotes = jobNotesOrder && (
-    jobNotesOrder.customerSpecialInstructions ||
-    jobNotesOrder.siteAccessNotes ||
-    jobNotesOrder.orderNotes ||
-    (jobNotesOrder.safetyWarnings && jobNotesOrder.safetyWarnings.length > 0)
-  );
+  const hasJobNotes = Boolean(jobNotesOrder && hasServiceNotes(jobNotesOrder));
 
   // Load persisted validation issues when order changes
   useEffect(() => {
@@ -4911,78 +4876,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             <ScrollView
               style={styles.jobNotesModalScroll}
               contentContainerStyle={styles.jobNotesModalContent}>
-              {jobNotesOrder.customerSpecialInstructions && (
-                <Card style={styles.jobNotesCard}>
-                  <CardHeader>
-                    <CardTitle>
-                      <CardTitleText>Customer Notes</CardTitleText>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <Text style={styles.jobNotesText}>
-                      {jobNotesOrder.customerSpecialInstructions}
-                    </Text>
-                  </CardContent>
-                </Card>
-              )}
-
-              {jobNotesOrder.siteAccessNotes && (
-                <Card style={styles.jobNotesCard}>
-                  <CardHeader>
-                    <CardTitle>
-                      <CardTitleText>Site Notes</CardTitleText>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <Text style={styles.jobNotesText}>
-                      {jobNotesOrder.siteAccessNotes}
-                    </Text>
-                  </CardContent>
-                </Card>
-              )}
-
-              {jobNotesOrder.orderNotes && (
-                <Card style={styles.jobNotesCard}>
-                  <CardHeader>
-                    <CardTitle>
-                      <CardTitleText>Order Notes</CardTitleText>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <Text style={styles.jobNotesText}>
-                      {jobNotesOrder.orderNotes}
-                    </Text>
-                  </CardContent>
-                </Card>
-              )}
-
-              {jobNotesOrder.safetyWarnings && jobNotesOrder.safetyWarnings.length > 0 && (
-                <Card style={styles.jobNotesSafetyCard}>
-                  <CardHeader>
-                  <CardTitle>
-                    <View style={styles.jobNotesSafetyTitleContainer}>
-                      <Icon
-                        name="warning"
-                        size={20}
-                        color={colors.destructive}
-                        style={styles.jobNotesSafetyIcon}
-                      />
-                      <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
-                        Safety Warnings
-                      </Text>
-                    </View>
-                  </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {jobNotesOrder.safetyWarnings.map((warning, index) => (
-                      <View key={index} style={styles.safetyWarningItem}>
-                        <Text style={styles.safetyWarningText}>{warning}</Text>
-                      </View>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
-
+              <ServiceNotesContent order={jobNotesOrder} />
             </ScrollView>
           </SafeAreaView>
         </Modal>
@@ -5040,74 +4934,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                     <Text style={styles.allNotesOrderMeta}>{locationLine}</Text>
                     <Text style={styles.allNotesOrderMeta}>{order.serviceDate}</Text>
 
-                    {order.customerSpecialInstructions && (
-                      <Card style={styles.jobNotesCard}>
-                        <CardHeader>
-                          <CardTitle>
-                            <CardTitleText>Customer Notes</CardTitleText>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <Text style={styles.jobNotesText}>
-                            {order.customerSpecialInstructions}
-                          </Text>
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    {order.siteAccessNotes && (
-                      <Card style={styles.jobNotesCard}>
-                        <CardHeader>
-                          <CardTitle>
-                            <CardTitleText>Site Notes</CardTitleText>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <Text style={styles.jobNotesText}>{order.siteAccessNotes}</Text>
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    {order.orderNotes && (
-                      <Card style={styles.jobNotesCard}>
-                        <CardHeader>
-                          <CardTitle>
-                            <CardTitleText>Order Notes</CardTitleText>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <Text style={styles.jobNotesText}>{order.orderNotes}</Text>
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    {order.safetyWarnings && order.safetyWarnings.length > 0 && (
-                      <Card style={styles.jobNotesSafetyCard}>
-                        <CardHeader>
-                          <CardTitle>
-                            <View style={styles.jobNotesSafetyTitleContainer}>
-                              <Icon
-                                name="warning"
-                                size={20}
-                                color={colors.destructive}
-                                style={styles.jobNotesSafetyIcon}
-                              />
-                              <Text style={[styles.cardTitleText, styles.jobNotesSafetyTitle]}>
-                                Safety Warnings
-                              </Text>
-                            </View>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          {order.safetyWarnings.map((warning, index) => (
-                            <View key={index} style={styles.safetyWarningItem}>
-                              <Text style={styles.safetyWarningText}>{warning}</Text>
-                            </View>
-                          ))}
-                        </CardContent>
-                      </Card>
-                    )}
-
+                    <ServiceNotesContent order={order} />
                   </View>
                 );
               })

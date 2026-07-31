@@ -4,6 +4,7 @@ import {Badge} from './Badge';
 import {Icon} from './Icon';
 import {StickyNoteIcon} from './StickyNoteIcon';
 import {ConnectedDevicesControl} from './ConnectedDevicesControl';
+import {hasServiceNotes} from './ServiceNotesContent';
 import {OrderData} from '../types/wasteCollection';
 import {colors, spacing, typography, borderRadius} from '../styles/theme';
 import {offlineTrackingService, OfflineStatus} from '../services/offlineTrackingService';
@@ -86,11 +87,7 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
     return unsubscribe;
   }, []);
 
-  const hasJobNotes = 
-    orderData.customerSpecialInstructions ||
-    orderData.siteAccessNotes ||
-    orderData.orderNotes ||
-    (orderData.safetyWarnings && orderData.safetyWarnings.length > 0);
+  const hasJobNotes = hasServiceNotes(orderData);
   const formatAddress = () => {
     const parts = [orderData.site, orderData.city, orderData.state].filter(
       Boolean,
