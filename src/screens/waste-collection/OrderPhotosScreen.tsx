@@ -85,7 +85,6 @@ export interface OrderPhotosScreenProps {
   hasNoShipItems?: boolean;
   canAssignServiceRequests?: boolean;
   activeServiceTypeTimer?: string | null;
-  handleMarkServiceTypeComplete: () => void;
   /** When set, select this category chip on open (e.g. from Service Summary deep link). */
   initialPhotoCategory?: PhotoCategory | null;
 }
@@ -118,7 +117,6 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
   hasNoShipItems = false,
   canAssignServiceRequests = false,
   activeServiceTypeTimer = null,
-  handleMarkServiceTypeComplete,
   initialPhotoCategory = null,
 }) => {
   const {width: windowWidth} = useWindowDimensions();
@@ -995,22 +993,13 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
         </ScrollView>
       </View>
 
-      <View style={styles.footer}>
+      <View style={styles.sideQuestFooter}>
         <Button
-          title="Back"
+          title="Close"
           variant="outline"
           size="md"
           onPress={onBack}
         />
-        {!inManifestCompletion && (
-          <Button
-            title="Mark service type complete"
-            variant="primary"
-            size="md"
-            disabled={!activeServiceTypeTimer}
-            onPress={handleMarkServiceTypeComplete}
-          />
-        )}
       </View>
 
       <Modal

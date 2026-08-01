@@ -3338,9 +3338,19 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   };
 
   // Standard Full-Screen Dashboard Screen (original)
+  const SIDE_QUEST_STEPS: ReadonlySet<FlowStep> = useMemo(
+    () => new Set(['materials-supplies', 'equipment-ppe', 'order-photos']),
+    [],
+  );
+
   const navigateToSideQuest = useCallback(
     (step: FlowStep, options?: {photoCategory?: PhotoCategory}) => {
-      setSideQuestReturnStep(currentStep);
+      // Opening from the main flow remembers the underlying screen.
+      // Switching Materials ↔ Equipment ↔ Photos replaces the overlay and
+      // keeps the original return target (modal-style).
+      if (!SIDE_QUEST_STEPS.has(currentStep)) {
+        setSideQuestReturnStep(currentStep);
+      }
       if (step === 'order-photos') {
         setPhotosInitialCategory(options?.photoCategory ?? null);
       } else {
@@ -3348,7 +3358,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       }
       setCurrentStep(step);
     },
-    [currentStep],
+    [currentStep, SIDE_QUEST_STEPS],
   );
 
   const navigateBackFromSideQuest = useCallback(() => {
@@ -3648,16 +3658,24 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       navigateToSideQuest('order-photos');
     };
 
-    const isServiceSummaryStep = currentStep === 'order-service';
-    // Once the user has progressed into the manifest-completion phase, Containers
-    // stay locked even when they side-step into equipment-ppe or materials-supplies
-    // via the bottom-row buttons.
-    const containersDisabled = inManifestCompletion;
-    // Materials and Equipment stay editable through review/manifest but lock at service summary.
-    const materialsDisabled = isServiceSummaryStep;
-    const equipmentDisabled = isServiceSummaryStep;
-    // Photos remain available throughout the manifest-completion phase.
+    // Materials, Equipment, and Photos stay available throughout the flow
+    // (including review, manifest, and service summary).
+    const materialsDisabled = false;
+    const equipmentDisabled = false;
     const photosDisabled = false;
+
+    const openContainersScreen = () => {
+      // Review / manifest / service summary → Containers Review (view + reprint only).
+      // Active service request → Container Summary (Add Container allowed).
+      if (
+        selectedOrderData &&
+        (inManifestCompletion || isOrderReadyForManifest(selectedOrderData))
+      ) {
+        setCurrentStep('containers-review');
+        return;
+      }
+      setCurrentStep('container-summary');
+    };
 
     return (
       <View style={styles.quickActionsBar}>
@@ -3673,11 +3691,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           style={[
             styles.quickActionButton,
             isTablet() && styles.quickActionButtonTablet,
-            containersDisabled && { opacity: 0.5 },
           ]}
-          onPress={() => !containersDisabled && setCurrentStep('container-summary')}
-          activeOpacity={0.7}
-          disabled={containersDisabled}>
+          onPress={openContainersScreen}
+          activeOpacity={0.7}>
           <View style={styles.quickActionContent}>
             <Icon name="assignment" size={24} color={FOOTER_NAV_ICON_COLOR} />
             <Text style={styles.quickActionLabel}>Containers</Text>
@@ -4244,8 +4260,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             serviceTypeBadgesForHeader={normalizedServiceTypeBadgesForHeader}
             activeContainers={currentOrderActiveContainers}
             activeServiceTypeTimer={activeServiceTypeTimer}
-            setAddedContainers={setAddedContainers}
             hasManifestForOrder={hasManifestForOrder}
+            printShippingLabel={printShippingLabel}
             generateManifestTrackingNumber={generateManifestTrackingNumber}
             setManifestTrackingNumber={setManifestTrackingNumber}
             setManifestOrderNumber={setManifestOrderNumber}
@@ -4355,7 +4371,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             setMaterialsSupplies={setMaterialsSupplies}
             setShowAddMaterialModal={setShowAddMaterialModal}
             activeServiceTypeTimer={activeServiceTypeTimer}
-            handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
             canAssignServiceRequests={canAssignServiceRequests}
             openAddMaterialModal={openAddMaterialModal}
             onBack={navigateBackFromSideQuest}
@@ -4389,8 +4404,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             equipmentPPE={equipmentPPE}
             setEquipmentPPE={setEquipmentPPE}
             activeServiceTypeTimer={activeServiceTypeTimer}
-            handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
-            inManifestCompletion={inManifestCompletion}
             canAssignServiceRequests={canAssignServiceRequests}
             onBack={navigateBackFromSideQuest}
           />
@@ -4426,7 +4439,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             hasNoShipItems={currentOrderNoShipItems.length > 0}
             canAssignServiceRequests={canAssignServiceRequests}
             activeServiceTypeTimer={activeServiceTypeTimer}
-            handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
             initialPhotoCategory={photosInitialCategory}
           />
         );
@@ -8416,6 +8428,17 @@ export const styles = StyleSheet.create({
     borderTopColor: colors.border,
     gap: spacing.md,
   },
+  sideQuestFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.card,
+    borderTopWidth: 2,
+    borderTopColor: colors.border,
+    gap: spacing.md,
+  },
   summaryText: {
     ...typography.base,
     color: colors.mutedForeground,
@@ -8614,6 +8637,10 @@ export const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     minHeight: touchTargets.min,
     alignSelf: 'flex-end',
+  },
+  reprintLabelButton: {
+    marginTop: spacing.sm,
+    alignSelf: 'stretch',
   },
   // Order containers review (pre-manifest)
   containersReviewSection: {

@@ -3,11 +3,10 @@ import {
   View,
   Text,
   ScrollView,
-  TouchableOpacity,
   Pressable,
   StyleSheet,
 } from 'react-native';
-import {colors, spacing, borderRadius, typography} from '../../styles/theme';
+import {colors} from '../../styles/theme';
 import {Button} from '../../components/Button';
 import {Input} from '../../components/Input';
 import {Badge} from '../../components/Badge';
@@ -24,7 +23,6 @@ import {
   getDefaultExpandedServiceTypeId,
   groupContainersByServiceRequest,
 } from './containerGrouping';
-import {DeleteContainerConfirmModal} from './DeleteContainerConfirmModal';
 
 export interface OrderContainersReviewScreenProps {
   // Order state
@@ -59,10 +57,8 @@ export interface OrderContainersReviewScreenProps {
   // Containers review specific
   activeContainers: AddedContainer[];
   activeServiceTypeTimer: string | null;
-  setAddedContainers: (
-    containers: AddedContainer[] | ((prev: AddedContainer[]) => AddedContainer[]),
-  ) => void;
   hasManifestForOrder: (orderNumber: string) => boolean;
+  printShippingLabel: (container: AddedContainer) => Promise<void>;
   generateManifestTrackingNumber: () => string;
   setManifestTrackingNumber: (number: string | null) => void;
   setManifestOrderNumber: (orderNumber: string | null) => void;
@@ -115,37 +111,18 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
   serviceTypeBadgesForHeader,
   activeContainers,
   activeServiceTypeTimer,
-  setAddedContainers,
   hasManifestForOrder,
+  printShippingLabel,
   generateManifestTrackingNumber,
   setManifestTrackingNumber,
   setManifestOrderNumber,
   setManifestData,
 }) => {
-  const [deleteConfirm, setDeleteConfirm] = useState<{id: string} | null>(
-    null,
-  );
-  const [deleteBarcodeInput, setDeleteBarcodeInput] = useState('');
   const [containerSearchQuery, setContainerSearchQuery] = useState('');
   const manifestGenerated = selectedOrderData
     ? hasManifestForOrder(selectedOrderData.orderNumber)
     : false;
-  const canEditContainers = !manifestGenerated;
 
-  const containerToDelete = deleteConfirm
-    ? activeContainers.find(c => c.id === deleteConfirm.id)
-    : null;
-  const containerToDeleteNumber = containerToDelete
-    ? activeContainers.findIndex(c => c.id === containerToDelete.id) + 1
-    : undefined;
-  const expectedBarcode = (
-    containerToDelete?.shippingLabelBarcode ||
-    containerToDelete?.barcode ||
-    ''
-  ).trim();
-  const isBarcodeMatch =
-    expectedBarcode.length > 0 &&
-    deleteBarcodeInput.trim() === expectedBarcode;
   const filteredContainers = useMemo(() => {
     if (!containerSearchQuery.trim()) {
       return activeContainers;
@@ -211,22 +188,6 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
     setExpandedServiceTypeId(prev =>
       prev === serviceTypeId ? null : serviceTypeId,
     );
-  };
-
-  const openDeleteConfirm = (id: string) => {
-    setDeleteBarcodeInput('');
-    setDeleteConfirm({id});
-  };
-
-  const closeDeleteConfirm = () => {
-    setDeleteBarcodeInput('');
-    setDeleteConfirm(null);
-  };
-
-  const handleDeleteFromReview = (containerId: string) => {
-    if (!isBarcodeMatch) return;
-    setAddedContainers(prev => prev.filter(c => c.id !== containerId));
-    closeDeleteConfirm();
   };
 
   if (!selectedOrderData) return null;
@@ -298,14 +259,14 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
             <View style={styles.containerSummaryInfoCard} />
           )}
         </View>
-        {canEditContainers && (
-          <TouchableOpacity
-            style={styles.deleteButton}
-            onPress={() => openDeleteConfirm(container.id)}
-            activeOpacity={0.7}>
-            <Text style={styles.deleteButtonText}>Delete</Text>
-          </TouchableOpacity>
-        )}
+        <Button
+          title="Reprint Label"
+          variant="outline"
+          size="sm"
+          disabled={!container.shippingLabelBarcode}
+          onPress={() => printShippingLabel(container)}
+          style={styles.reprintLabelButton}
+        />
       </View>
     </Card>
   );
@@ -477,19 +438,6 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
           }}
         />
       </View>
-
-      <DeleteContainerConfirmModal
-        visible={!!deleteConfirm}
-        container={containerToDelete ?? null}
-        orderData={selectedOrderData}
-        containerNumber={containerToDeleteNumber}
-        barcodeInput={deleteBarcodeInput}
-        onBarcodeChange={setDeleteBarcodeInput}
-        onCancel={closeDeleteConfirm}
-        onConfirm={() =>
-          deleteConfirm && handleDeleteFromReview(deleteConfirm.id)
-        }
-      />
     </View>
   );
 };

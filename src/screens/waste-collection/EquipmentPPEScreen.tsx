@@ -73,13 +73,6 @@ export interface EquipmentPPEScreenProps {
   equipmentPPE: EquipmentPPEType[];
   setEquipmentPPE: (equipment: EquipmentPPEType[] | ((prev: EquipmentPPEType[]) => EquipmentPPEType[])) => void;
   activeServiceTypeTimer: string | null;
-  handleMarkServiceTypeComplete: () => void;
-  /**
-   * When true, the user reached this screen from the manifest-completion
-   * phase (where the service type is already considered complete), so the
-   * "Mark service type complete" footer button should be hidden.
-   */
-  inManifestCompletion?: boolean;
   /** True when all service requests are complete and user is in review/manifest phase. */
   canAssignServiceRequests?: boolean;
   onBack: () => void;
@@ -111,8 +104,6 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
   equipmentPPE,
   setEquipmentPPE,
   activeServiceTypeTimer,
-  handleMarkServiceTypeComplete,
-  inManifestCompletion = false,
   canAssignServiceRequests = false,
   onBack,
 }) => {
@@ -630,22 +621,13 @@ export const EquipmentPPEScreen: React.FC<EquipmentPPEScreenProps> = ({
         </ScrollView>
       </View>
 
-      <View style={styles.footer}>
+      <View style={styles.sideQuestFooter}>
         <Button
-          title="Back"
+          title="Close"
           variant="outline"
           size="md"
           onPress={onBack}
         />
-        {!inManifestCompletion && (
-          <Button
-            title="Mark service type complete"
-            variant="primary"
-            size="md"
-            disabled={!activeServiceTypeTimer}
-            onPress={handleMarkServiceTypeComplete}
-          />
-        )}
       </View>
 
       {/* Add Equipment Modal - Full Screen */}

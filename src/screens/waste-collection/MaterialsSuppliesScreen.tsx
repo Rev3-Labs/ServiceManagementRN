@@ -72,7 +72,6 @@ export interface MaterialsSuppliesScreenProps {
   setMaterialsSupplies: (materials: MaterialsSupply[] | ((prev: MaterialsSupply[]) => MaterialsSupply[])) => void;
   setShowAddMaterialModal: (show: boolean) => void;
   activeServiceTypeTimer: string | null;
-  handleMarkServiceTypeComplete: () => void;
   /** True when all service requests are complete and user is in review/manifest phase. */
   canAssignServiceRequests?: boolean;
   openAddMaterialModal?: () => void;
@@ -106,7 +105,6 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
   setMaterialsSupplies,
   setShowAddMaterialModal,
   activeServiceTypeTimer,
-  handleMarkServiceTypeComplete,
   canAssignServiceRequests = false,
   openAddMaterialModal,
   onBack,
@@ -619,19 +617,12 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
         </ScrollView>
       </View>
 
-      <View style={styles.footer}>
+      <View style={styles.sideQuestFooter}>
         <Button
-          title="Back"
+          title="Close"
           variant="outline"
           size="md"
           onPress={onBack}
-        />
-        <Button
-          title="Mark service type complete"
-          variant="primary"
-          size="md"
-          disabled={!activeServiceTypeTimer}
-          onPress={handleMarkServiceTypeComplete}
         />
       </View>
 

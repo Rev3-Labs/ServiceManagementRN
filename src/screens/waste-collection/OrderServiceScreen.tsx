@@ -365,20 +365,6 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
       });
     }
 
-    // Check if programs are not all selected
-    const allProgramsSelected = selectedOrderData?.programs.every(
-      program => selectedPrograms[program]
-    );
-    if (!allProgramsSelected && selectedOrderData?.programs && selectedOrderData.programs.length > 0) {
-      reasons.push({
-        id: 'incomplete-programs',
-        reason: 'Not all programs have been selected',
-        severity: 'warning',
-        action: {type: 'step', step: 'manifest-management'},
-        hint: 'Tap to review program ship / no-ship selections',
-      });
-    }
-
     // Soft warning: work order notes are optional but encouraged
     if (!workOrderNotes.trim()) {
       reasons.push({
@@ -391,7 +377,7 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
     }
 
     return reasons;
-  }, [selectedOrderData, addedContainers, selectedPrograms, orderPhotos, workOrderNotes]);
+  }, [selectedOrderData, addedContainers, orderPhotos, workOrderNotes]);
 
   const scrollToCustomerAck = useCallback(() => {
     customerAckRef.current?.measureInWindow((_ackX, ackY) => {
@@ -1162,25 +1148,14 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
                 <View style={styles.incompleteReasonsList}>
                   {incompleteReasons.map(item => {
                     const isActionable = Boolean(item.action);
-                    const Row = isActionable ? TouchableOpacity : View;
-                    return (
-                      <Row
-                        key={item.id}
-                        style={[
-                          styles.incompleteReasonItem,
-                          item.severity === 'error'
-                            ? styles.incompleteReasonError
-                            : styles.incompleteReasonWarning,
-                        ]}
-                        {...(isActionable
-                          ? {
-                              onPress: () => handleIncompleteReasonPress(item),
-                              activeOpacity: 0.7,
-                              accessibilityRole: 'button' as const,
-                              accessibilityHint: item.hint,
-                              accessibilityLabel: item.reason,
-                            }
-                          : {})}>
+                    const rowStyle = [
+                      styles.incompleteReasonItem,
+                      item.severity === 'error'
+                        ? styles.incompleteReasonError
+                        : styles.incompleteReasonWarning,
+                    ];
+                    const rowContent = (
+                      <>
                         <Text style={styles.incompleteReasonBullet}>
                           <Icon
                             name={item.severity === 'error' ? 'error' : 'warning'}
@@ -1218,7 +1193,28 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
                             }
                           />
                         ) : null}
-                      </Row>
+                      </>
+                    );
+
+                    if (isActionable) {
+                      return (
+                        <TouchableOpacity
+                          key={item.id}
+                          style={rowStyle}
+                          onPress={() => handleIncompleteReasonPress(item)}
+                          activeOpacity={0.7}
+                          accessibilityRole="button"
+                          accessibilityHint={item.hint}
+                          accessibilityLabel={item.reason}>
+                          {rowContent}
+                        </TouchableOpacity>
+                      );
+                    }
+
+                    return (
+                      <View key={item.id} style={rowStyle}>
+                        {rowContent}
+                      </View>
                     );
                   })}
                 </View>
