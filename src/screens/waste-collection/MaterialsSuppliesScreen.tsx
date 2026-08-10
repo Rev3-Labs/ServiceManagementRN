@@ -387,14 +387,10 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
           {renderQuantityControls(material)}
         </View>
         <View style={styles.materialsTableCell}>{renderTypeBadge(material)}</View>
-        <View style={styles.materialsTableCell}>
+        <View style={[styles.materialsTableCell, styles.materialCardActions]}>
+          {renderAssignmentButton(material, serviceTypeId)}
           {renderDeleteButton(material)}
         </View>
-        {canAssignServiceRequests && !isCurrentOrderCompleted ? (
-          <View style={[styles.materialsTableCell, styles.materialsTableCellAssign]}>
-            {renderAssignmentButton(material, serviceTypeId)}
-          </View>
-        ) : null}
       </View>
       {renderAssignmentPanel(material)}
     </View>
@@ -420,9 +416,6 @@ export const MaterialsSuppliesScreen: React.FC<MaterialsSuppliesScreenProps> = (
       <Text style={styles.materialsTableHeaderText}>Qty</Text>
       <Text style={styles.materialsTableHeaderText}>Type</Text>
       <Text style={styles.materialsTableHeaderText}>Action</Text>
-      {canAssignServiceRequests && !isCurrentOrderCompleted ? (
-        <Text style={styles.materialsTableHeaderText}>Assign</Text>
-      ) : null}
     </View>
   );
 

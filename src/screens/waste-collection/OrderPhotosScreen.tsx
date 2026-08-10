@@ -141,10 +141,6 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
     groupId: string;
     category: PhotoCategory;
   } | null>(null);
-  const [editingGroup, setEditingGroup] = useState<{
-    id: string;
-    label: string;
-  } | null>(null);
   const [pendingPhotoServiceTypeId, setPendingPhotoServiceTypeId] = useState<
     string | null
   >(null);
@@ -551,26 +547,6 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
     setViewerEditingNote(false);
   };
 
-  const openEditGroupTitle = (group: PhotoDocumentGroupWithPhotos) => {
-    const currentLabel =
-      group.label ?? photoService.getCategoryLabel(group.category);
-    setEditingGroup({id: group.id, label: currentLabel});
-  };
-
-  const handleSaveGroupTitle = async () => {
-    if (!editingGroup || !orderNumber) return;
-    try {
-      await photoService.updateDocumentGroup(orderNumber, editingGroup.id, {
-        label: editingGroup.label,
-      });
-      setEditingGroup(null);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to update title';
-      Alert.alert('Error', message);
-    }
-  };
-
   if (!selectedOrderData) return null;
 
   const isCategoryAtMax = (definition: PhotoCategoryDefinition) => {
@@ -693,15 +669,6 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
         <View style={localStyles.documentCardHeader}>
           <View style={localStyles.documentCardTitleRow}>
             <Text style={localStyles.documentCardTitle}>{label}</Text>
-            {group && !isCurrentOrderCompleted && (
-              <TouchableOpacity
-                onPress={() => openEditGroupTitle(group)}
-                style={localStyles.documentCardEditButton}
-                hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
-                activeOpacity={0.7}>
-                <Icon name="edit" size={20} color={colors.primary} />
-              </TouchableOpacity>
-            )}
           </View>
           <Text style={localStyles.documentCardMeta}>
             {pageCount} page{pageCount !== 1 ? 's' : ''}
@@ -1223,44 +1190,6 @@ export const OrderPhotosScreen: React.FC<OrderPhotosScreenProps> = ({
       </Modal>
 
       <Modal
-        visible={editingGroup != null}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setEditingGroup(null)}>
-        <View style={localStyles.captionModalOverlay}>
-          <View style={localStyles.captionModalContainer}>
-            <View style={localStyles.modalHeader}>
-              <Text style={localStyles.modalTitle}>Document title</Text>
-              <TouchableOpacity
-                onPress={() => setEditingGroup(null)}
-                style={localStyles.modalCloseButton}>
-                <Icon name="close" size={20} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
-            <View style={localStyles.captionModalContent}>
-              <Input
-                label="Title"
-                placeholder="Enter a title for this document"
-                value={editingGroup?.label ?? ''}
-                onChangeText={text =>
-                  setEditingGroup(prev =>
-                    prev ? {...prev, label: text} : prev,
-                  )
-                }
-                autoFocus
-              />
-              <Button
-                title="Save"
-                variant="primary"
-                size="lg"
-                onPress={handleSaveGroupTitle}
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
         visible={addPagePrompt != null}
         transparent
         animationType="fade"
@@ -1379,8 +1308,8 @@ const localStyles = StyleSheet.create({
     borderColor: colors.primary,
   },
   chipRequired: {
-    borderColor: colors.warning,
-    backgroundColor: '#fffbeb',
+    borderColor: colors.destructive,
+    backgroundColor: '#fef2f2',
   },
   chipComplete: {
     borderColor: colors.success,
@@ -1674,12 +1603,6 @@ const localStyles = StyleSheet.create({
     fontWeight: '700',
     color: colors.foreground,
     flex: 1,
-  },
-  documentCardEditButton: {
-    minWidth: touchTargets.min,
-    minHeight: touchTargets.min,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   documentCardMeta: {
     ...typography.sm,

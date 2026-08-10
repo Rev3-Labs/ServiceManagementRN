@@ -695,10 +695,11 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
       ? serviceNotesAckService.isAcknowledged(selectedOrderNumber)
       : true);
 
-  // Per-section expanded state. Defaults are recomputed when the selected order or
-  // ack state changes (see effect below), but users can manually toggle within a state.
+  // Per-section expanded state. Defaults are recomputed when the selected order
+  // changes (see effect below), but users can manually toggle within a state.
   // Hierarchy: Primary Contact -> Order Information -> Service Notes.
-  // When notes need acknowledgment, expand Service Notes so Acknowledge is visible.
+  // Order Information is open and Service Notes closed by default; locked service
+  // request chips call focusServiceNotesSection to open and scroll to notes.
   const [sectionsExpanded, setSectionsExpanded] = useState<{
     contact: boolean;
     order: boolean;
@@ -713,11 +714,11 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
   useEffect(() => {
     setSectionsExpanded({
       contact: false,
-      order: notesAcknowledged,
-      notes: !notesAcknowledged,
+      order: true,
+      notes: false,
     });
     setAllContactsExpanded(false);
-  }, [selectedOrderNumber, notesAcknowledged]);
+  }, [selectedOrderNumber]);
 
   useEffect(() => {
     if (focusOrderInformationNonce <= 0) {
@@ -1796,15 +1797,18 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     useState(false);
   const [dashboardAcknowledgePrompt, setDashboardAcknowledgePrompt] =
     useState<AcknowledgePromptState | null>(null);
+  /** Incremented when a locked service-request chip opens an order so notes expand after selection. */
+  const [focusDashboardServiceNotesNonce, setFocusDashboardServiceNotesNonce] =
+    useState(0);
 
   useEffect(() => {
     setDashboardSectionsExpanded({
       contact: false,
-      order: dashboardNotesAcknowledged,
-      notes: !dashboardNotesAcknowledged,
+      order: true,
+      notes: false,
     });
     setDashboardAllContactsExpanded(false);
-  }, [dashboardSelectedOrderNumber, dashboardNotesAcknowledged]);
+  }, [dashboardSelectedOrderNumber]);
 
   useEffect(() => {
     if (focusOrderInformationNonce <= 0) {
@@ -1849,6 +1853,22 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
       }, 80);
     });
   };
+
+  useEffect(() => {
+    if (focusDashboardServiceNotesNonce <= 0) {
+      return;
+    }
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setDashboardSectionsExpanded((prev) => ({...prev, notes: true}));
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        dashboardOrdersScrollRef.current?.scrollTo({
+          y: Math.max(0, dashboardNotesSectionTopRef.current - 12),
+          animated: true,
+        });
+      }, 80);
+    });
+  }, [focusDashboardServiceNotesNonce]);
   const toggleDashboardAllContacts = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setDashboardAllContactsExpanded((prev) => !prev);
@@ -2609,8 +2629,9 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                                 checkCanWorkOnOrder(order.orderNumber);
                                 return;
                               }
-                              // Open order detail with Service Notes expanded for ack.
+                              // Open order detail and expand/scroll to Service Notes for ack.
                               setDashboardSelectedOrder(order);
+                              setFocusDashboardServiceNotesNonce(n => n + 1);
                               return;
                             }
                             if (canEditOrder) {

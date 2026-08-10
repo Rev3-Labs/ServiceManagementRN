@@ -65,7 +65,9 @@ export const WorkOrderNotesModal: React.FC<WorkOrderNotesModalProps> = ({
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.header}>
-            <Text style={styles.title}>Work Order Notes</Text>
+            <Text style={styles.title}>
+              {mode === 'completion' ? 'Complete Work Order' : 'Work Order Notes'}
+            </Text>
             <TouchableOpacity
               onPress={onClose}
               style={styles.closeButton}
@@ -78,7 +80,9 @@ export const WorkOrderNotesModal: React.FC<WorkOrderNotesModalProps> = ({
 
           <View style={styles.body}>
             <Text style={styles.message}>
-              Enter any additional notes related to this work order.
+              {mode === 'completion'
+                ? 'Add any final work order notes before completing this order, or skip to continue.'
+                : 'Enter any additional notes related to this work order.'}
             </Text>
             <TextInput
               style={styles.input}

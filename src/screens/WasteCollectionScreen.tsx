@@ -4262,6 +4262,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             setManifestTrackingNumber={setManifestTrackingNumber}
             setManifestOrderNumber={setManifestOrderNumber}
             setManifestData={setManifestData}
+            technicianName={username}
           />
         );
       case 'manifest-management':

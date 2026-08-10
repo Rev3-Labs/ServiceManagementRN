@@ -228,12 +228,14 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
 
     : false;
 
-  // After Continue to Manifest (or once generated), containers are locked.
+  // Lock containers after a manifest is generated or the order is completed.
+  // While actively servicing/editing a service type, keep the editable Summary
+  // layout (inline Reprint + Delete) even if other SRs are already complete.
   const canEditContainers =
 
-    !manifestGenerated && !isCurrentOrderCompleted && !orderReadyForManifest;
-
-  const showReprintLabel = !canEditContainers;
+    !manifestGenerated &&
+    !isCurrentOrderCompleted &&
+    (!orderReadyForManifest || Boolean(activeServiceTypeTimer));
 
   const isNoShipActive = Boolean(
     selectedOrderData &&
@@ -657,25 +659,19 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
 
             {container.shippingLabelBarcode ? (
               <View style={styles.containerSummaryInfoCard}>
-                {canEditContainers ? (
-                  <View style={styles.containerSummaryInfoHeader}>
-                    <Text style={styles.containerSummaryInfoLabel}>
-                      Shipping Label
-                    </Text>
-                    <Button
-                      title="Reprint"
-                      variant="outline"
-                      size="sm"
-                      disabled={isCurrentOrderCompleted}
-                      onPress={() => printShippingLabel(container)}
-                      style={styles.reprintButtonInline}
-                    />
-                  </View>
-                ) : (
+                <View style={styles.containerSummaryInfoHeader}>
                   <Text style={styles.containerSummaryInfoLabel}>
                     Shipping Label
                   </Text>
-                )}
+                  <Button
+                    title="Reprint"
+                    variant="outline"
+                    size="sm"
+                    disabled={isCurrentOrderCompleted}
+                    onPress={() => printShippingLabel(container)}
+                    style={styles.reprintButtonInline}
+                  />
+                </View>
                 <Text style={styles.containerSummaryInfoValue}>
                   {container.shippingLabelBarcode}
                 </Text>
@@ -692,17 +688,6 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
               activeOpacity={0.7}>
               <Text style={styles.deleteButtonText}>Delete</Text>
             </TouchableOpacity>
-          ) : showReprintLabel ? (
-            <Button
-              title="Reprint Label"
-              variant="outline"
-              size="sm"
-              disabled={
-                isCurrentOrderCompleted || !container.shippingLabelBarcode
-              }
-              onPress={() => printShippingLabel(container)}
-              style={styles.reprintLabelButton}
-            />
           ) : null}
 
         </View>
@@ -1004,7 +989,7 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
           disabled={
             isCurrentOrderCompleted ||
             manifestGenerated ||
-            orderReadyForManifest ||
+            !canEditContainers ||
             containersAddDisabled
           }
 

@@ -9,7 +9,7 @@ import {
 export interface LdrDocumentPhotoInput {
   orderNumber: string;
   trackingNumber: string;
-  customerName: string;
+  customerName?: string;
   technicianName?: string;
   signatureDataUri?: string | null;
   wasteCodes?: string[];
@@ -196,7 +196,7 @@ async function renderLdrDataUri(input: LdrDocumentPhotoInput): Promise<string> {
     return fallbackDocumentDataUri('LAND DISPOSAL RESTRICTIONS (LDR)', [
       `Manifest Tracking #: ${input.trackingNumber}`,
       `Date: ${dateLabel}`,
-      `Authorized: ${input.customerName}`,
+      `Authorized: ${input.customerName?.trim() || '—'}`,
       `Technician: ${input.technicianName || '—'}`,
       `Waste codes: ${codes.join(', ')}`,
     ]);
@@ -263,14 +263,18 @@ async function renderLdrDataUri(input: LdrDocumentPhotoInput): Promise<string> {
   await drawSignature(ctx, input.signatureDataUri, 48, y + 52, 280, 54);
   ctx.fillStyle = '#111111';
   ctx.font = '16px sans-serif';
-  ctx.fillText(input.customerName, 420, y + 100);
+  ctx.fillText(input.customerName?.trim() || '', 420, y + 100);
   if (input.technicianName) {
     ctx.fillText(`Technician: ${input.technicianName}`, 48, y + 150);
   }
 
   ctx.fillStyle = '#888888';
   ctx.font = '12px sans-serif';
-  ctx.fillText('Auto-generated after manifest and customer acknowledgement', 48, height - 48);
+  ctx.fillText(
+    'Auto-generated when manifest is created',
+    48,
+    height - 48,
+  );
 
   return canvas.toDataURL('image/png');
 }
@@ -510,17 +514,13 @@ async function replaceCategoryDocument(
 }
 
 /**
- * Creates the LDR photo once a manifest exists and the customer
- * acknowledgement (name + signature) has been captured.
+ * Creates the LDR photo when a manifest is generated.
  * Skips if an LDR document already exists for the order.
  */
 export async function ensureLdrDocumentPhoto(
   input: LdrDocumentPhotoInput,
 ): Promise<boolean> {
   if (!input.orderNumber || !input.trackingNumber.trim()) {
-    return false;
-  }
-  if (!input.customerName.trim() || !input.signatureDataUri) {
     return false;
   }
   if (photoService.hasDocumentForCategory(input.orderNumber, 'ldr')) {
