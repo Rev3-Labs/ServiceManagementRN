@@ -193,82 +193,85 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
   if (!selectedOrderData) return null;
 
   const renderContainerCard = (container: AddedContainer, index: number) => (
-    <Card key={container.id} style={styles.containerSummaryCard}>
-      <View style={styles.containerSummaryHeader}>
-        <View style={styles.containerSummaryHeaderLeft}>
-          <Text style={styles.containerSummaryNumber}>#{index + 1}</Text>
-          <View style={styles.containerSummaryTitleGroup}>
-            <Text style={styles.containerSummaryTitle}>
-              {container.streamName}
-            </Text>
-            <Text style={styles.containerSummarySubtitle}>
-              {formatContainerCardSubtitle(container)}
-            </Text>
-          </View>
-        </View>
-        <View style={styles.containerSummaryNetWeight}>
-          <Text style={styles.containerSummaryNetWeightLabel}>Net</Text>
-          <Text
-            style={[
-              styles.containerSummaryNetWeightValue,
-              styles.netWeightHighlight,
-            ]}>
-            {container.netWeight} lbs
-          </Text>
-        </View>
-      </View>
-      <View style={styles.containerSummaryBody}>
-        <View style={styles.containerSummaryInfoGrid}>
-          <View style={styles.containerSummaryInfoCard}>
-            <Text style={styles.containerSummaryInfoLabel}>Service Type</Text>
-            <Text style={styles.containerSummaryInfoValue}>
-              {container.serviceTypeId
-                ? formatServiceRequestLabel(
-                    container.serviceTypeId,
-                    selectedOrderData,
-                  )
-                : '—'}
-            </Text>
-          </View>
-          <View style={styles.containerSummaryInfoCard}>
-            <Text style={styles.containerSummaryInfoLabel}>Waste Code(s)</Text>
-            <Text style={styles.containerSummaryInfoValue}>
-              {container.wasteCodes && container.wasteCodes.length > 0
-                ? container.wasteCodes.join(', ')
-                : '—'}
-            </Text>
-          </View>
-          {container.unitCount != null ? (
-            <View style={styles.containerSummaryInfoCard}>
-              <Text style={styles.containerSummaryInfoLabel}>Unit Count</Text>
-              <Text style={styles.containerSummaryInfoValue}>
-                {container.unitCount}
+    <View key={container.id}>
+      <Card style={styles.containerSummaryCard}>
+        <View style={styles.containerSummaryHeader}>
+          <View style={styles.containerSummaryHeaderLeft}>
+            <Text style={styles.containerSummaryNumber}>#{index + 1}</Text>
+            <View style={styles.containerSummaryTitleGroup}>
+              <Text style={styles.containerSummaryTitle}>
+                {container.streamName}
+              </Text>
+              <Text style={styles.containerSummarySubtitle}>
+                {formatContainerCardSubtitle(container)}
               </Text>
             </View>
-          ) : null}
-          {container.shippingLabelBarcode ? (
+          </View>
+          <View style={styles.containerSummaryNetWeight}>
+            <Text style={styles.containerSummaryNetWeightLabel}>Net</Text>
+            <Text
+              style={[
+                styles.containerSummaryNetWeightValue,
+                styles.netWeightHighlight,
+              ]}>
+              {container.netWeight} lbs
+            </Text>
+          </View>
+        </View>
+        <View style={styles.containerSummaryBody}>
+          <View style={styles.containerSummaryInfoGrid}>
             <View style={styles.containerSummaryInfoCard}>
-              <Text style={styles.containerSummaryInfoLabel}>
-                Shipping Label
-              </Text>
+              <Text style={styles.containerSummaryInfoLabel}>Service Request</Text>
               <Text style={styles.containerSummaryInfoValue}>
-                {container.shippingLabelBarcode}
+                {container.serviceTypeId
+                  ? formatServiceRequestLabel(
+                      container.serviceTypeId,
+                      selectedOrderData,
+                    )
+                  : '—'}
               </Text>
             </View>
-          ) : (
-            <View style={styles.containerSummaryInfoCard} />
-          )}
+            <View style={styles.containerSummaryInfoCard}>
+              <Text style={styles.containerSummaryInfoLabel}>Waste Code(s)</Text>
+              <Text style={styles.containerSummaryInfoValue}>
+                {container.wasteCodes && container.wasteCodes.length > 0
+                  ? container.wasteCodes.join(', ')
+                  : '—'}
+              </Text>
+            </View>
+            {container.unitCount != null ? (
+              <View style={styles.containerSummaryInfoCard}>
+                <Text style={styles.containerSummaryInfoLabel}>Unit Count</Text>
+                <Text style={styles.containerSummaryInfoValue}>
+                  {container.unitCount}
+                </Text>
+              </View>
+            ) : null}
+            {container.shippingLabelBarcode ? (
+              <View style={styles.containerSummaryInfoCard}>
+                <View style={styles.containerSummaryInfoHeader}>
+                  <Text style={styles.containerSummaryInfoLabel}>
+                    Shipping Label
+                  </Text>
+                  <Button
+                    title="Reprint"
+                    variant="outline"
+                    size="sm"
+                    onPress={() => printShippingLabel(container)}
+                    style={styles.reprintButtonInline}
+                  />
+                </View>
+                <Text style={styles.containerSummaryInfoValue}>
+                  {container.shippingLabelBarcode}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.containerSummaryInfoCard} />
+            )}
+          </View>
         </View>
-        <Button
-          title="Reprint Label"
-          variant="outline"
-          size="sm"
-          disabled={!container.shippingLabelBarcode}
-          onPress={() => printShippingLabel(container)}
-          style={styles.reprintLabelButton}
-        />
-      </View>
-    </Card>
+      </Card>
+    </View>
   );
 
   return (
@@ -279,7 +282,6 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
         onToggleCollapse={() =>
           setIsOrderHeaderCollapsed(!isOrderHeaderCollapsed)
         }
-        onBackPress={() => setCurrentStep('dashboard')}
         subtitle="Container Review"
         elapsedTimeDisplay={
           elapsedTimeDisplay &&
@@ -405,17 +407,11 @@ export const OrderContainersReviewScreen: React.FC<OrderContainersReviewScreenPr
           </View>
         )}
       </ScrollView>
-      <View style={styles.footer}>
-        <Button
-          title="Back"
-          variant="outline"
-          size="md"
-          onPress={() => setCurrentStep('dashboard')}
-        />
+      <View style={[styles.footer, {justifyContent: 'flex-end'}]}>
         <Button
           title={
             manifestGenerated
-              ? 'Continue to manifest'
+              ? 'Continue to Manifest'
               : 'Generate Manifest'
           }
           variant="primary"

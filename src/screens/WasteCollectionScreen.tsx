@@ -1794,7 +1794,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
   const handleBadgePromptEdit = useCallback(() => {
     if (!badgePromptPayload) return;
-    const { order, program, noship } = badgePromptPayload;
+    const { order, program } = badgePromptPayload;
     if (
       hasOrderNotes(order) &&
       !serviceNotesAckService.isAcknowledged(order.orderNumber)
@@ -1807,7 +1807,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     setSelectedOrderData(order);
     setActiveServiceTypeTimer(program);
     setDashboardSelectedOrder(null);
-    setCurrentStep(getServiceEntryStep(program, noship));
+    setCurrentStep('container-summary');
     setShowBadgeStartEditModal(false);
     setBadgePromptPayload(null);
   }, [badgePromptPayload, hasOrderNotes]);
@@ -2146,17 +2146,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     setShowServiceTypeCompleteValidationModal(true);
   }, [selectedOrderData, activeServiceTypeTimer, confirmMarkServiceTypeComplete]);
 
-  /**
-   * Edit / post-complete exit from individual SR (Mark Complete is replaced by
-   * Back to Manifest). Same soft-validation acknowledgment before advancing.
-   */
-  const handleContinueFromServiceRequest = useCallback(() => {
-    serviceTypeCompleteValidationConfirmRef.current = () => {
-      setCurrentStep('containers-review');
-    };
-    setShowServiceTypeCompleteValidationModal(true);
-  }, []);
-
   // Generate unique shipping label barcode
   // Format: I-8digitssalesorder-001 (e.g., I-20241234-001)
   const generateShippingLabelBarcode = useCallback(
@@ -2259,6 +2248,13 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     },
     [],
   );
+
+  /** All-No-Ship closeout: open No-Ship Preview from Order Information. */
+  const handleContinueToNoShipForOrder = useCallback((order: OrderData) => {
+    setSelectedOrderData(order);
+    setDashboardSelectedOrder(null);
+    setCurrentStep('noship-preview');
+  }, []);
 
   // Assign tracking number when labels are printed
   const assignTrackingNumberOnLabelPrint = useCallback(() => {
@@ -3290,6 +3286,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     isOrderReadyForManifest,
     hasManifestForOrder,
     handleGenerateManifestForOrder,
+    handleContinueToNoShipForOrder,
     voidManifest,
     isServiceTypeNoShip,
     setNoShipForServiceType,
@@ -4228,7 +4225,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             printShippingLabel={printShippingLabel}
             setAddedContainers={setAddedContainers}
             handleMarkServiceTypeComplete={handleMarkServiceTypeComplete}
-            handleContinueFromServiceRequest={handleContinueFromServiceRequest}
             returnToContainersReviewAfterAdd={returnToContainersReviewAfterAdd}
             setReturnToContainersReviewAfterAdd={setReturnToContainersReviewAfterAdd}
             isServiceTypeNoShip={isServiceTypeNoShip}

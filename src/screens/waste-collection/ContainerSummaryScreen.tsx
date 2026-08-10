@@ -136,9 +136,6 @@ export interface ContainerSummaryScreenProps {
 
   handleMarkServiceTypeComplete: () => void;
 
-  /** Soft-validation then advance when Mark Complete is replaced (order ready for manifest). */
-  handleContinueFromServiceRequest: () => void;
-
   returnToContainersReviewAfterAdd: boolean;
 
   setReturnToContainersReviewAfterAdd: (value: boolean) => void;
@@ -207,8 +204,6 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
 
   handleMarkServiceTypeComplete,
 
-  handleContinueFromServiceRequest,
-
   returnToContainersReviewAfterAdd,
 
   setReturnToContainersReviewAfterAdd,
@@ -252,7 +247,7 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
     activeServiceTypeTimer ?? '',
     isNoShipActive,
   );
-  // No-Ship has no containers to add. SDO still allows supply containers.
+  // No-Ship has no containers to add.
   const containersAddDisabled = isNoShipActive;
 
 
@@ -1042,24 +1037,6 @@ export const ContainerSummaryScreen: React.FC<ContainerSummaryScreenProps> = ({
               setCurrentStep('containers-review');
 
             }}
-
-          />
-
-        ) : selectedOrderData &&
-
-          isOrderReadyForManifest(selectedOrderData) ? (
-
-          <Button
-
-            title="Back to Manifest"
-
-            variant="primary"
-
-            size="md"
-
-            disabled={isCurrentOrderCompleted}
-
-            onPress={handleContinueFromServiceRequest}
 
           />
 

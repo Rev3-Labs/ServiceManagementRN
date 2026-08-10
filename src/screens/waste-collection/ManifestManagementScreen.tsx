@@ -335,28 +335,37 @@ export const ManifestManagementScreen: React.FC<ManifestManagementScreenProps> =
           disabled={isCurrentOrderCompleted}
           primaryLabel={hasPrintedAllDocuments ? 'Print' : 'Print All'}
           onPrimary={hasPrintedAllDocuments ? undefined : printAllDocuments}
-          options={[
-            ...(hasPrintedAllDocuments
-              ? []
+          options={
+            hasPrintedAllDocuments
+              ? [
+                  {
+                    label: 'Print Manifest',
+                    icon: 'description',
+                    onPress: printManifest,
+                  },
+                  {
+                    label: 'Print BOL',
+                    icon: 'local-shipping',
+                    onPress: printBOL,
+                  },
+                  {label: 'Print LDR', icon: 'article', onPress: printLDR},
+                ]
               : [
                   {
                     label: 'Print All Documents',
                     icon: 'print',
                     onPress: printAllDocuments,
                   },
-                ]),
-            {label: 'Print Manifest', icon: 'description', onPress: printManifest},
-            {label: 'Print BOL', icon: 'local-shipping', onPress: printBOL},
-            {label: 'Print LDR', icon: 'article', onPress: printLDR},
-          ]}
+                ]
+          }
         />
         <Button
           title="Continue"
           variant="primary"
           size="md"
-          disabled={isCurrentOrderCompleted}
+          disabled={isCurrentOrderCompleted || !hasPrintedAllDocuments}
           onPress={() => {
-            if (!isCurrentOrderCompleted) {
+            if (!isCurrentOrderCompleted && hasPrintedAllDocuments) {
               setCurrentStep(hasNoShipItems ? 'noship-preview' : 'order-service');
             }
           }}

@@ -50,7 +50,6 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
   orderData,
   isCollapsed,
   onToggleCollapse,
-  onBackPress,
   subtitle,
   elapsedTimeDisplay,
   isPaused = false,
@@ -130,16 +129,8 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
 
   return (
     <View style={[styles.persistentOrderHeader, isCollapsed && styles.persistentOrderHeaderCollapsed]}>
-      {/* Header Row with Back Button, Order Number, Toggle, and Time Tracking */}
+      {/* Header Row with Order Number, Toggle, and Time Tracking */}
       <View style={[styles.persistentHeaderTopRow, isCollapsed && styles.persistentHeaderTopRowCollapsed]}>
-        {onBackPress && (
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={onBackPress}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Icon name="arrow-back" size={22} color={colors.foreground} />
-          </TouchableOpacity>
-        )}
         <TouchableOpacity
           style={[styles.persistentHeaderToggle, {flex: 1, minWidth: 0}]}
           onPress={onToggleCollapse}

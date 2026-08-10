@@ -45,13 +45,16 @@ export function isSuppliesDropOffServiceType(serviceTypeId: string): boolean {
   return serviceTypeId === SUPPLIES_DROP_OFF_SERVICE_TYPE_ID;
 }
 
+/**
+ * Entry step when starting/editing a service request.
+ * No-Ship skips waste profile selection (no containers to add).
+ * All other service types — including SDO — open Waste Profile Selection.
+ */
 export function getServiceEntryStep(
-  serviceTypeId: string,
+  _serviceTypeId: string,
   isNoShip = false,
 ): 'container-summary' | 'stream-selection' {
-  return isSuppliesDropOffServiceType(serviceTypeId) || isNoShip
-    ? 'container-summary'
-    : 'stream-selection';
+  return isNoShip ? 'container-summary' : 'stream-selection';
 }
 
 export function shouldSkipContainerEntryFlow(

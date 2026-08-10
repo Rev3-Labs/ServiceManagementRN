@@ -287,6 +287,7 @@ export interface DashboardScreenProps {
   isOrderReadyForManifest: (order: OrderData) => boolean;
   hasManifestForOrder: (orderNumber: string) => boolean;
   handleGenerateManifestForOrder: (order: OrderData) => void;
+  handleContinueToNoShipForOrder: (order: OrderData) => void;
   voidManifest: () => void;
 
   // Service type
@@ -649,6 +650,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
     isOrderReadyForManifest,
     hasManifestForOrder,
     handleGenerateManifestForOrder,
+    handleContinueToNoShipForOrder,
     voidManifest,
     isServiceTypeNoShip,
     handleDashboardServiceTypeBadgePress,
@@ -1305,54 +1307,52 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                       </Text>
                     ) : (
                       <>
-                        {isOrderReadyForManifest(selectedOrder) && (
-                          <>
+                        {isOrderReadyForManifest(selectedOrder) &&
+                          (selectedOrder.programs.every(p =>
+                            isServiceTypeNoShip(selectedOrder.orderNumber, p),
+                          ) ? (
                             <Button
-                              title={hasManifestForOrder(selectedOrder.orderNumber) ? 'Open manifest' : 'Continue to manifest'}
+                              title="Continue to No-ship"
                               variant="primary"
                               size="lg"
                               disabled={!notesAcknowledged}
                               style={styles.detailActionsRowButton}
                               onPress={() => {
                                 if (selectedOrder) {
-                                  handleGenerateManifestForOrder(selectedOrder);
+                                  handleContinueToNoShipForOrder(selectedOrder);
                                 }
                               }}
                             />
-                            {hasManifestForOrder(selectedOrder.orderNumber) && (
+                          ) : (
+                            <>
                               <Button
-                                title="Void manifest"
-                                variant="destructive"
+                                title={
+                                  hasManifestForOrder(selectedOrder.orderNumber)
+                                    ? 'Open Manifest'
+                                    : 'Continue to Manifest'
+                                }
+                                variant="primary"
                                 size="lg"
                                 disabled={!notesAcknowledged}
                                 style={styles.detailActionsRowButton}
-                                onPress={voidManifest}
+                                onPress={() => {
+                                  if (selectedOrder) {
+                                    handleGenerateManifestForOrder(selectedOrder);
+                                  }
+                                }}
                               />
-                            )}
-                          </>
-                        )}
-                        {selectedOrder.programs.every((p) =>
-                          isServiceTypeNoShip(selectedOrder.orderNumber, p),
-                        ) ? (
-                          <Button
-                            title="Complete Order as No-Ship"
-                            variant="primary"
-                            size="lg"
-                            disabled={!notesAcknowledged}
-                            style={styles.detailActionsRowButton}
-                            onPress={() => {
-                              if (!selectedOrder) return;
-                              setCompletedOrders((prev) =>
-                                prev.includes(selectedOrder.orderNumber)
-                                  ? prev
-                                  : [...prev, selectedOrder.orderNumber],
-                              );
-                              setSelectedServiceTypeToStart(null);
-                            }}
-                          />
-                        ) : (
-                          null
-                        )}
+                              {hasManifestForOrder(selectedOrder.orderNumber) && (
+                                <Button
+                                  title="Void manifest"
+                                  variant="destructive"
+                                  size="lg"
+                                  disabled={!notesAcknowledged}
+                                  style={styles.detailActionsRowButton}
+                                  onPress={voidManifest}
+                                />
+                              )}
+                            </>
+                          ))}
                       </>
                     )}
                   </View>
@@ -1741,6 +1741,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
     isOrderReadyForManifest,
     hasManifestForOrder,
     handleGenerateManifestForOrder,
+    handleContinueToNoShipForOrder,
     voidManifest,
     isServiceTypeNoShip,
     handleDashboardServiceTypeBadgePress,
@@ -2353,52 +2354,59 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                       </Text>
                     ) : (
                       <>
-                        {isOrderReadyForManifest(dashboardSelectedOrder) && (
-                          <>
+                        {isOrderReadyForManifest(dashboardSelectedOrder) &&
+                          (dashboardSelectedOrder.programs.every(p =>
+                            isServiceTypeNoShip(
+                              dashboardSelectedOrder.orderNumber,
+                              p,
+                            ),
+                          ) ? (
                             <Button
-                              title={hasManifestForOrder(dashboardSelectedOrder.orderNumber) ? 'Open manifest' : 'Continue to manifest'}
+                              title="Continue to No-ship"
                               variant="primary"
                               size="lg"
                               disabled={!dashboardNotesAcknowledged}
                               style={styles.detailActionsRowButton}
                               onPress={() => {
-                                handleGenerateManifestForOrder(dashboardSelectedOrder);
+                                handleContinueToNoShipForOrder(
+                                  dashboardSelectedOrder,
+                                );
                               }}
                             />
-                            {hasManifestForOrder(dashboardSelectedOrder.orderNumber) && (
+                          ) : (
+                            <>
                               <Button
-                                title="Void manifest"
-                                variant="destructive"
+                                title={
+                                  hasManifestForOrder(
+                                    dashboardSelectedOrder.orderNumber,
+                                  )
+                                    ? 'Open Manifest'
+                                    : 'Continue to Manifest'
+                                }
+                                variant="primary"
                                 size="lg"
                                 disabled={!dashboardNotesAcknowledged}
                                 style={styles.detailActionsRowButton}
-                                onPress={voidManifest}
+                                onPress={() => {
+                                  handleGenerateManifestForOrder(
+                                    dashboardSelectedOrder,
+                                  );
+                                }}
                               />
-                            )}
-                          </>
-                        )}
-                        {dashboardSelectedOrder.programs.every((p) =>
-                          isServiceTypeNoShip(dashboardSelectedOrder.orderNumber, p),
-                        ) ? (
-                          <Button
-                            title="Complete Order as No-Ship"
-                            variant="primary"
-                            size="lg"
-                            disabled={!dashboardNotesAcknowledged}
-                            style={styles.detailActionsRowButton}
-                            onPress={() => {
-                              if (!dashboardSelectedOrder) return;
-                              setCompletedOrders((prev) =>
-                                prev.includes(dashboardSelectedOrder.orderNumber)
-                                  ? prev
-                                  : [...prev, dashboardSelectedOrder.orderNumber],
-                              );
-                              setSelectedServiceTypeToStart(null);
-                            }}
-                          />
-                        ) : (
-                          null
-                        )}
+                              {hasManifestForOrder(
+                                dashboardSelectedOrder.orderNumber,
+                              ) && (
+                                <Button
+                                  title="Void manifest"
+                                  variant="destructive"
+                                  size="lg"
+                                  disabled={!dashboardNotesAcknowledged}
+                                  style={styles.detailActionsRowButton}
+                                  onPress={voidManifest}
+                                />
+                              )}
+                            </>
+                          ))}
                       </>
                     )}
                   </View>

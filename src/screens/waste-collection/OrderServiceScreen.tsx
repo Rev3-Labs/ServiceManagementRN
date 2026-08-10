@@ -376,8 +376,38 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
       });
     }
 
+    // Hard stop: customer name + digital signature required for No-ship and SSR closeout
+    if (!customerFirstName.trim() || !customerLastName.trim()) {
+      reasons.push({
+        id: 'missing-customer-name',
+        reason: 'Customer first and last name are required',
+        severity: 'error',
+        waivable: false,
+        action: {type: 'focus-ack'},
+        hint: 'Tap to go to customer acknowledgment',
+      });
+    }
+    if (!customerSignature) {
+      reasons.push({
+        id: 'missing-customer-signature',
+        reason: 'Digital customer signature is required for Service Summary / No-ship closeout',
+        severity: 'error',
+        waivable: false,
+        action: {type: 'focus-ack'},
+        hint: 'Tap to capture customer signature',
+      });
+    }
+
     return reasons;
-  }, [selectedOrderData, addedContainers, orderPhotos, workOrderNotes]);
+  }, [
+    selectedOrderData,
+    addedContainers,
+    orderPhotos,
+    workOrderNotes,
+    customerFirstName,
+    customerLastName,
+    customerSignature,
+  ]);
 
   const scrollToCustomerAck = useCallback(() => {
     customerAckRef.current?.measureInWindow((_ackX, ackY) => {
