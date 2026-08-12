@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import {Badge} from '../../components/Badge';
+import {Button} from '../../components/Button';
 import {PersistentOrderHeader} from '../../components/PersistentOrderHeader';
 import {FlowStep, OrderData, WasteStream, ContainerType} from '../../types/wasteCollection';
 import {SyncStatus} from '../../services/syncService';
@@ -183,6 +184,15 @@ export const ContainerSelectionScreen: React.FC<ContainerSelectionScreenProps> =
           </View>
         )}
       </ScrollView>
+
+      <View style={styles.footer}>
+        <Button
+          title="Back"
+          variant="outline"
+          size="md"
+          onPress={() => setCurrentStep('stream-selection')}
+        />
+      </View>
     </View>
   );
 };
