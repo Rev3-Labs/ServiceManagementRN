@@ -1,5 +1,12 @@
 import React, {useState, useEffect} from 'react';
-import {View, Text, TouchableOpacity, StyleSheet, ActivityIndicator} from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  useWindowDimensions,
+} from 'react-native';
 import {Badge} from './Badge';
 import {Icon} from './Icon';
 import {StickyNoteIcon} from './StickyNoteIcon';
@@ -50,7 +57,6 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
   orderData,
   isCollapsed,
   onToggleCollapse,
-  subtitle,
   elapsedTimeDisplay,
   isPaused = false,
   onPause,
@@ -69,6 +75,10 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
   serviceTypeBadges,
   onServiceTypeBadgePress,
 }) => {
+  const {width: windowWidth} = useWindowDimensions();
+  /** Portrait Zebra (~800) and similar widths need denser chrome. */
+  const isNarrow = windowWidth < 960;
+
   const [offlineStatus, setOfflineStatus] = useState<OfflineStatus>(
     offlineTrackingService.getStatus(),
   );
@@ -92,7 +102,6 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
       Boolean,
     );
     const address = parts.join(', ');
-    // Add ZIP code if available
     if (orderData.zip) {
       return `${address} ${orderData.zip}`;
     }
@@ -127,113 +136,175 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
     }
   };
 
+  const syncIsError =
+    syncStatus === 'error' ||
+    syncStatus === 'offline' ||
+    !offlineStatus.isOnline;
+  const syncDisabled =
+    syncStatus === 'syncing' ||
+    !offlineStatus.isOnline ||
+    offlineStatus.isBlocked;
+  const syncLabel =
+    syncStatus === 'syncing'
+      ? 'Syncing…'
+      : !offlineStatus.isOnline
+        ? 'Offline'
+        : syncStatus === 'error'
+          ? 'Failed'
+          : syncStatus === 'pending' && pendingSyncCount > 0
+            ? `${pendingSyncCount} pending`
+            : 'Synced';
+
+  const renderServiceTypeBadges = () => {
+    if (!serviceTypeBadges || serviceTypeBadges.length === 0) {
+      return null;
+    }
+    return (
+      <View
+        style={[
+          styles.serviceTypeBadgesRow,
+          isCollapsed && styles.serviceTypeBadgesRowCollapsed,
+        ]}>
+        {serviceTypeBadges.map(({serviceTypeId, srNumber, status}) => {
+          const label = srNumber
+            ? `${serviceTypeId} • ${srNumber}`
+            : serviceTypeId;
+          const isNoship = status === 'noship';
+          const isInProgress = status === 'in-progress';
+          const isCompleted = status === 'completed';
+          const isPending = status === 'pending';
+          const badgeStyle = [
+            styles.serviceTypeBadge,
+            isNoship && styles.serviceTypeBadgeNoship,
+            isCompleted && styles.serviceTypeBadgeCompleted,
+            isInProgress && styles.serviceTypeBadgeInProgress,
+            isPending && styles.serviceTypeBadgePending,
+          ];
+          const textContent = (
+            <View style={styles.serviceTypeBadgeContent}>
+              {isCompleted && (
+                <Icon
+                  name="check"
+                  size={14}
+                  color={colors.success}
+                  style={styles.serviceTypeBadgeIcon}
+                />
+              )}
+              <Text
+                style={[
+                  styles.serviceTypeBadgeText,
+                  isNoship && styles.serviceTypeBadgeTextNoship,
+                  isCompleted && styles.serviceTypeBadgeTextCompleted,
+                  isInProgress && styles.serviceTypeBadgeTextInProgress,
+                  isPending && styles.serviceTypeBadgeTextPending,
+                ]}
+                numberOfLines={1}>
+                {label}
+              </Text>
+            </View>
+          );
+          return onServiceTypeBadgePress ? (
+            <TouchableOpacity
+              key={serviceTypeId}
+              style={badgeStyle}
+              onPress={() => onServiceTypeBadgePress(serviceTypeId)}
+              activeOpacity={0.7}>
+              {textContent}
+            </TouchableOpacity>
+          ) : (
+            <View key={serviceTypeId} style={badgeStyle}>
+              {textContent}
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
+  const renderMetaCell = (
+    label: string,
+    value: React.ReactNode,
+    key: string,
+  ) => (
+    <View
+      key={key}
+      style={[styles.metaCell, isNarrow && styles.metaCellNarrow]}>
+      <Text style={styles.persistentHeaderLabel}>{label}</Text>
+      {typeof value === 'string' ? (
+        <Text style={styles.persistentHeaderValue} numberOfLines={2}>
+          {value}
+        </Text>
+      ) : (
+        value
+      )}
+    </View>
+  );
+
   return (
-    <View style={[styles.persistentOrderHeader, isCollapsed && styles.persistentOrderHeaderCollapsed]}>
-      {/* Header Row with Order Number, Toggle, and Time Tracking */}
-      <View style={[styles.persistentHeaderTopRow, isCollapsed && styles.persistentHeaderTopRowCollapsed]}>
+    <View
+      style={[
+        styles.persistentOrderHeader,
+        isNarrow && styles.persistentOrderHeaderNarrow,
+        isCollapsed && styles.persistentOrderHeaderCollapsed,
+      ]}>
+      {/* Title row: order + icon actions only (no labeled chips that overflow) */}
+      <View
+        style={[
+          styles.persistentHeaderTopRow,
+          isCollapsed && styles.persistentHeaderTopRowCollapsed,
+        ]}>
         <TouchableOpacity
-          style={[styles.persistentHeaderToggle, {flex: 1, minWidth: 0}]}
+          style={styles.persistentHeaderToggle}
           onPress={onToggleCollapse}
           activeOpacity={0.7}>
-          <View style={styles.persistentHeaderTitleRow}>
-            <View style={[styles.persistentHeaderTitleContent, {minWidth: 0}]}>
-              <Text style={[styles.persistentHeaderOrderNumber, isCollapsed && styles.persistentHeaderOrderNumberCollapsed]} numberOfLines={1}>
-                {orderData.orderNumber}
-              </Text>
-              {serviceTypeBadges && serviceTypeBadges.length > 0 && (
-                <View style={[styles.serviceTypeBadgesRow, isCollapsed && styles.serviceTypeBadgesRowCollapsed]}>
-                  {serviceTypeBadges.map(({serviceTypeId, srNumber, status}) => {
-                    const label = srNumber
-                      ? `${serviceTypeId} • ${srNumber}`
-                      : serviceTypeId;
-                    const isNoship = status === 'noship';
-                    const isInProgress = status === 'in-progress';
-                    const isCompleted = status === 'completed';
-                    const isPending = status === 'pending';
-                    const badgeStyle = [
-                      styles.serviceTypeBadge,
-                      isNoship && styles.serviceTypeBadgeNoship,
-                      isCompleted && styles.serviceTypeBadgeCompleted,
-                      isInProgress && styles.serviceTypeBadgeInProgress,
-                      isPending && styles.serviceTypeBadgePending,
-                    ];
-                    const textContent = (
-                      <View style={styles.serviceTypeBadgeContent}>
-                        {isCompleted && (
-                          <Icon
-                            name="check"
-                            size={14}
-                            color={colors.success}
-                            style={styles.serviceTypeBadgeIcon}
-                          />
-                        )}
-                        <Text
-                          style={[
-                            styles.serviceTypeBadgeText,
-                            isNoship && styles.serviceTypeBadgeTextNoship,
-                            isCompleted && styles.serviceTypeBadgeTextCompleted,
-                            isInProgress && styles.serviceTypeBadgeTextInProgress,
-                            isPending && styles.serviceTypeBadgeTextPending,
-                          ]}>
-                          {label}
-                        </Text>
-                      </View>
-                    );
-                    return onServiceTypeBadgePress ? (
-                      <TouchableOpacity
-                        key={serviceTypeId}
-                        style={badgeStyle}
-                        onPress={() => onServiceTypeBadgePress(serviceTypeId)}
-                        activeOpacity={0.7}>
-                        {textContent}
-                      </TouchableOpacity>
-                    ) : (
-                      <View key={serviceTypeId} style={badgeStyle}>
-                        {textContent}
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-            </View>
-          </View>
+          <Text
+            style={[
+              styles.persistentHeaderOrderNumber,
+              isCollapsed && styles.persistentHeaderOrderNumberCollapsed,
+            ]}
+            numberOfLines={1}>
+            {orderData.orderNumber}
+          </Text>
+          {renderServiceTypeBadges()}
         </TouchableOpacity>
-        <View style={[styles.persistentHeaderRightActions, isCollapsed && styles.persistentHeaderRightActionsCollapsed]}>
-          {/* Collapsed: only validation + online status. Expanded: also service center, notes, sync. */}
-          {!isCollapsed && serviceCenter && onViewServiceCenter && (
-            <TouchableOpacity
-              onPress={onViewServiceCenter}
-              style={styles.serviceCenterBadge}
-              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
-              activeOpacity={0.7}>
-              <Icon name="business" size={16} color={colors.primary} />
-              <Text style={styles.serviceCenterText} numberOfLines={1}>
-                {serviceCenterService.getDisplayFormat(false)}
-              </Text>
-            </TouchableOpacity>
-          )}
+
+        <View
+          style={[
+            styles.persistentHeaderRightActions,
+            isCollapsed && styles.persistentHeaderRightActionsCollapsed,
+          ]}>
           <TouchableOpacity
             onPress={onViewValidation}
             style={[
-              styles.validationIndicator,
-              (!validationState || validationState.state === 'none') && styles.validationIndicatorSuccess,
-              validationState?.state === 'error' && styles.validationIndicatorError,
-              validationState?.state === 'warning' && styles.validationIndicatorWarning,
+              styles.iconAction,
+              validationState?.state === 'error' && styles.iconActionError,
+              validationState?.state === 'warning' && styles.iconActionWarning,
             ]}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
-            activeOpacity={0.7}>
-            {(!validationState || validationState.state === 'none') ? (
-              <Icon name="check-circle" size={18} color={colors.success} />
+            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+            activeOpacity={0.7}
+            accessibilityLabel="Validation">
+            {!validationState || validationState.state === 'none' ? (
+              <Icon name="check-circle" size={20} color={colors.success} />
             ) : (
               <>
                 <Icon
                   name="warning"
-                  size={18}
-                  color={validationState.state === 'error' ? colors.destructive : colors.warning}
+                  size={20}
+                  color={
+                    validationState.state === 'error'
+                      ? colors.destructive
+                      : colors.warning
+                  }
                 />
                 {validationState.count > 0 && (
-                  <View style={styles.validationCountBadge}>
-                    <Text style={styles.validationCountText}>
+                  <View
+                    style={[
+                      styles.actionBadge,
+                      validationState.state === 'error'
+                        ? styles.actionBadgeError
+                        : styles.actionBadgeWarning,
+                    ]}>
+                    <Text style={styles.actionBadgeText}>
                       {validationState.count}
                     </Text>
                   </View>
@@ -241,158 +312,85 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
               </>
             )}
           </TouchableOpacity>
-          <ConnectedDevicesControl />
+
+          <ConnectedDevicesControl buttonStyle={styles.iconAction} />
+
           {onOrderNotes && (
             <TouchableOpacity
               onPress={onOrderNotes}
-              style={styles.orderNotesButton}
-              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+              style={[
+                styles.iconAction,
+                hasWorkOrderNotes && styles.iconActionNotesActive,
+              ]}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
               activeOpacity={0.7}
               accessibilityLabel="Order Notes"
               accessibilityHint="Open work order notes">
-              <StickyNoteIcon size={20} hasContent={hasWorkOrderNotes} />
-              {!isCollapsed && (
-                <Text style={styles.orderNotesButtonText} numberOfLines={1}>
-                  Order Notes
-                </Text>
-              )}
+              <StickyNoteIcon size={18} hasContent={hasWorkOrderNotes} />
             </TouchableOpacity>
           )}
-          {!isCollapsed && hasJobNotes && onViewNotes && (
+
+          {hasJobNotes && onViewNotes && (
             <TouchableOpacity
               onPress={onViewNotes}
-              style={styles.notesButton}
-              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+              style={styles.iconAction}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
               activeOpacity={0.7}
               accessibilityLabel="Service Notes">
               <Icon name="assignment" size={20} color={colors.foreground} />
             </TouchableOpacity>
           )}
-          {!isCollapsed && onSync && (
-            <View style={styles.headerSyncRow}>
-              <View
-                style={[
-                  styles.headerSyncStatusChip,
-                  (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) &&
-                    styles.headerSyncStatusChipError,
-                  (syncStatus === 'synced' || syncStatus === 'pending') && styles.headerSyncStatusChipSynced,
-                ]}>
-                {syncStatus === 'syncing' ? (
-                  <ActivityIndicator size="small" color={colors.primary} />
-                ) : (
-                  <View
-                    style={[
-                      styles.headerSyncDot,
-                      (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) &&
-                        styles.headerSyncDotError,
-                      (syncStatus === 'synced' || syncStatus === 'pending') && styles.headerSyncDotSynced,
-                    ]}
-                  />
-                )}
-                <Text
-                  style={[
-                    styles.headerSyncStatusText,
-                    (syncStatus === 'error' || syncStatus === 'offline' || !offlineStatus.isOnline) &&
-                      styles.headerSyncStatusTextError,
-                    (syncStatus === 'synced' || syncStatus === 'pending') && styles.headerSyncStatusTextSynced,
-                  ]}
-                  numberOfLines={1}>
-                  {syncStatus === 'syncing'
-                    ? 'Syncing...'
-                    : !offlineStatus.isOnline
-                      ? 'Offline'
-                      : syncStatus === 'error'
-                        ? 'Connection failed'
-                        : syncStatus === 'pending' && pendingSyncCount > 0
-                          ? `Pending (${pendingSyncCount})`
-                          : 'Synced'}
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={onSync}
-                disabled={syncStatus === 'syncing' || !offlineStatus.isOnline || offlineStatus.isBlocked}
-                style={[
-                  styles.headerSyncButton,
-                  (syncStatus === 'syncing' || !offlineStatus.isOnline || offlineStatus.isBlocked) &&
-                    styles.headerSyncButtonDisabled,
-                ]}
-                activeOpacity={0.7}>
-                {syncStatus === 'syncing' ? (
-                  <ActivityIndicator size="small" color={colors.primaryForeground} />
-                ) : (
-                  <Icon name="sync" size={16} color={colors.primaryForeground} />
-                )}
-                <Text style={styles.headerSyncButtonText}>Sync</Text>
-                {pendingSyncCount > 0 && syncStatus !== 'syncing' && (
-                  <Badge variant="secondary" style={styles.headerSyncButtonBadge}>
-                    {pendingSyncCount}
-                  </Badge>
-                )}
-              </TouchableOpacity>
-            </View>
-          )}
-          {/* Connection/online status - always visible (collapsed + expanded) */}
+
           <TouchableOpacity
             style={[
-              styles.connectionStatusButton,
-              !offlineStatus.isOnline && styles.connectionStatusOfflineButton,
-              offlineStatus.warningLevel === 'warning' && styles.connectionStatusWarning,
-              offlineStatus.warningLevel === 'orange' && styles.connectionStatusOrange,
-              offlineStatus.warningLevel === 'critical' && styles.connectionStatusCritical,
-              offlineStatus.isBlocked && styles.connectionStatusBlocked,
+              styles.iconAction,
+              !offlineStatus.isOnline && styles.iconActionOffline,
+              offlineStatus.warningLevel === 'warning' &&
+                styles.iconActionWarning,
+              offlineStatus.warningLevel === 'orange' &&
+                styles.iconActionOrange,
+              (offlineStatus.warningLevel === 'critical' ||
+                offlineStatus.isBlocked) &&
+                styles.iconActionError,
             ]}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
-            activeOpacity={0.7}>
+            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+            activeOpacity={0.7}
+            accessibilityLabel={
+              offlineStatus.isOnline
+                ? 'Connected'
+                : `Offline ${offlineStatus.offlineDurationFormatted}`
+            }>
             {offlineStatus.isOnline ? (
-              <View style={styles.connectionStatusOnlineContainer}>
-                <Icon name="check-circle" size={20} color={colors.success} />
-                {!isCollapsed && (
-                  <Text style={styles.connectionStatusOnlineText}>
-                    Connected
-                  </Text>
-                )}
-              </View>
+              <Icon name="wifi" size={20} color={colors.success} />
             ) : (
-              <View style={styles.connectionStatusOfflineContainer}>
-                <Icon
-                  name="error"
-                  size={20}
-                  color={
-                    offlineStatus.isBlocked
-                      ? colors.destructive
-                      : offlineStatus.warningLevel === 'critical'
-                      ? colors.destructive
-                      : offlineStatus.warningLevel === 'orange'
-                      ? '#FF6B35' // Orange color
+              <Icon
+                name="wifi-off"
+                size={20}
+                color={
+                  offlineStatus.isBlocked ||
+                  offlineStatus.warningLevel === 'critical'
+                    ? colors.destructive
+                    : offlineStatus.warningLevel === 'orange'
+                      ? '#FF6B35'
                       : offlineStatus.warningLevel === 'warning'
-                      ? colors.warning
-                      : colors.mutedForeground
-                  }
-                />
-                {!isCollapsed && (
-                  <Text
-                    style={[
-                      styles.connectionStatusOfflineText,
-                      offlineStatus.warningLevel === 'warning' && styles.connectionStatusWarningText,
-                      offlineStatus.warningLevel === 'orange' && styles.connectionStatusOrangeText,
-                      offlineStatus.warningLevel === 'critical' && styles.connectionStatusCriticalText,
-                      offlineStatus.isBlocked && styles.connectionStatusBlockedText,
-                    ]}>
-                    Offline: {offlineStatus.offlineDurationFormatted}
-                  </Text>
-                )}
-              </View>
+                        ? colors.warning
+                        : colors.mutedForeground
+                }
+              />
             )}
           </TouchableOpacity>
-          {/* Collapse/Expand Toggle Icon - Far Right */}
+
           <TouchableOpacity
             onPress={onToggleCollapse}
-            style={styles.persistentHeaderToggleIconButton}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
-            activeOpacity={0.7}>
+            style={styles.iconAction}
+            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+            activeOpacity={0.7}
+            accessibilityLabel={
+              isCollapsed ? 'Expand header' : 'Collapse header'
+            }>
             <Icon
               name={isCollapsed ? 'keyboard-arrow-down' : 'keyboard-arrow-up'}
-              size={20}
+              size={22}
               color={colors.mutedForeground}
             />
           </TouchableOpacity>
@@ -401,132 +399,184 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
 
       {!isCollapsed && (
         <View style={styles.persistentHeaderContent}>
-          {/* Elapsed Time Display */}
-          {elapsedTimeDisplay && (
-            <View style={styles.persistentHeaderRow}>
-              <View style={styles.persistentHeaderItem}>
-                <Text style={styles.persistentHeaderLabel}>Elapsed Time</Text>
-                <View style={styles.timeTrackingRow}>
-                  <View style={styles.timeTrackingBadge}>
-                    <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
-                  </View>
-                  {(onPause || onResume) && (
-                    <TouchableOpacity
-                      onPress={isPaused ? onResume : onPause}
+          {/* Toolbar: time, service center, sync — wraps cleanly on narrow widths */}
+          <View style={styles.toolbarRow}>
+            {elapsedTimeDisplay ? (
+              <View style={styles.timeTrackingRow}>
+                <View style={styles.timeTrackingBadge}>
+                  <Text style={styles.timeTrackingText}>{elapsedTimeDisplay}</Text>
+                </View>
+                {(onPause || onResume) && (
+                  <TouchableOpacity
+                    onPress={isPaused ? onResume : onPause}
+                    style={[
+                      styles.pauseButton,
+                      isPaused && styles.pauseButtonActive,
+                    ]}
+                    hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                    activeOpacity={0.7}>
+                    <Icon
+                      name={isPaused ? 'play-arrow' : 'pause'}
+                      size={16}
+                      color={
+                        isPaused ? colors.primaryForeground : colors.primary
+                      }
+                    />
+                    <Text
                       style={[
-                        styles.pauseButton,
-                        isPaused && styles.pauseButtonActive,
-                      ]}
-                      hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
-                      activeOpacity={0.7}>
-                      <Icon
-                        name={isPaused ? 'play-arrow' : 'pause'}
-                        size={16}
-                        color={isPaused ? colors.primaryForeground : colors.primary}
-                      />
-                      <Text
-                        style={[
-                          styles.pauseButtonText,
-                          isPaused && styles.pauseButtonTextActive,
-                        ]}>
-                        {isPaused ? 'Continue' : 'Pause'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
+                        styles.pauseButtonText,
+                        isPaused && styles.pauseButtonTextActive,
+                      ]}>
+                      {isPaused ? 'Continue' : 'Pause'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
-            </View>
-          )}
-          
-          {/* Required Date, Address, Generator Status, Order Status, EPA ID - single row for easier scanning */}
-          <View style={styles.persistentHeaderRow}>
-            <View style={styles.persistentHeaderItem}>
-              <Text style={styles.persistentHeaderLabel}>Required Date</Text>
-              <Text style={styles.persistentHeaderValue}>
-                {orderData.requiredDate || 'N/A'}
-              </Text>
-            </View>
-            <View style={styles.persistentHeaderItem}>
-              <Text style={styles.persistentHeaderLabel}>Address</Text>
-              <Text style={styles.persistentHeaderValue}>
-                {formatAddress()}
-              </Text>
-            </View>
-            <View style={styles.persistentHeaderItem}>
-              <Text style={styles.persistentHeaderLabel}>Generator Status</Text>
-              {orderData.generatorStatus ? (
-                <View style={styles.persistentHeaderBadge}>
-                  <Badge
-                    variant="outline"
-                    style={{
-                      borderColor: getGeneratorStatusColor(
-                        orderData.generatorStatus,
-                      ),
-                    }}
-                    textStyle={{
-                      color: getGeneratorStatusColor(orderData.generatorStatus),
-                    }}>
-                    {orderData.generatorStatus}
-                  </Badge>
+            ) : null}
+
+            {serviceCenter && onViewServiceCenter ? (
+              <TouchableOpacity
+                onPress={onViewServiceCenter}
+                style={styles.serviceCenterBadge}
+                hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                activeOpacity={0.7}>
+                <Icon name="business" size={16} color={colors.primary} />
+                <Text style={styles.serviceCenterText} numberOfLines={1}>
+                  {serviceCenterService.getDisplayFormat(false)}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {onSync ? (
+              <View style={styles.headerSyncRow}>
+                <View
+                  style={[
+                    styles.headerSyncStatusChip,
+                    syncIsError && styles.headerSyncStatusChipError,
+                    (syncStatus === 'synced' || syncStatus === 'pending') &&
+                      styles.headerSyncStatusChipSynced,
+                  ]}>
+                  {syncStatus === 'syncing' ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <View
+                      style={[
+                        styles.headerSyncDot,
+                        syncIsError && styles.headerSyncDotError,
+                        (syncStatus === 'synced' ||
+                          syncStatus === 'pending') &&
+                          styles.headerSyncDotSynced,
+                      ]}
+                    />
+                  )}
+                  <Text
+                    style={[
+                      styles.headerSyncStatusText,
+                      syncIsError && styles.headerSyncStatusTextError,
+                      (syncStatus === 'synced' || syncStatus === 'pending') &&
+                        styles.headerSyncStatusTextSynced,
+                    ]}
+                    numberOfLines={1}>
+                    {syncLabel}
+                  </Text>
                 </View>
-              ) : (
-                <Text style={styles.persistentHeaderValue}>N/A</Text>
-              )}
-            </View>
-            <View style={styles.persistentHeaderItem}>
-              <Text style={styles.persistentHeaderLabel}>Order Status</Text>
-              <Badge variant={getStatusBadgeVariant(orderData.status)}>
-                {orderData.status}
-              </Badge>
-            </View>
-            <View style={styles.persistentHeaderItem}>
-              <Text style={styles.persistentHeaderLabel}>EPA ID</Text>
-              <Badge
-                variant={orderData.epaId ? 'default' : 'destructive'}
-                style={styles.persistentHeaderBadge}>
-                {orderData.epaId ? 'Yes' : 'No'}
-              </Badge>
-            </View>
+                <TouchableOpacity
+                  onPress={onSync}
+                  disabled={syncDisabled}
+                  style={[
+                    styles.headerSyncButton,
+                    syncDisabled && styles.headerSyncButtonDisabled,
+                  ]}
+                  activeOpacity={0.7}>
+                  {syncStatus === 'syncing' ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={colors.primaryForeground}
+                    />
+                  ) : (
+                    <Icon
+                      name="sync"
+                      size={16}
+                      color={colors.primaryForeground}
+                    />
+                  )}
+                  <Text style={styles.headerSyncButtonText}>Sync</Text>
+                  {pendingSyncCount > 0 && syncStatus !== 'syncing' && (
+                    <Badge
+                      variant="secondary"
+                      style={styles.headerSyncButtonBadge}>
+                      {pendingSyncCount}
+                    </Badge>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
 
-          {/* Vehicle Information */}
-          {!isCollapsed && (truckNumber || trailerNumber) && (
-            <View style={styles.persistentHeaderRow}>
-              {truckNumber && (
-                <View style={styles.persistentHeaderItem}>
-                  <Text style={styles.persistentHeaderLabel}>Truck</Text>
-                  <Text style={styles.persistentHeaderValue}>
-                    {truckNumber}
-                  </Text>
-                </View>
-              )}
-              {trailerNumber ? (
-                <View style={styles.persistentHeaderItem}>
-                  <Text style={styles.persistentHeaderLabel}>Trailer</Text>
-                  <Text style={styles.persistentHeaderValue}>
-                    {trailerNumber}
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.persistentHeaderItem}>
-                  <Text style={styles.persistentHeaderLabel}>Trailer</Text>
-                  <Text style={styles.persistentHeaderValue}>None</Text>
-                </View>
-              )}
-            </View>
-          )}
+          {/* Address gets full width — longest field and critical for field use */}
+          <View style={styles.addressBlock}>
+            <Text style={styles.persistentHeaderLabel}>Address</Text>
+            <Text style={styles.addressValue}>{formatAddress()}</Text>
+          </View>
 
-          {/* Last sync (Sync button is in top row) */}
-          {!isCollapsed && (
-            <View style={styles.syncInfoRow}>
-              <View style={styles.syncInfoLeft}>
-                <Text style={styles.lastSyncLabel}>Last sync:</Text>
-                <Text style={styles.lastSyncValue}>
-                  {offlineStatus.lastSyncFormatted || 'Never synced'}
-                </Text>
-              </View>
-            </View>
-          )}
+          {/* Compact meta grid: 2 cols on narrow, more on wide */}
+          <View style={styles.metaGrid}>
+            {renderMetaCell(
+              'Required Date',
+              orderData.requiredDate || 'N/A',
+              'required-date',
+            )}
+            {renderMetaCell(
+              'Generator Status',
+              orderData.generatorStatus ? (
+                <Badge
+                  variant="outline"
+                  style={{
+                    borderColor: getGeneratorStatusColor(
+                      orderData.generatorStatus,
+                    ),
+                    alignSelf: 'flex-start',
+                  }}
+                  textStyle={{
+                    color: getGeneratorStatusColor(orderData.generatorStatus),
+                  }}>
+                  {orderData.generatorStatus}
+                </Badge>
+              ) : (
+                'N/A'
+              ),
+              'generator',
+            )}
+            {renderMetaCell(
+              'Order Status',
+              <Badge
+                variant={getStatusBadgeVariant(orderData.status)}
+                style={{alignSelf: 'flex-start'}}>
+                {orderData.status}
+              </Badge>,
+              'order-status',
+            )}
+            {renderMetaCell(
+              'EPA ID',
+              <Badge
+                variant={orderData.epaId ? 'default' : 'destructive'}
+                style={{alignSelf: 'flex-start'}}>
+                {orderData.epaId ? 'Yes' : 'No'}
+              </Badge>,
+              'epa',
+            )}
+            {truckNumber
+              ? renderMetaCell('Truck', truckNumber, 'truck')
+              : null}
+            {renderMetaCell('Trailer', trailerNumber || 'None', 'trailer')}
+          </View>
+
+          <View style={styles.syncInfoRow}>
+            <Text style={styles.lastSyncLabel}>Last sync:</Text>
+            <Text style={styles.lastSyncValue} numberOfLines={1}>
+              {offlineStatus.lastSyncFormatted || 'Never synced'}
+            </Text>
+          </View>
         </View>
       )}
     </View>
@@ -541,34 +591,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },
+  persistentOrderHeaderNarrow: {
+    paddingHorizontal: spacing.md,
+  },
   persistentOrderHeaderCollapsed: {
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.md,
   },
   persistentHeaderTopRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    flexWrap: 'wrap',
-  },
-  persistentHeaderTopRowCollapsed: {
+    alignItems: 'flex-start',
     gap: spacing.sm,
   },
-  backButton: {
-    padding: spacing.xs,
-    marginRight: spacing.xs,
+  persistentHeaderTopRowCollapsed: {
+    alignItems: 'center',
   },
   persistentHeaderToggle: {
     flex: 1,
-    paddingVertical: spacing.xs,
-  },
-  persistentHeaderTitleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  persistentHeaderTitleContent: {
-    flex: 1,
+    minWidth: 0,
+    paddingVertical: spacing.xs / 2,
   },
   persistentHeaderOrderNumber: {
     ...typography.lg,
@@ -593,26 +634,23 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs / 2,
     borderRadius: borderRadius.full,
     alignSelf: 'flex-start',
+    maxWidth: '100%',
   },
-  /** Pending / not started = orange */
   serviceTypeBadgePending: {
     backgroundColor: colors.warning + '22',
     borderWidth: 1,
     borderColor: colors.warning,
   },
-  /** In progress = blue */
   serviceTypeBadgeInProgress: {
     backgroundColor: colors.info + '22',
     borderWidth: 1,
     borderColor: colors.info,
   },
-  /** No-ship = grey */
   serviceTypeBadgeNoship: {
     backgroundColor: colors.muted,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  /** Completed = green */
   serviceTypeBadgeCompleted: {
     backgroundColor: colors.success + '22',
     borderWidth: 1,
@@ -642,17 +680,90 @@ const styles = StyleSheet.create({
   serviceTypeBadgeTextCompleted: {
     color: colors.success,
   },
-  persistentHeaderSubtitle: {
-    ...typography.base,
-    color: colors.mutedForeground,
-    marginTop: spacing.xs / 2,
+  persistentHeaderRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: spacing.xs,
+    paddingTop: spacing.xs / 2,
   },
-  persistentHeaderToggleIcon: {
-    marginLeft: spacing.sm,
+  persistentHeaderRightActionsCollapsed: {
+    paddingTop: 0,
   },
-  persistentHeaderToggleIconButton: {
-    padding: spacing.xs,
-    marginLeft: spacing.sm,
+  /** Shared chrome for every header action — same size, border, and fill. */
+  iconAction: {
+    width: 40,
+    height: 40,
+    minWidth: 40,
+    minHeight: 40,
+    borderRadius: borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    backgroundColor: colors.muted,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 0,
+  },
+  iconActionWarning: {
+    backgroundColor: colors.warning + '18',
+    borderColor: colors.warning + '80',
+  },
+  iconActionError: {
+    backgroundColor: colors.destructive + '18',
+    borderColor: colors.destructive + '80',
+  },
+  iconActionOrange: {
+    backgroundColor: '#FF6B35' + '18',
+    borderColor: '#FF6B35' + '80',
+  },
+  iconActionOffline: {
+    backgroundColor: colors.muted,
+    borderColor: colors.border,
+  },
+  iconActionNotesActive: {
+    backgroundColor: '#F5D76E' + '33',
+    borderColor: colors.border,
+  },
+  actionBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: colors.card,
+  },
+  actionBadgeError: {
+    backgroundColor: colors.destructive,
+  },
+  actionBadgeWarning: {
+    backgroundColor: colors.warning,
+  },
+  actionBadgeText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+    color: colors.primaryForeground,
+  },
+  persistentHeaderContent: {
+    paddingTop: spacing.sm,
+    gap: spacing.sm,
+  },
+  toolbarRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  timeTrackingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   timeTrackingBadge: {
     backgroundColor: colors.muted,
@@ -661,12 +772,6 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     borderWidth: 1,
     borderColor: colors.border,
-  },
-  timeTrackingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    flexWrap: 'wrap',
   },
   timeTrackingText: {
     ...typography.sm,
@@ -696,42 +801,6 @@ const styles = StyleSheet.create({
   pauseButtonTextActive: {
     color: colors.primaryForeground,
   },
-  persistentHeaderContent: {
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-  },
-  persistentHeaderRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  persistentHeaderItem: {
-    flex: 1,
-    minWidth: 100,
-  },
-  persistentHeaderLabel: {
-    ...typography.xs,
-    color: colors.mutedForeground,
-    marginBottom: spacing.xs / 2,
-    fontWeight: '500',
-  },
-  persistentHeaderValue: {
-    ...typography.base,
-    color: colors.foreground,
-    fontWeight: '500',
-  },
-  persistentHeaderBadge: {
-    marginTop: spacing.xs,
-  },
-  persistentHeaderRightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  persistentHeaderRightActionsCollapsed: {
-    gap: spacing.xs,
-  },
   serviceCenterBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -742,193 +811,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.primary + '30',
     backgroundColor: colors.primary + '15',
-    marginRight: spacing.xs,
-  },
-  serviceCenterBadgeCollapsed: {
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xs,
+    maxWidth: '100%',
+    flexShrink: 1,
   },
   serviceCenterText: {
     ...typography.sm,
     fontWeight: '600',
     color: colors.primary,
-  },
-  notesButton: {
-    padding: spacing.xs,
-    marginRight: spacing.xs,
-  },
-  orderNotesButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    marginRight: spacing.xs,
-    borderRadius: borderRadius.md,
-    gap: spacing.xs,
-    minHeight: 32,
-  },
-  orderNotesButtonText: {
-    ...typography.sm,
-    fontWeight: '600',
-    color: colors.foreground,
-  },
-  validationIndicator: {
-    position: 'relative',
-    padding: spacing.xs,
-    marginRight: spacing.xs,
-    borderRadius: borderRadius.md,
-    minWidth: 32,
-    minHeight: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  validationIndicatorError: {
-    backgroundColor: colors.destructive + '20',
-  },
-  validationIndicatorWarning: {
-    backgroundColor: colors.warning + '20',
-  },
-  validationIndicatorSuccess: {
-    padding: spacing.xs,
-    marginRight: spacing.xs,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.success + '20',
-    minWidth: 32,
-    minHeight: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  validationCountBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    backgroundColor: colors.destructive,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xs,
-    borderWidth: 2,
-    borderColor: colors.card,
-  },
-  validationCountText: {
-    ...typography.xs,
-    color: colors.primaryForeground,
-    fontWeight: '700',
-  },
-  connectionStatusButton: {
-    padding: spacing.xs,
-    marginRight: spacing.xs,
-    borderRadius: borderRadius.md,
-    minWidth: 32,
-    minHeight: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  connectionStatusOnlineContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  connectionStatusOnlineText: {
-    ...typography.xs,
-    fontWeight: '600',
-    color: colors.success,
-  },
-  connectionStatusOfflineButton: {
-    backgroundColor: colors.muted + '20',
-  },
-  connectionStatusWarning: {
-    backgroundColor: colors.warning + '20',
-  },
-  connectionStatusOrange: {
-    backgroundColor: '#FF6B35' + '20',
-  },
-  connectionStatusCritical: {
-    backgroundColor: colors.destructive + '30',
-  },
-  connectionStatusBlocked: {
-    backgroundColor: colors.destructive + '40',
-  },
-  connectionStatusOfflineContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  connectionStatusOfflineText: {
-    ...typography.xs,
-    fontWeight: '600',
-    color: colors.mutedForeground,
-  },
-  connectionStatusWarningText: {
-    color: colors.warning,
-  },
-  connectionStatusOrangeText: {
-    color: '#FF6B35',
-    fontWeight: '600',
-  },
-  connectionStatusCriticalText: {
-    color: colors.destructive,
-    fontWeight: '700',
-  },
-  connectionStatusBlockedText: {
-    color: colors.destructive,
-    fontWeight: '700',
-  },
-  syncInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: spacing.sm,
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  syncInfoLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    flex: 1,
-  },
-  lastSyncLabel: {
-    ...typography.xs,
-    color: colors.mutedForeground,
-  },
-  lastSyncValue: {
-    ...typography.xs,
-    color: colors.foreground,
-    fontWeight: '500',
-  },
-  syncButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
-  syncButtonDisabled: {
-    opacity: 0.5,
-    backgroundColor: colors.muted,
-    borderColor: colors.border,
-  },
-  syncButtonText: {
-    ...typography.sm,
-    fontWeight: '600',
-    color: colors.primaryForeground,
-  },
-  syncButtonBadge: {
-    marginLeft: spacing.xs,
+    flexShrink: 1,
   },
   headerSyncRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    marginRight: spacing.sm,
+    flexShrink: 1,
   },
   headerSyncStatusChip: {
     flexDirection: 'row',
@@ -940,6 +836,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.muted,
     borderWidth: 1,
     borderColor: colors.border,
+    maxWidth: 140,
   },
   headerSyncStatusChipSynced: {
     backgroundColor: colors.success + '18',
@@ -965,6 +862,7 @@ const styles = StyleSheet.create({
     ...typography.xs,
     fontWeight: '600',
     color: colors.foreground,
+    flexShrink: 1,
   },
   headerSyncStatusTextSynced: {
     color: colors.success,
@@ -996,18 +894,57 @@ const styles = StyleSheet.create({
   headerSyncButtonBadge: {
     marginLeft: spacing.xs,
   },
-  headerSyncRowCollapsed: {
+  addressBlock: {
+    width: '100%',
+  },
+  addressValue: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '500',
+    lineHeight: 26,
+  },
+  metaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  metaCell: {
+    minWidth: 140,
+    flexGrow: 1,
+    flexBasis: '22%',
+  },
+  metaCellNarrow: {
+    flexBasis: '46%',
+    minWidth: 140,
+    maxWidth: '48%',
+  },
+  persistentHeaderLabel: {
+    ...typography.xs,
+    color: colors.mutedForeground,
+    marginBottom: spacing.xs / 2,
+    fontWeight: '500',
+  },
+  persistentHeaderValue: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '500',
+  },
+  syncInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.xs,
-    marginRight: spacing.xs,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
-  headerSyncStatusChipCollapsed: {
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xs,
+  lastSyncLabel: {
+    ...typography.xs,
+    color: colors.mutedForeground,
   },
-  headerSyncButtonCollapsed: {
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xs,
-    minWidth: 32,
-    justifyContent: 'center',
+  lastSyncValue: {
+    ...typography.xs,
+    color: colors.foreground,
+    fontWeight: '500',
+    flexShrink: 1,
   },
 });

@@ -95,8 +95,8 @@ export const ConnectedDevicesControl: React.FC<
       <TouchableOpacity
         style={[
           styles.iconButton,
-          devicesNeedAttention && styles.devicesButtonAttention,
           buttonStyle,
+          devicesNeedAttention && styles.devicesButtonAttention,
         ]}
         onPress={() => setShowDevicesSheet(true)}
         activeOpacity={0.7}
@@ -249,13 +249,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: touchTargets.min,
-    minHeight: touchTargets.min,
-    paddingHorizontal: spacing.xs,
+    width: 40,
+    height: 40,
+    minWidth: 40,
+    minHeight: 40,
     borderRadius: borderRadius.md,
     backgroundColor: colors.muted,
     borderWidth: 1,
     borderColor: colors.border,
+    position: 'relative',
   },
   devicesButtonAttention: {
     backgroundColor: colors.warning + '18',
@@ -263,8 +265,8 @@ const styles = StyleSheet.create({
   },
   devicesBadge: {
     position: 'absolute',
-    top: 4,
-    right: 4,
+    top: -4,
+    right: -4,
     minWidth: 18,
     height: 18,
     borderRadius: 9,
@@ -272,6 +274,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: colors.card,
   },
   devicesBadgeText: {
     fontSize: 11,

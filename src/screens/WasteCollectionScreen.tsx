@@ -693,9 +693,28 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [elapsedTimeDisplay, setElapsedTimeDisplay] = useState<string>('');
   const [showPauseReasonModal, setShowPauseReasonModal] = useState(false);
   const [pauseReasonSelection, setPauseReasonSelection] = useState('');
+  const [isResumingWork, setIsResumingWork] = useState(false);
 
   // Use the mock orders
   const orders = MOCK_ORDERS;
+
+  const pausedTrackingRecord =
+    activeTimeTracking?.pausedAt
+      ? activeTimeTracking
+      : currentOrderTimeTracking?.pausedAt
+        ? currentOrderTimeTracking
+        : null;
+  const isWorkPaused = pausedTrackingRecord != null;
+  const isWorkPausedRef = useRef(isWorkPaused);
+  isWorkPausedRef.current = isWorkPaused;
+
+  /** Blocks step changes while work is paused so the resume lock cannot be bypassed. */
+  const setCurrentStepGuarded = useCallback((step: FlowStep) => {
+    if (isWorkPausedRef.current) {
+      return;
+    }
+    setCurrentStep(step);
+  }, []);
 
   // Helper function to extract store number from site field
   const extractStoreNumber = (site: string): string | null => {
@@ -2069,6 +2088,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       return;
     }
 
+    setIsResumingWork(true);
     try {
       const updated = await resumeTimeTracking(orderNumber);
       if (updated) {
@@ -2081,6 +2101,8 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     } catch (error) {
       console.error('Error resuming time tracking:', error);
       Alert.alert('Error', 'Failed to resume time tracking.');
+    } finally {
+      setIsResumingWork(false);
     }
   }, [activeTimeTracking, currentOrderTimeTracking, getElapsedTimeDisplay]);
 
@@ -3263,7 +3285,12 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     setUseMasterDetail,
     onLogout,
     onNavigate: onNavigate
-      ? (screen: Screen) => onNavigate(screen)
+      ? (screen: Screen) => {
+          if (isWorkPausedRef.current) {
+            return;
+          }
+          onNavigate(screen);
+        }
       : undefined,
     onGoBack,
     activeContainerCount,
@@ -3342,6 +3369,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
 
   const navigateToSideQuest = useCallback(
     (step: FlowStep, options?: {photoCategory?: PhotoCategory}) => {
+      if (isWorkPausedRef.current) {
+        return;
+      }
       // Opening from the main flow remembers the underlying screen.
       // Switching Materials ↔ Equipment ↔ Photos replaces the overlay and
       // keeps the original return target (modal-style).
@@ -3359,6 +3389,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   );
 
   const navigateBackFromSideQuest = useCallback(() => {
+    if (isWorkPausedRef.current) {
+      return;
+    }
     setPhotosInitialCategory(null);
     setCurrentStep(sideQuestReturnStep);
   }, [sideQuestReturnStep]);
@@ -3668,10 +3701,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         selectedOrderData &&
         (inManifestCompletion || isOrderReadyForManifest(selectedOrderData))
       ) {
-        setCurrentStep('containers-review');
+        setCurrentStepGuarded('containers-review');
         return;
       }
-      setCurrentStep('container-summary');
+      setCurrentStepGuarded('container-summary');
     };
 
     return (
@@ -3679,7 +3712,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         {/* Home Button */}
         <TouchableOpacity
           style={styles.quickActionHomeButton}
-          onPress={() => setCurrentStep('dashboard')}
+          onPress={() => setCurrentStepGuarded('dashboard')}
           activeOpacity={0.7}>
           <Icon name="home" size={24} color={FOOTER_NAV_ICON_COLOR} />
         </TouchableOpacity>
@@ -4065,7 +4098,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             setSelectedOrderData={setSelectedOrderData}
             isOrderHeaderCollapsed={isOrderHeaderCollapsed}
             setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
-            setCurrentStep={setCurrentStep}
+            setCurrentStep={setCurrentStepGuarded}
             elapsedTimeDisplay={elapsedTimeDisplay}
             currentOrderTimeTracking={currentOrderTimeTracking}
             handleRequestPause={handleRequestPause}
@@ -4109,7 +4142,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             selectedOrderData={selectedOrderData}
             isOrderHeaderCollapsed={isOrderHeaderCollapsed}
             setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
-            setCurrentStep={setCurrentStep}
+            setCurrentStep={setCurrentStepGuarded}
             elapsedTimeDisplay={elapsedTimeDisplay}
             currentOrderTimeTracking={currentOrderTimeTracking}
             handleRequestPause={handleRequestPause}
@@ -4142,7 +4175,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             selectedOrderData={selectedOrderData}
             isOrderHeaderCollapsed={isOrderHeaderCollapsed}
             setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
-            setCurrentStep={setCurrentStep}
+            setCurrentStep={setCurrentStepGuarded}
             elapsedTimeDisplay={elapsedTimeDisplay}
             currentOrderTimeTracking={currentOrderTimeTracking}
             handleRequestPause={handleRequestPause}
@@ -4199,7 +4232,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             selectedOrderData={selectedOrderData}
             isOrderHeaderCollapsed={isOrderHeaderCollapsed}
             setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
-            setCurrentStep={setCurrentStep}
+            setCurrentStep={setCurrentStepGuarded}
             elapsedTimeDisplay={elapsedTimeDisplay}
             currentOrderTimeTracking={currentOrderTimeTracking}
             handleRequestPause={handleRequestPause}
@@ -4236,7 +4269,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             selectedOrderData={selectedOrderData}
             isOrderHeaderCollapsed={isOrderHeaderCollapsed}
             setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
-            setCurrentStep={setCurrentStep}
+            setCurrentStep={setCurrentStepGuarded}
             elapsedTimeDisplay={elapsedTimeDisplay}
             currentOrderTimeTracking={currentOrderTimeTracking}
             handleRequestPause={handleRequestPause}
@@ -4271,7 +4304,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             selectedOrderData={selectedOrderData}
             isOrderHeaderCollapsed={isOrderHeaderCollapsed}
             setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
-            setCurrentStep={setCurrentStep}
+            setCurrentStep={setCurrentStepGuarded}
             elapsedTimeDisplay={elapsedTimeDisplay}
             currentOrderTimeTracking={currentOrderTimeTracking}
             handleRequestPause={handleRequestPause}
@@ -4311,7 +4344,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             selectedOrderData={selectedOrderData}
             isOrderHeaderCollapsed={isOrderHeaderCollapsed}
             setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
-            setCurrentStep={setCurrentStep}
+            setCurrentStep={setCurrentStepGuarded}
             elapsedTimeDisplay={elapsedTimeDisplay}
             currentOrderTimeTracking={currentOrderTimeTracking}
             handleRequestPause={handleRequestPause}
@@ -4345,7 +4378,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             selectedOrderData={selectedOrderData}
             isOrderHeaderCollapsed={isOrderHeaderCollapsed}
             setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
-            setCurrentStep={setCurrentStep}
+            setCurrentStep={setCurrentStepGuarded}
             elapsedTimeDisplay={elapsedTimeDisplay}
             currentOrderTimeTracking={currentOrderTimeTracking}
             handleRequestPause={handleRequestPause}
@@ -4379,7 +4412,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             selectedOrderData={selectedOrderData}
             isOrderHeaderCollapsed={isOrderHeaderCollapsed}
             setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
-            setCurrentStep={setCurrentStep}
+            setCurrentStep={setCurrentStepGuarded}
             elapsedTimeDisplay={elapsedTimeDisplay}
             currentOrderTimeTracking={currentOrderTimeTracking}
             handleRequestPause={handleRequestPause}
@@ -4411,7 +4444,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             selectedOrderData={selectedOrderData}
             isOrderHeaderCollapsed={isOrderHeaderCollapsed}
             setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
-            setCurrentStep={setCurrentStep}
+            setCurrentStep={setCurrentStepGuarded}
             elapsedTimeDisplay={elapsedTimeDisplay}
             currentOrderTimeTracking={currentOrderTimeTracking}
             handleRequestPause={handleRequestPause}
@@ -4445,7 +4478,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             selectedOrderData={selectedOrderData}
             isOrderHeaderCollapsed={isOrderHeaderCollapsed}
             setIsOrderHeaderCollapsed={setIsOrderHeaderCollapsed}
-            setCurrentStep={setCurrentStep}
+            setCurrentStep={setCurrentStepGuarded}
             elapsedTimeDisplay={elapsedTimeDisplay}
             currentOrderTimeTracking={currentOrderTimeTracking}
             handleRequestPause={handleRequestPause}
@@ -4997,7 +5030,11 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               <Icon name="close" size={20} color={colors.foreground} />
             </TouchableOpacity>
           </View>
-          <View style={styles.pauseModalContent}>
+          <ScrollView
+            style={styles.pauseModalScroll}
+            contentContainerStyle={styles.pauseModalScrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator>
             <Text style={styles.pauseModalText}>
               Provide a reason for pausing so the team can track downtime accurately.
             </Text>
@@ -5034,25 +5071,25 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 );
               })}
             </View>
-            <View style={styles.pauseModalActions}>
-              <Button
-                title="Cancel"
-                variant="outline"
-                size="lg"
-                onPress={() => {
-                  setShowPauseReasonModal(false);
-                  setPauseReasonSelection('');
-                }}
-                style={styles.pauseModalActionButton}
-              />
-              <Button
-                title="Pause Tracking"
-                variant="primary"
-                size="lg"
-                onPress={handleConfirmPause}
-                style={styles.pauseModalActionButton}
-              />
-            </View>
+          </ScrollView>
+          <View style={styles.pauseModalActions}>
+            <Button
+              title="Cancel"
+              variant="outline"
+              size="lg"
+              onPress={() => {
+                setShowPauseReasonModal(false);
+                setPauseReasonSelection('');
+              }}
+              style={styles.pauseModalActionButton}
+            />
+            <Button
+              title="Pause Tracking"
+              variant="primary"
+              size="lg"
+              onPress={handleConfirmPause}
+              style={styles.pauseModalActionButton}
+            />
           </View>
         </SafeAreaView>
       </Modal>
@@ -6650,6 +6687,52 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         />
       </Modal>
 
+      {/* Work paused lock: last in tree so it stays above other modals until resume */}
+      <Modal
+        visible={isWorkPaused && !showPostLoginSyncOverlay}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {}}>
+        <Pressable style={styles.workPausedOverlay} onPress={() => {}}>
+          <View style={styles.workPausedCard}>
+            <Icon
+              name="pause-circle-filled"
+              size={48}
+              color={colors.warning}
+              style={styles.workPausedIcon}
+            />
+            <Text style={styles.workPausedTitle}>Work Paused</Text>
+            <Text style={styles.workPausedSubtitle}>
+              Resume work to continue navigating or performing actions on this
+              order.
+            </Text>
+            {pausedTrackingRecord?.pauseReason ? (
+              <View style={styles.workPausedReasonBox}>
+                <Text style={styles.workPausedReasonLabel}>Pause reason</Text>
+                <Text style={styles.workPausedReasonText}>
+                  {pausedTrackingRecord.pauseReason}
+                </Text>
+              </View>
+            ) : null}
+            {pausedTrackingRecord?.orderNumber ? (
+              <Text style={styles.workPausedOrderText}>
+                Order {pausedTrackingRecord.orderNumber}
+              </Text>
+            ) : null}
+            <Button
+              title="Resume Work"
+              variant="primary"
+              size="lg"
+              fullWidth
+              loading={isResumingWork}
+              onPress={handleResumeTracking}
+              style={styles.workPausedResumeButton}
+            />
+          </View>
+        </Pressable>
+      </Modal>
+
     </SafeAreaView>
   );
 };
@@ -6723,6 +6806,69 @@ export const styles = StyleSheet.create({
   },
   postLoginSyncRetryButton: {
     marginBottom: spacing.lg,
+  },
+  workPausedOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  workPausedCard: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.xxl,
+    maxWidth: 420,
+    width: '100%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  workPausedIcon: {
+    marginBottom: spacing.lg,
+  },
+  workPausedTitle: {
+    ...typography.xl,
+    fontWeight: '600',
+    color: colors.foreground,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  workPausedSubtitle: {
+    ...typography.base,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: spacing.lg,
+  },
+  workPausedReasonBox: {
+    width: '100%',
+    backgroundColor: colors.muted,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  workPausedReasonLabel: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginBottom: spacing.xs,
+  },
+  workPausedReasonText: {
+    ...typography.base,
+    color: colors.foreground,
+    fontWeight: '600',
+  },
+  workPausedOrderText: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+    marginBottom: spacing.lg,
+  },
+  workPausedResumeButton: {
+    marginTop: spacing.sm,
   },
   appHeader: {
     backgroundColor: colors.card,
@@ -11819,8 +11965,13 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  pauseModalContent: {
-    padding: spacing.lg,
+  pauseModalScroll: {
+    flex: 1,
+  },
+  pauseModalScrollContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
   },
   pauseModalText: {
     ...typography.base,
@@ -11829,7 +11980,6 @@ export const styles = StyleSheet.create({
   },
   pauseReasonOptions: {
     gap: spacing.sm,
-    marginBottom: spacing.lg,
   },
   pauseReasonOption: {
     flexDirection: 'row',
@@ -11863,6 +12013,12 @@ export const styles = StyleSheet.create({
   pauseModalActions: {
     flexDirection: 'row',
     gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.card,
   },
   pauseModalActionButton: {
     flex: 1,
