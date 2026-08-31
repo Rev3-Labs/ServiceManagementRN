@@ -6,7 +6,6 @@ import {
   SafeAreaView,
   ScrollView,
   TouchableOpacity,
-  Alert,
   Modal,
 } from 'react-native';
 import {Button} from '../components/Button';
@@ -112,6 +111,7 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
   const [resetConfirmMode, setResetConfirmMode] = useState<
     'inProgress' | 'completed' | null
   >(null);
+  const [fieldError, setFieldError] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Flatten questions with conditional logic
@@ -333,9 +333,10 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
     if (!question) return;
 
     if (!isAnswerValid(question)) {
-      Alert.alert('Required Field', 'Please answer this question before continuing.');
+      setFieldError('Please answer this question before continuing.');
       return;
     }
+    setFieldError(null);
 
     // Mark as confirmed; visibility advancement is derived from confirmed state.
     setConfirmedQuestions(prev => new Set(prev).add(questionId));
@@ -392,9 +393,8 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
     );
 
     if (missingRequired.length > 0) {
-      Alert.alert(
-        'Incomplete Checklist',
-        `Please answer all required questions. ${missingRequired.length} question(s) remaining.`
+      setFieldError(
+        `Please answer all required questions. ${missingRequired.length} question(s) remaining.`,
       );
       // Un-confirm the first missing question (and everything after it) so it
       // becomes the current question and the user is taken straight to it.
@@ -1124,6 +1124,10 @@ const ChecklistScreen: React.FC<ChecklistScreenProps> = ({
                   {renderQuestionInput(question, false)}
                 </View>
 
+                {fieldError && needsContinueButton ? (
+                  <Text style={styles.fieldErrorText}>{fieldError}</Text>
+                ) : null}
+
                 {needsContinueButton && (
                   <View style={styles.continueButtonContainer}>
                     <Button
@@ -1446,6 +1450,12 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.border,
+  },
+  fieldErrorText: {
+    ...typography.sm,
+    color: colors.destructive,
+    fontWeight: '600',
+    marginTop: spacing.sm,
   },
   questionHeaderRow: {
     flexDirection: 'row',

@@ -5,7 +5,6 @@ import {
   Modal,
   ScrollView,
   TouchableOpacity,
-  Alert,
   StyleSheet,
   FlatList,
   SafeAreaView,
@@ -74,6 +73,7 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
   const [locationSearchQuery, setLocationSearchQuery] = useState<string>('');
   /** FR-3a.EXT.3.2: All selected by default; user can deselect for partial drop. */
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [formError, setFormError] = useState<string | null>(null);
   const prevVisibleRef = useRef(false);
 
   useEffect(() => {
@@ -87,6 +87,7 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
       const minutes = now.getMinutes().toString().padStart(2, '0');
       setDropTime(`${hours}:${minutes}`);
       setSelectedIds(new Set(activeContainers.map(c => c.id)));
+      setFormError(null);
     }
   }, [visible, defaultTransferLocation, activeContainers]);
 
@@ -102,6 +103,7 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
 
   const handleLocationSelect = (location: string) => {
     setTransferLocation(location);
+    setFormError(null);
     setShowLocationPicker(false);
     setLocationSearchQuery('');
   };
@@ -125,22 +127,23 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
 
   const handleConfirm = () => {
     if (!transferLocation.trim()) {
-      Alert.alert('Required Field', 'Please select a transfer location.');
+      setFormError('Please select a transfer location.');
       return;
     }
     if (!dropDate) {
-      Alert.alert('Required Field', 'Please select a drop date.');
+      setFormError('Please select a drop date.');
       return;
     }
     if (!dropTime) {
-      Alert.alert('Required Field', 'Please select a drop time.');
+      setFormError('Please select a drop time.');
       return;
     }
     const ids = Array.from(selectedIds);
     if (ids.length === 0) {
-      Alert.alert('No Containers Selected', 'Select at least one container to drop, or cancel.');
+      setFormError('Select at least one container to drop, or cancel.');
       return;
     }
+    setFormError(null);
     onConfirm(transferLocation, dropDate, dropTime, ids);
     handleClose();
   };
@@ -293,6 +296,10 @@ const DropWasteModal: React.FC<DropWasteModalProps> = ({
             </View>
           </View>
         </Modal>
+
+        {formError ? (
+          <Text style={styles.formErrorText}>{formError}</Text>
+        ) : null}
 
         <View style={styles.footer}>
           <Button
@@ -489,6 +496,13 @@ const styles = StyleSheet.create({
     ...typography.sm,
     color: colors.mutedForeground,
     marginBottom: spacing.xs,
+  },
+  formErrorText: {
+    ...typography.sm,
+    color: colors.destructive,
+    fontWeight: '600',
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
   },
   footer: {
     flexDirection: 'row',

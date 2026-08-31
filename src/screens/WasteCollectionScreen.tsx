@@ -27,6 +27,8 @@ import {
   ViewStyle,
 } from 'react-native';
 import DropWasteModal from '../components/DropWasteModal';
+import {showToast} from '../components/feedback/toastService';
+import {AppConfirmModal} from '../components/feedback/AppConfirmModal';
 import ChecklistScreen from './ChecklistScreen';
 import {sampleChecklist} from '../data/sampleChecklist';
 import {ChecklistAnswer} from '../types/checklist';
@@ -211,8 +213,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     serviceCenterService.getServiceCenter(),
   );
   const [showServiceCenterModal, setShowServiceCenterModal] = useState(false);
-  const [showServiceCenterUpdateNotification, setShowServiceCenterUpdateNotification] = useState(false);
-  const [updatedServiceCenterName, setUpdatedServiceCenterName] = useState<string>('');
   const [orderPhotos, setOrderPhotos] = useState(
     selectedOrderData ? photoService.getPhotosForOrder(selectedOrderData.orderNumber) : []
   );
@@ -369,8 +369,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     string | null
   >(null);
 
-  const [showLabelPrinting, setShowLabelPrinting] = useState(false);
-  const [printingLabelBarcode, setPrintingLabelBarcode] = useState('');
   const [scannedDocuments, setScannedDocuments] = useState<
     Array<{
       id: string;
@@ -568,9 +566,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     const unsubscribe = serviceCenterService.onServiceCenterChange((newServiceCenter) => {
       // Show notification if Service Center changed
       if (previousName && newServiceCenter && previousName !== newServiceCenter.name) {
-        setUpdatedServiceCenterName(newServiceCenter.name);
-        setShowServiceCenterUpdateNotification(true);
-        setTimeout(() => setShowServiceCenterUpdateNotification(false), 3000);
+        showToast(`Service center updated to ${newServiceCenter.name}`, {
+          type: 'success',
+          title: 'Service Center Updated',
+        });
       }
       
       previousName = newServiceCenter?.name || null;
@@ -693,7 +692,16 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   const [elapsedTimeDisplay, setElapsedTimeDisplay] = useState<string>('');
   const [showPauseReasonModal, setShowPauseReasonModal] = useState(false);
   const [pauseReasonSelection, setPauseReasonSelection] = useState('');
+  const [pauseReasonError, setPauseReasonError] = useState<string | null>(null);
   const [isResumingWork, setIsResumingWork] = useState(false);
+  const [pendingDeleteDocument, setPendingDeleteDocument] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
+  const [pendingNoShipConfirm, setPendingNoShipConfirm] = useState<{
+    orderNumber: string;
+    serviceTypeId: string;
+  } | null>(null);
 
   // Use the mock orders
   const orders = MOCK_ORDERS;
@@ -2041,13 +2049,14 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       return;
     }
     setPauseReasonSelection('');
+    setPauseReasonError(null);
     setShowPauseReasonModal(true);
   }, [activeTimeTracking, currentOrderTimeTracking]);
 
   const handleConfirmPause = useCallback(async () => {
     const reason = pauseReasonSelection.trim();
     if (!reason) {
-      Alert.alert('Reason Required', 'Please select a reason for pausing.');
+      setPauseReasonError('Please select a reason for pausing.');
       return;
     }
 
@@ -2069,6 +2078,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       }
       setShowPauseReasonModal(false);
       setPauseReasonSelection('');
+      setPauseReasonError(null);
     } catch (error) {
       console.error('Error pausing time tracking:', error);
       Alert.alert('Error', 'Failed to pause time tracking.');
@@ -2203,7 +2213,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       grossWeight: string;
     }) => {
       if (!container.shippingLabelBarcode) {
-        Alert.alert('Error', 'Shipping label barcode not found');
+        showToast('Shipping label barcode not found', {type: 'error', title: 'Error'});
         return;
       }
 
@@ -2213,27 +2223,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         // or a native module for Zebra/Honeywell printers
 
         // For now, show a placeholder alert
-        Alert.alert(
-          'Printing Label',
-          `Shipping label barcode: ${container.shippingLabelBarcode}\n\nThermal printer integration will be implemented here.`,
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                // In production, this would trigger actual printing
-                console.log('Printing label:', {
-                  barcode: container.shippingLabelBarcode,
-                  stream: container.streamName,
-                  size: container.containerSize,
-                  type: container.containerType,
-                  netWeight: container.netWeight,
-                  tareWeight: container.tareWeight,
-                  grossWeight: container.grossWeight,
-                });
-              },
-            },
-          ],
-        );
+        showToast(`Shipping label: ${container.shippingLabelBarcode}`, {type: 'info', title: 'Printing Label'});
       } catch (error: any) {
         Alert.alert(
           'Print Error',
@@ -2300,23 +2290,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       const trackingNumber = assignTrackingNumberOnLabelPrint();
 
       // TODO: Implement actual thermal printer integration for manifest
-      Alert.alert(
-        'Printing Manifest',
-        `Tracking Number: ${trackingNumber}\n\nManifest printer integration will be implemented here.`,
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              console.log('Printing manifest:', {
-                trackingNumber,
-                orderNumber: selectedOrderData?.orderNumber,
-                containers: addedContainers,
-                programs: selectedPrograms,
-              });
-            },
-          },
-        ],
-      );
+      showToast('Manifest print queued (printer integration pending).', {type: 'info', title: 'Printing Manifest'});
     } catch (error: any) {
       Alert.alert(
         'Print Error',
@@ -2337,22 +2311,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         manifestTrackingNumber || assignTrackingNumberOnLabelPrint();
 
       // TODO: Implement actual thermal printer integration for LDR
-      Alert.alert(
-        'Printing LDR',
-        `Tracking Number: ${trackingNumber}\n\nLDR printer integration will be implemented here.`,
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              console.log('Printing LDR:', {
-                trackingNumber,
-                orderNumber: selectedOrderData?.orderNumber,
-                containers: addedContainers,
-              });
-            },
-          },
-        ],
-      );
+      showToast('LDR print queued (printer integration pending).', {type: 'info', title: 'Printing LDR'});
     } catch (error: any) {
       Alert.alert(
         'Print Error',
@@ -2372,11 +2331,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
       const trackingNumber =
         manifestTrackingNumber || assignTrackingNumberOnLabelPrint();
 
-      Alert.alert(
-        'Printing BOL',
-        `Tracking Number: ${trackingNumber}\n\nBOL printer integration will be implemented here.`,
-        [{text: 'OK'}],
-      );
+      showToast('BOL print queued (printer integration pending).', {type: 'info', title: 'Printing BOL'});
     } catch (error: any) {
       Alert.alert(
         'Print Error',
@@ -2396,11 +2351,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         setPrintedAllByOrder(prev => ({...prev, [orderNumber]: true}));
       }
 
-      Alert.alert(
-        'Printing All Documents',
-        `Tracking Number: ${trackingNumber}\n\nPrinting Manifest, BOL, and LDR. Printer integration will be implemented here.`,
-        [{text: 'OK'}],
-      );
+      showToast('Document print queued (printer integration pending).', {type: 'info', title: 'Printing Documents'});
     } catch (error: any) {
       Alert.alert(
         'Print Error',
@@ -2412,11 +2363,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
   // Print the No-Ship documentation report
   const printNoShip = useCallback(async () => {
     try {
-      Alert.alert(
-        'Printing No-Ship Report',
-        `Order: ${selectedOrderData?.orderNumber}\n\nNo-Ship report printer integration will be implemented here.`,
-        [{text: 'OK'}],
-      );
+      showToast('No-Ship report print queued (printer integration pending).', {type: 'info', title: 'Printing No-Ship Report'});
     } catch (error: any) {
       Alert.alert(
         'Print Error',
@@ -2448,27 +2395,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     try {
       // TODO: Implement camera integration
       // This would use react-native-image-picker or expo-image-picker
-      Alert.alert(
-        'Camera Scan',
-        'Camera integration will be implemented here. This will allow scanning and uploading manifest documents.',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              // In production, this would:
-              // 1. Open camera
-              // 2. Capture image
-              // 3. Upload to server
-              // 4. Store URI in manifestData
-              const mockImageUri = 'file:///mock/manifest-scan.jpg';
-              setManifestData(prev => ({
-                ...prev,
-                scannedImageUri: mockImageUri,
-              }));
-              console.log('Manifest scanned and uploaded:', mockImageUri);
-            },
-          },
-        ],
+      showToast(
+        'Camera scan will be available when hardware integration is enabled.',
+        {type: 'info', title: 'Camera Scan'},
       );
     } catch (error: any) {
       Alert.alert(
@@ -3339,6 +3268,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
     setNoShipReasonCode: (code: string) =>
       setNoShipReasonCode(code as NoShipReasonCode | ''),
     setNoShipReasonNotes,
+    requestNoShipAfterStartedConfirm: (orderNumber: string, serviceTypeId: string) => {
+      setPendingNoShipConfirm({orderNumber, serviceTypeId});
+    },
     dashboardInventorySummary,
     inventorySaveGeneration,
     inventoryCustomersExpanded,
@@ -3438,7 +3370,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           },
         ]);
         
-        Alert.alert('Success', `${typeLabels[documentType]} captured via ${methodLabel}!`);
+        showToast(`${typeLabels[documentType]} captured via ${methodLabel}`, {type: 'success', title: 'Success'});
       } catch (error: any) {
         console.error('Document capture error:', error);
         Alert.alert('Error', 'Failed to capture document');
@@ -3585,7 +3517,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       documentType: documentType,
                     },
                   ]);
-                  Alert.alert('Success', `${typeLabels[documentType]} captured successfully`);
+                  showToast(`${typeLabels[documentType]} captured successfully`, {type: 'success', title: 'Success'});
                 }
               };
 
@@ -3623,7 +3555,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       documentType: documentType,
                     },
                   ]);
-                  Alert.alert('Success', `${typeLabels[documentType]} captured successfully`);
+                  showToast(`${typeLabels[documentType]} captured successfully`, {type: 'success', title: 'Success'});
                 };
                 reader.readAsDataURL(file);
               }
@@ -3662,7 +3594,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               },
             ]);
             
-            Alert.alert('Success', `${typeLabels[documentType]} captured successfully (mock)`);
+            showToast(`${typeLabels[documentType]} captured successfully`, {type: 'success', title: 'Success'});
           } catch (error) {
             Alert.alert('Error', 'Failed to capture document');
           }
@@ -3934,7 +3866,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                 },
               ]);
               
-              Alert.alert('Success', `${typeLabels[documentType]} captured via ${methodLabel}!`);
+              showToast(`${typeLabels[documentType]} captured via ${methodLabel}`, {type: 'success', title: 'Success'});
             } catch (error: any) {
               console.error('Document capture error:', error);
               Alert.alert('Error', 'Failed to capture document');
@@ -4030,20 +3962,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                       <TouchableOpacity
                         style={styles.scannedDocDeleteBtn}
                         onPress={() => {
-                          Alert.alert(
-                            'Delete Document',
-                            `Are you sure you want to delete this ${typeLabels[doc.documentType]}?`,
-                            [
-                              {text: 'Cancel', style: 'cancel'},
-                              {
-                                text: 'Delete',
-                                style: 'destructive',
-                                onPress: () => {
-                                  setScannedDocuments(prev => prev.filter(d => d.id !== doc.id));
-                                },
-                              },
-                            ]
-                          );
+                          setPendingDeleteDocument({
+                            id: doc.id,
+                            label: typeLabels[doc.documentType],
+                          });
                         }}>
                         <Icon name="delete" size={20} color={colors.foreground} />
                       </TouchableOpacity>
@@ -4221,8 +4143,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             activeServiceTypeTimer={activeServiceTypeTimer}
             generateShippingLabelBarcode={generateShippingLabelBarcode}
             printShippingLabel={printShippingLabel}
-            setPrintingLabelBarcode={setPrintingLabelBarcode}
-            setShowLabelPrinting={setShowLabelPrinting}
             wasteStreams={wasteStreams}
           />
         );
@@ -4585,10 +4505,9 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           ),
         );
         setShowDropWasteModal(false);
-        Alert.alert(
-          'Drop Recorded',
+        showToast(
           `Successfully recorded drop at ${transferLocation} on ${dropDate} at ${dropTime}. Running total updated.`,
-          [{ text: 'OK' }],
+          {type: 'success', title: 'Drop Recorded'},
         );
       } catch (error) {
         console.error('Error recording drop:', error);
@@ -5016,6 +4935,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         onRequestClose={() => {
           setShowPauseReasonModal(false);
           setPauseReasonSelection('');
+          setPauseReasonError(null);
         }}>
         <SafeAreaView style={styles.pauseModalContainer}>
           <View style={styles.pauseModalHeader}>
@@ -5024,6 +4944,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               onPress={() => {
                 setShowPauseReasonModal(false);
                 setPauseReasonSelection('');
+                setPauseReasonError(null);
               }}
               style={styles.pauseModalCloseButton}
               hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
@@ -5038,13 +4959,19 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             <Text style={styles.pauseModalText}>
               Provide a reason for pausing so the team can track downtime accurately.
             </Text>
+            {pauseReasonError ? (
+              <Text style={styles.pauseReasonErrorText}>{pauseReasonError}</Text>
+            ) : null}
             <View style={styles.pauseReasonOptions}>
               {pauseReasonOptions.map(option => {
                 const isSelected = pauseReasonSelection === option;
                 return (
                   <TouchableOpacity
                     key={option}
-                    onPress={() => setPauseReasonSelection(option)}
+                    onPress={() => {
+                      setPauseReasonSelection(option);
+                      setPauseReasonError(null);
+                    }}
                     style={[
                       styles.pauseReasonOption,
                       isSelected && styles.pauseReasonOptionSelected,
@@ -5080,6 +5007,7 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
               onPress={() => {
                 setShowPauseReasonModal(false);
                 setPauseReasonSelection('');
+                setPauseReasonError(null);
               }}
               style={styles.pauseModalActionButton}
             />
@@ -5321,25 +5249,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
             </ScrollView>
           </SafeAreaView>
         </Modal>
-      )}
-
-      {/* Service Center Update Notification */}
-      {showServiceCenterUpdateNotification && (
-        <View style={styles.serviceCenterNotificationOverlay}>
-          <View style={styles.serviceCenterNotificationCard}>
-            <View style={styles.serviceCenterNotificationIconContainer}>
-              <Icon name="info" size={20} color={colors.primary} />
-            </View>
-            <View style={styles.serviceCenterNotificationContent}>
-              <Text style={styles.serviceCenterNotificationTitle}>
-                Service Center Updated
-              </Text>
-              <Text style={styles.serviceCenterNotificationSubtitle}>
-                {updatedServiceCenterName}
-              </Text>
-            </View>
-          </View>
-        </View>
       )}
 
       {/* Vehicle Selection Gate (post-login only) */}
@@ -5966,22 +5875,10 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
                             onValueChange={(value) => {
                               if (value) {
                                 if (hasStartTime && !hasEndTime) {
-                                  Alert.alert(
-                                    'No-Ship After Service Started',
-                                    'This service type has already been started. Do you want to mark it as No-Ship? You will need to provide a reason code.',
-                                    [
-                                      {text: 'Cancel', style: 'cancel'},
-                                      {
-                                        text: 'Mark as No-Ship',
-                                        onPress: () => {
-                                          setNoShipReasonOrderNumber(order.orderNumber);
-                                          setNoShipReasonServiceTypeId(serviceTypeId);
-                                          setNoShipReasonCode('');
-                                          setNoShipReasonNotes('');
-                                        },
-                                      },
-                                    ],
-                                  );
+                                  setPendingNoShipConfirm({
+                                    orderNumber: order.orderNumber,
+                                    serviceTypeId,
+                                  });
                                   return;
                                 }
                                 setNoShipReasonOrderNumber(order.orderNumber);
@@ -6641,27 +6538,6 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
         </View>
       </Modal>
 
-      {/* Label Printing Notification */}
-      {showLabelPrinting && (
-        <View style={styles.labelPrintingOverlay}>
-          <View style={styles.labelPrintingCard}>
-            <View style={styles.labelPrintingIconContainer}>
-              <Icon name="print" size={24} color={colors.foreground} />
-              <View style={styles.labelPrintingSpinner} />
-            </View>
-            <View style={styles.labelPrintingContent}>
-              <Text style={styles.labelPrintingTitle}>Printing Waste Label</Text>
-              <Text style={styles.labelPrintingSubtitle}>
-                Label: {printingLabelBarcode}
-              </Text>
-              <View style={styles.labelPrintingProgress}>
-                <View style={styles.labelPrintingProgressBar} />
-              </View>
-            </View>
-          </View>
-        </View>
-      )}
-
       {/* Service Checklist Modal */}
       <Modal
         visible={showChecklistModal}
@@ -6732,6 +6608,45 @@ const WasteCollectionScreen: React.FC<WasteCollectionScreenProps> = ({
           </View>
         </Pressable>
       </Modal>
+
+      <AppConfirmModal
+        visible={pendingDeleteDocument != null}
+        title="Delete Document"
+        message={
+          pendingDeleteDocument
+            ? `Are you sure you want to delete this ${pendingDeleteDocument.label}?`
+            : ''
+        }
+        confirmLabel="Delete"
+        destructive
+        onCancel={() => setPendingDeleteDocument(null)}
+        onConfirm={() => {
+          if (pendingDeleteDocument) {
+            setScannedDocuments(prev =>
+              prev.filter(d => d.id !== pendingDeleteDocument.id),
+            );
+          }
+          setPendingDeleteDocument(null);
+        }}
+      />
+
+      <AppConfirmModal
+        visible={pendingNoShipConfirm != null}
+        title="No-Ship After Service Started"
+        message="This service type has already been started. Do you want to mark it as No-Ship? You will need to provide a reason code."
+        confirmLabel="Mark as No-Ship"
+        destructive={false}
+        onCancel={() => setPendingNoShipConfirm(null)}
+        onConfirm={() => {
+          if (pendingNoShipConfirm) {
+            setNoShipReasonOrderNumber(pendingNoShipConfirm.orderNumber);
+            setNoShipReasonServiceTypeId(pendingNoShipConfirm.serviceTypeId);
+            setNoShipReasonCode('');
+            setNoShipReasonNotes('');
+          }
+          setPendingNoShipConfirm(null);
+        }}
+      />
 
     </SafeAreaView>
   );
@@ -11977,6 +11892,12 @@ export const styles = StyleSheet.create({
     ...typography.base,
     color: colors.foreground,
     marginBottom: spacing.md,
+  },
+  pauseReasonErrorText: {
+    ...typography.sm,
+    color: colors.destructive,
+    fontWeight: '600',
+    marginBottom: spacing.sm,
   },
   pauseReasonOptions: {
     gap: spacing.sm,

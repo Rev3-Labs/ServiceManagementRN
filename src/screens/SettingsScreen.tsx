@@ -38,8 +38,9 @@ import {offlineTrackingService} from '../services/offlineTrackingService';
 import {serviceCenterService} from '../services/serviceCenterService';
 import {vehicleService, Truck, Trailer} from '../services/vehicleService';
 import {Input} from '../components/Input';
+import {showToast} from '../components/feedback/toastService';
 
-type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings' | 'Devices' | 'DebugSql';
+type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings' | 'Devices' | 'DebugSql' | 'FeedbackDemo';
 
 interface SettingsScreenProps {
   username?: string;
@@ -63,10 +64,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [showTrailerDropdown, setShowTrailerDropdown] = useState(false);
   const [truckSearchQuery, setTruckSearchQuery] = useState('');
   const [trailerSearchQuery, setTrailerSearchQuery] = useState('');
-  const [showSuccessNotification, setShowSuccessNotification] = useState(false);
-  const [savedTruckId, setSavedTruckId] = useState('');
   const [selectedOfflineScenario, setSelectedOfflineScenario] = useState<number | null>(null);
-  const [showOfflineNotification, setShowOfflineNotification] = useState(false);
   const [serviceCenter, setServiceCenter] = useState(serviceCenterService.getServiceCenter());
   const hasNavigatedBackRef = useRef(false);
   const saveNavigateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -156,7 +154,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
 
     if (!selectedTruck) {
-      Alert.alert('Error', 'Please select a truck');
+      showToast('Please select a truck', {type: 'warning', title: 'Required'});
       return;
     }
 
@@ -164,15 +162,19 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
       setSaving(true);
       await saveUserTruck(username, selectedTruck);
       await saveUserTrailer(username, selectedTrailer);
-      // Show success notification, then return once (ignore extra Back presses).
-      setSavedTruckId(selectedTruck.number);
-      setShowSuccessNotification(true);
+      const trailerPart = selectedTrailer
+        ? ` • Trailer: ${selectedTrailer.number}`
+        : '';
+      showToast(`Truck: ${selectedTruck.number}${trailerPart}`, {
+        type: 'success',
+        title: 'Vehicles Set Successfully',
+        durationMs: 3000,
+      });
 
       if (saveNavigateTimeoutRef.current) {
         clearTimeout(saveNavigateTimeoutRef.current);
       }
       saveNavigateTimeoutRef.current = setTimeout(() => {
-        setShowSuccessNotification(false);
         navigateBackOnce();
       }, 3000);
     } catch (error) {
@@ -505,8 +507,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onPress={() => {
                   offlineTrackingService.setDebugOfflineDuration(null);
                   setSelectedOfflineScenario(null);
-                  setShowOfflineNotification(true);
-                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                  showToast('Online Mode Active', {
+                    type: 'info',
+                    title: 'Scenario Applied',
+                    durationMs: 2000,
+                  });
                 }}
                 style={styles.debugButton}
               />
@@ -517,8 +522,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onPress={() => {
                   offlineTrackingService.setDebugOfflineDuration(7);
                   setSelectedOfflineScenario(7);
-                  setShowOfflineNotification(true);
-                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                  showToast('Offline: 7 hrs', {
+                    type: 'info',
+                    title: 'Scenario Applied',
+                    durationMs: 2000,
+                  });
                 }}
                 style={styles.debugButton}
               />
@@ -529,8 +537,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onPress={() => {
                   offlineTrackingService.setDebugOfflineDuration(8);
                   setSelectedOfflineScenario(8);
-                  setShowOfflineNotification(true);
-                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                  showToast('Offline: 8 hrs', {
+                    type: 'info',
+                    title: 'Scenario Applied',
+                    durationMs: 2000,
+                  });
                 }}
                 style={styles.debugButton}
               />
@@ -544,8 +555,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onPress={() => {
                   offlineTrackingService.setDebugOfflineDuration(9);
                   setSelectedOfflineScenario(9);
-                  setShowOfflineNotification(true);
-                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                  showToast('Offline: 9 hrs', {
+                    type: 'info',
+                    title: 'Scenario Applied',
+                    durationMs: 2000,
+                  });
                 }}
                 style={styles.debugButton}
               />
@@ -556,8 +570,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onPress={() => {
                   offlineTrackingService.setDebugOfflineDuration(9.5);
                   setSelectedOfflineScenario(9.5);
-                  setShowOfflineNotification(true);
-                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                  showToast('Offline: 9.5 hrs', {
+                    type: 'info',
+                    title: 'Scenario Applied',
+                    durationMs: 2000,
+                  });
                 }}
                 style={styles.debugButton}
               />
@@ -568,8 +585,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onPress={() => {
                   offlineTrackingService.setDebugOfflineDuration(10);
                   setSelectedOfflineScenario(10);
-                  setShowOfflineNotification(true);
-                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                  showToast('Offline: 10 hrs', {
+                    type: 'info',
+                    title: 'Scenario Applied',
+                    durationMs: 2000,
+                  });
                 }}
                 style={styles.debugButton}
               />
@@ -583,8 +603,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 onPress={() => {
                   offlineTrackingService.resetDebugMode();
                   setSelectedOfflineScenario(null);
-                  setShowOfflineNotification(true);
-                  setTimeout(() => setShowOfflineNotification(false), 2000);
+                  showToast('Online Mode Active', {
+                    type: 'info',
+                    title: 'Scenario Applied',
+                    durationMs: 2000,
+                  });
                 }}
                 style={styles.debugButtonReset}
               />
@@ -665,50 +688,22 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 variant="outline"
                 size="md"
                 onPress={() => onNavigate('DebugSql')}
+                style={{marginBottom: spacing.sm}}
+              />
+              <Text style={styles.description}>
+                Preview reusable feedback modals (progress, error, success,
+                confirmation, warning, recovery) without entering a work order.
+              </Text>
+              <Button
+                title="Open Feedback Modals Demo"
+                variant="outline"
+                size="md"
+                onPress={() => onNavigate('FeedbackDemo')}
               />
             </CardContent>
           </Card>
         )}
       </ScrollView>
-
-      {/* Success Notification */}
-      {showSuccessNotification && (
-        <View style={styles.notificationOverlay}>
-          <View style={styles.notificationCard}>
-            <View style={styles.notificationIconContainer}>
-              <Icon name="check-circle" size={20} color={colors.success} />
-            </View>
-            <View style={styles.notificationContent}>
-              <Text style={styles.notificationTitle}>Vehicles Set Successfully</Text>
-              <Text style={styles.notificationSubtitle}>
-                Truck: {savedTruckId}
-                {selectedTrailer && ` • Trailer: ${selectedTrailer.number}`}
-              </Text>
-            </View>
-          </View>
-        </View>
-      )}
-
-      {/* Offline Scenario Notification */}
-      {showOfflineNotification && (
-        <View style={styles.notificationOverlay}>
-          <View style={styles.notificationCard}>
-            <View style={styles.notificationIconContainer}>
-              <Icon name="check-circle" size={20} color={colors.primary} />
-            </View>
-            <View style={styles.notificationContent}>
-              <Text style={styles.notificationTitle}>
-                {selectedOfflineScenario === null 
-                  ? 'Online Mode Active' 
-                  : `Offline: ${selectedOfflineScenario} hrs`}
-              </Text>
-              <Text style={styles.notificationSubtitle}>
-                Scenario applied successfully
-              </Text>
-            </View>
-          </View>
-        </View>
-      )}
     </SafeAreaView>
   );
 };

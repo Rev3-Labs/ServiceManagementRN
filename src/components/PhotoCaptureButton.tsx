@@ -5,13 +5,13 @@ import {
   TouchableOpacity,
   Modal,
   StyleSheet,
-  Alert,
 } from 'react-native';
 import {Icon} from './Icon';
 import {colors, spacing, typography, borderRadius} from '../styles/theme';
 import {Input} from './Input';
 import {photoService, PhotoCategory, getManualPhotoCategoryDefinitions} from '../services/photoService';
 import {launchCamera, ImagePickerResponse, CameraOptions} from 'react-native-image-picker';
+import {showToast} from './feedback/toastService';
 
 interface PhotoCaptureButtonProps {
   orderNumber: string;
@@ -75,7 +75,7 @@ export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
         return;
       }
       if (response.errorCode) {
-        Alert.alert('Error', 'Failed to capture photo');
+        showToast('Failed to capture photo', {type: 'error', title: 'Error'});
         return;
       }
 
@@ -135,10 +135,10 @@ export const PhotoCaptureButton: React.FC<PhotoCaptureButtonProps> = ({
       const caption = photoCaption.trim() || undefined;
       await photoService.addPhoto(orderNumber, pendingPhotoUri, pendingPhotoCategory, caption);
       onPhotoAdded?.();
-      Alert.alert('Success', 'Photo captured successfully');
+      showToast('Photo captured successfully', {type: 'success', title: 'Success'});
       resetPendingPhoto();
     } catch (error) {
-      Alert.alert('Error', 'Failed to save photo');
+      showToast('Failed to save photo', {type: 'error', title: 'Error'});
     }
   }, [pendingPhotoUri, pendingPhotoCategory, photoCaption, orderNumber, onPhotoAdded, resetPendingPhoto]);
 

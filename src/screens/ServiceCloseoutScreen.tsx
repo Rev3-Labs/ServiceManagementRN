@@ -1,9 +1,11 @@
 import React, {useState} from 'react';
-import {View, Text, StyleSheet, SafeAreaView, TouchableOpacity, Alert, ScrollView, Modal} from 'react-native';
+import {View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, Modal} from 'react-native';
 import {colors, typography, spacing, borderRadius} from '../styles/theme';
 import {Button} from '../components/Button';
 import {Card, CardContent, CardTitle, CardTitleText} from '../components/Card';
 import {Icon} from '../components/Icon';
+import {showToast} from '../components/feedback/toastService';
+import {AppConfirmModal} from '../components/feedback/AppConfirmModal';
 import ChecklistScreen from './ChecklistScreen';
 import {sampleChecklist} from '../data/sampleChecklist';
 import {ChecklistAnswer} from '../types/checklist';
@@ -22,6 +24,9 @@ const ServiceCloseoutScreen: React.FC<ServiceCloseoutScreenProps> = ({
   const [showChecklist, setShowChecklist] = useState(false);
   const [checklistAnswers, setChecklistAnswers] = useState<ChecklistAnswer[] | null>(null);
   const [serviceAcknowledged, setServiceAcknowledged] = useState(false);
+  const [confirmMode, setConfirmMode] = useState<'cancel-checklist' | 'acknowledge' | null>(
+    null,
+  );
 
   const handleStartChecklist = () => {
     setShowChecklist(true);
@@ -31,63 +36,21 @@ const ServiceCloseoutScreen: React.FC<ServiceCloseoutScreenProps> = ({
     console.log('[ServiceCloseout] Checklist completed:', answers);
     setChecklistAnswers(answers);
     setShowChecklist(false);
-    // Answers are saved in state, ready for service completion
   };
 
   const handleChecklistCancel = () => {
-    // In the read-only completed view there's no in-progress work to lose —
-    // close immediately. Only prompt when the user is mid-form.
     if (checklistAnswers && checklistAnswers.length > 0) {
       setShowChecklist(false);
       return;
     }
-    Alert.alert(
-      'Cancel Checklist',
-      'Are you sure you want to cancel? Your progress will be lost.',
-      [
-        {text: 'No', style: 'cancel'},
-        {
-          text: 'Yes',
-          style: 'destructive',
-          onPress: () => {
-            setShowChecklist(false);
-          },
-        },
-      ]
-    );
+    setConfirmMode('cancel-checklist');
   };
 
   const handleViewChecklist = () => {
     setShowChecklist(true);
   };
 
-  const handleAcknowledgeService = () => {
-    if (!checklistAnswers || checklistAnswers.length === 0) {
-      Alert.alert(
-        'Checklist Required',
-        'Please complete the checklist before acknowledging the service.'
-      );
-      return;
-    }
-
-    Alert.alert(
-      'Acknowledge Service',
-      'Are you sure you want to acknowledge and complete this service? This action cannot be undone.',
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {
-          text: 'Acknowledge',
-          onPress: () => {
-            setServiceAcknowledged(true);
-            handleCompleteService();
-          },
-        },
-      ]
-    );
-  };
-
   const handleCompleteService = () => {
-    // Here you would send the service completion data to your backend
     const serviceCompletionData = {
       checklistId: sampleChecklist.id,
       checklistAnswers: checklistAnswers,
@@ -97,21 +60,32 @@ const ServiceCloseoutScreen: React.FC<ServiceCloseoutScreenProps> = ({
 
     console.log('[ServiceCloseout] Service completed:', serviceCompletionData);
 
-    Alert.alert(
-      'Service Completed',
-      'The service has been successfully acknowledged and completed.',
-      [
-        {
-          text: 'OK',
-          onPress: () => {
-            // Optionally navigate back or reset
-            // onGoBack();
-          },
-        },
-      ]
-    );
+    showToast('The service has been successfully acknowledged and completed.', {
+      type: 'success',
+      title: 'Service Completed',
+    });
   };
 
+  const handleAcknowledgeService = () => {
+    if (!checklistAnswers || checklistAnswers.length === 0) {
+      showToast('Please complete the checklist before acknowledging the service.', {
+        type: 'warning',
+        title: 'Checklist Required',
+      });
+      return;
+    }
+    setConfirmMode('acknowledge');
+  };
+
+  const handleConfirmModalConfirm = () => {
+    if (confirmMode === 'cancel-checklist') {
+      setShowChecklist(false);
+    } else if (confirmMode === 'acknowledge') {
+      setServiceAcknowledged(true);
+      handleCompleteService();
+    }
+    setConfirmMode(null);
+  };
 
   const isChecklistCompleted = checklistAnswers !== null && checklistAnswers.length > 0;
 
@@ -222,6 +196,27 @@ const ServiceCloseoutScreen: React.FC<ServiceCloseoutScreenProps> = ({
           onCancel={handleChecklistCancel}
         />
       </Modal>
+
+      <AppConfirmModal
+        visible={confirmMode !== null}
+        title={
+          confirmMode === 'cancel-checklist'
+            ? 'Cancel Checklist'
+            : 'Acknowledge Service'
+        }
+        message={
+          confirmMode === 'cancel-checklist'
+            ? 'Are you sure you want to cancel? Your progress will be lost.'
+            : 'Are you sure you want to acknowledge and complete this service? This action cannot be undone.'
+        }
+        cancelLabel={confirmMode === 'cancel-checklist' ? 'No' : 'Cancel'}
+        confirmLabel={
+          confirmMode === 'cancel-checklist' ? 'Yes' : 'Acknowledge'
+        }
+        destructive={confirmMode === 'cancel-checklist'}
+        onCancel={() => setConfirmMode(null)}
+        onConfirm={handleConfirmModalConfirm}
+      />
     </SafeAreaView>
   );
 };

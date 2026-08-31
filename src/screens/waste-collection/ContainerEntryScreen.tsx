@@ -3,12 +3,12 @@ import {
   View,
   Text,
   ScrollView,
-  Alert,
   Modal,
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
 import {Button} from '../../components/Button';
+import {showToast} from '../../components/feedback/toastService';
 import {Badge} from '../../components/Badge';
 import {Input} from '../../components/Input';
 import {
@@ -116,8 +116,6 @@ export interface ContainerEntryScreenProps {
     containerCount: number,
   ) => string;
   printShippingLabel: (container: any) => Promise<void>;
-  setPrintingLabelBarcode: (barcode: string) => void;
-  setShowLabelPrinting: (show: boolean) => void;
   wasteStreams: WasteStream[];
 }
 
@@ -171,8 +169,6 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
   activeServiceTypeTimer,
   generateShippingLabelBarcode,
   printShippingLabel,
-  setPrintingLabelBarcode,
-  setShowLabelPrinting,
   wasteStreams,
 }) => {
   const parsedGrossWeight = parseInt(grossWeight || '0');
@@ -242,6 +238,7 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
   const [manualWeightReason, setManualWeightReason] = useState<string | null>(
     null,
   );
+  const [unitCountError, setUnitCountError] = useState<string | null>(null);
 
   const resetEntryForm = () => {
     setBarcode('');
@@ -422,7 +419,13 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
               label={unitCountLabel}
               required
               value={unitCount}
-              onChangeText={setUnitCount}
+              onChangeText={text => {
+                setUnitCount(text);
+                if (unitCountError) {
+                  setUnitCountError(null);
+                }
+              }}
+              error={unitCountError ?? undefined}
               keyboardType="numeric"
               placeholder={unitCountLabel}
               editable={!isCurrentOrderCompleted}
@@ -680,14 +683,14 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
               }
 
               if (!hasValidUnitCount) {
-                Alert.alert(
-                  'Required Field',
+                setUnitCountError(
                   isCylinderProfile
                     ? 'Please enter a valid unit count before adding containers.'
                     : 'Please enter a valid container count before adding containers.',
                 );
                 return;
               }
+              setUnitCountError(null);
 
               if (isManualWeightEntry && !manualWeightReason) {
                 setShowManualReasonModal(true);
@@ -757,15 +760,13 @@ export const ContainerEntryScreen: React.FC<ContainerEntryScreenProps> = ({
               }
 
               for (const container of newContainers) {
-                setPrintingLabelBarcode(container.shippingLabelBarcode ?? '');
-                setShowLabelPrinting(true);
+                const barcode = container.shippingLabelBarcode ?? '';
+                showToast(
+                  barcode ? `Label: ${barcode}` : 'Printing waste label…',
+                  {type: 'info', title: 'Printing Waste Label', durationMs: 3000},
+                );
                 await printShippingLabel(container);
               }
-
-              setTimeout(() => {
-                setShowLabelPrinting(false);
-                setPrintingLabelBarcode('');
-              }, 3000);
 
               resetEntryForm();
               setCurrentStep('container-summary');

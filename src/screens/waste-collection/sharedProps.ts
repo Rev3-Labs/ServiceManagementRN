@@ -114,10 +114,6 @@ export interface WasteCollectionSharedProps {
   setShowChecklistModal: (show: boolean) => void;
   showDropWasteModal: boolean;
   setShowDropWasteModal: (show: boolean) => void;
-  showLabelPrinting: boolean;
-  setShowLabelPrinting: (show: boolean) => void;
-  printingLabelBarcode: string;
-  setPrintingLabelBarcode: (barcode: string) => void;
   
   // Other
   checklistAnswers: ChecklistAnswer[] | null;

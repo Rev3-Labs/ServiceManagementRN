@@ -10,6 +10,8 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import DevicesScreen from './src/screens/DevicesScreen';
 import ProjectedInventoryScreen from './src/screens/ProjectedInventoryScreen';
 import {DebugSqlScreen} from './src/screens/DebugSqlScreen';
+import FeedbackDemoScreen from './src/screens/FeedbackDemoScreen';
+import {AppToastHost} from './src/components/feedback/AppToast';
 
 type Screen =
   | 'Login'
@@ -20,7 +22,8 @@ type Screen =
   | 'Settings'
   | 'Devices'
   | 'ProjectedInventory'
-  | 'DebugSql';
+  | 'DebugSql'
+  | 'FeedbackDemo';
 
 interface NavigationState {
   currentScreen: Screen;
@@ -77,7 +80,7 @@ function App(): React.JSX.Element {
       case 'Login':
         return (
           <LoginScreen
-            onLogin={(user, password) => {
+            onLogin={(user, _password) => {
               console.log('[App] Login successful:', {username: user});
               setUsername(user);
               navigate('WasteCollection');
@@ -133,6 +136,8 @@ function App(): React.JSX.Element {
         );
       case 'DebugSql':
         return <DebugSqlScreen onGoBack={goBack} />;
+      case 'FeedbackDemo':
+        return <FeedbackDemoScreen onGoBack={goBack} />;
       default:
         return <LoginScreen onLogin={() => navigate('Manifest')} />;
     }
@@ -140,10 +145,12 @@ function App(): React.JSX.Element {
 
   return (
     <SafeAreaProvider>
-      <View style={{flex: 1}}>{renderScreen()}</View>
+      <View style={{flex: 1}}>
+        {renderScreen()}
+        <AppToastHost />
+      </View>
     </SafeAreaProvider>
   );
 }
 
 export default App;
-

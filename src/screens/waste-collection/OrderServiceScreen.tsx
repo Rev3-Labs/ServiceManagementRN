@@ -10,6 +10,7 @@ import {
   ImageStyle,
 } from 'react-native';
 import {Button} from '../../components/Button';
+import {showToast} from '../../components/feedback/toastService';
 import {
   Card,
   CardContent,
@@ -676,10 +677,9 @@ export const OrderServiceScreen: React.FC<OrderServiceScreenProps> = ({
             <TouchableOpacity
               style={styles.serviceSummaryPrintBtn}
               onPress={() => {
-                Alert.alert(
-                  'Printing Service Summary',
-                  `Order: ${selectedOrderData?.orderNumber}\n\nService Summary printer integration will be implemented here.`,
-                  [{text: 'OK'}],
+                showToast(
+                  `Order: ${selectedOrderData?.orderNumber ?? ''}\nService Summary printer integration pending.`,
+                  {type: 'info', title: 'Printing Service Summary'},
                 );
               }}
               accessibilityRole="button"

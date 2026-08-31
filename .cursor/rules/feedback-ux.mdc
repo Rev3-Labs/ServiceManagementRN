@@ -1,0 +1,33 @@
+---
+description: Feedback UX taxonomy for Zebra tablet — toasts, confirms, validation, locks
+globs: **/*.{tsx,ts}
+alwaysApply: false
+---
+
+# Feedback UX (Zebra Android Tablet)
+
+Prefer shared components from `src/components/feedback`. Never use system `Alert.alert` for these.
+
+| Type | Component | Buttons | Blocks? | Use when |
+|------|-----------|---------|---------|----------|
+| Progress | `AppProgressModal` | None; Cancel only if abortable | Yes | Generate manifest, sync |
+| Error | `AppErrorModal` | Retry and/or OK; optional Cancel / Support | Yes | Save/sync/print/photo failed |
+| Success (milestone) | `AppSuccessModal` | OK | Yes | WO completed, must acknowledge |
+| Success (routine) | `showToast()` | Auto-dismiss | No | Photo saved, label sent |
+| Confirmation | `AppConfirmModal` | Cancel + Confirm (red if destructive) | Yes | Delete, void, reset |
+| Warning | `AppWarningModal` | Cancel + Continue | Yes | Unusual weight, soft reminder |
+| Recovery | `AppRecoveryModal` | Retry + Open Settings | Yes | No printer/scale/camera, jam |
+| Field validation | Inline on control | — | No | Required fields in open form |
+| Workflow lock | Dedicated overlay | Primary CTA only | Yes | Work paused, post-login sync |
+
+## Progress nuance
+
+- **Print label / documents:** non-blocking `showToast` (hardware side effect).
+- **Generate manifest / heavy analysis:** blocking `AppProgressModal` (next step depends on result).
+
+## Rules
+
+- Never `Alert.alert('Success', …)` for capture/save/status.
+- Never Alert for validation when a form/modal is already open.
+- Demo all types: Settings → Debug (admin) → Feedback Modals Demo.
+- Keep barcode container-delete and work-paused / sync locks as domain overlays.

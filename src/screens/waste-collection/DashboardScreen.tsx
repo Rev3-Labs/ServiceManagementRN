@@ -319,6 +319,11 @@ export interface DashboardScreenProps {
   setNoShipReasonServiceTypeId: (serviceTypeId: string | null) => void;
   setNoShipReasonCode: (code: any) => void;
   setNoShipReasonNotes: (notes: string) => void;
+  /** Confirm before marking an in-progress service type as No-Ship. */
+  requestNoShipAfterStartedConfirm: (
+    orderNumber: string,
+    serviceTypeId: string,
+  ) => void;
 
   // Inventory
   dashboardInventorySummary: Record<string, number>;
@@ -1113,7 +1118,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                     <Pressable
                       onPress={() => toggleSection('order')}
                       style={styles.collapsibleHeaderPressable}
-                      hitSlop={4}>
+                      hitSlop={8}>
                       <CardHeader>
                         <View style={styles.collapsibleHeaderRow}>
                           <View style={styles.sectionTitleRow}>
@@ -1378,7 +1383,7 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                     <Pressable
                       onPress={() => toggleSection('notes')}
                       style={styles.collapsibleHeaderPressable}
-                      hitSlop={4}>
+                      hitSlop={8}>
                       <CardHeader>
                         <View style={styles.collapsibleHeaderRow}>
                           <View style={styles.sectionTitleRow}>
@@ -1540,21 +1545,9 @@ export const DashboardScreenMasterDetail = (props: DashboardScreenProps) => {
                                   onValueChange={(value) => {
                                     if (value) {
                                       if (hasStartTime && !hasEndTime) {
-                                        Alert.alert(
-                                          'No-Ship After Service Started',
-                                          'This service type has already been started. Do you want to mark it as No-Ship? You will need to provide a reason code.',
-                                          [
-                                            {text: 'Cancel', style: 'cancel'},
-                                            {
-                                              text: 'Mark as No-Ship',
-                                              onPress: () => {
-                                                setNoShipReasonOrderNumber(order.orderNumber);
-                                                setNoShipReasonServiceTypeId(serviceTypeId);
-                                                setNoShipReasonCode('');
-                                                setNoShipReasonNotes('');
-                                              },
-                                            },
-                                          ],
+                                        requestNoShipAfterStartedConfirm(
+                                          order.orderNumber,
+                                          serviceTypeId,
                                         );
                                         return;
                                       }
@@ -2180,7 +2173,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                     <Pressable
                       onPress={() => toggleDashboardSection('order')}
                       style={styles.collapsibleHeaderPressable}
-                      hitSlop={4}>
+                      hitSlop={8}>
                       <CardHeader>
                         <View style={styles.collapsibleHeaderRow}>
                           <View style={styles.sectionTitleRow}>
@@ -2451,7 +2444,7 @@ export const DashboardScreen = (props: DashboardScreenProps) => {
                     <Pressable
                       onPress={() => toggleDashboardSection('notes')}
                       style={styles.collapsibleHeaderPressable}
-                      hitSlop={4}>
+                      hitSlop={8}>
                       <CardHeader>
                         <View style={styles.collapsibleHeaderRow}>
                           <View style={styles.sectionTitleRow}>

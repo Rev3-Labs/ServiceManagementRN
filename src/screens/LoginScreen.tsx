@@ -5,8 +5,8 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
 } from 'react-native';
+import {colors, spacing, typography} from '../styles/theme';
 
 interface LoginScreenProps {
   onLogin: (username: string, password: string) => void;
@@ -16,19 +16,21 @@ const LoginScreen: React.FC<LoginScreenProps> = ({onLogin}) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleLogin = async () => {
     console.log('[LoginScreen] handleLogin called with username:', username);
     if (!username.trim()) {
-      Alert.alert('Error', 'Please enter your username');
+      setError('Please enter your username');
       return;
     }
 
     if (!password.trim()) {
-      Alert.alert('Error', 'Please enter your password');
+      setError('Please enter your password');
       return;
     }
 
+    setError(null);
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
@@ -46,28 +48,33 @@ const LoginScreen: React.FC<LoginScreenProps> = ({onLogin}) => {
       <View style={styles.form}>
         <Text style={styles.label}>Username</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, error?.includes('username') && styles.inputError]}
           placeholder="Enter username"
           value={username}
-          onChangeText={setUsername}
+          onChangeText={text => {
+            setUsername(text);
+            if (error) setError(null);
+          }}
           editable={!loading}
         />
 
         <Text style={styles.label}>Password</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, error?.includes('password') && styles.inputError]}
           placeholder="Enter password"
           value={password}
-          onChangeText={setPassword}
+          onChangeText={text => {
+            setPassword(text);
+            if (error) setError(null);
+          }}
           secureTextEntry
           editable={!loading}
         />
 
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
         <TouchableOpacity
-          style={[
-            styles.button,
-            loading && styles.buttonDisabled,
-          ]}
+          style={[styles.button, loading && styles.buttonDisabled]}
           onPress={handleLogin}
           disabled={loading}
           activeOpacity={0.7}>
@@ -120,22 +127,31 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderColor: '#e5e7eb',
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
     fontSize: 16,
-    marginBottom: 20,
+    marginBottom: 16,
+    backgroundColor: '#fff',
     color: '#111827',
+  },
+  inputError: {
+    borderColor: colors.destructive,
+  },
+  errorText: {
+    ...typography.sm,
+    color: colors.destructive,
+    fontWeight: '600',
+    marginBottom: spacing.md,
+    marginTop: -spacing.sm,
   },
   button: {
     backgroundColor: '#65B230',
     borderRadius: 8,
     paddingVertical: 14,
-    paddingHorizontal: 24,
     alignItems: 'center',
-    minHeight: 56,
-    justifyContent: 'center',
+    marginTop: 8,
   },
   buttonDisabled: {
     opacity: 0.6,
@@ -146,13 +162,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   demo: {
-    fontSize: 12,
-    color: '#6b7280',
-    textAlign: 'center',
     marginTop: 16,
+    textAlign: 'center',
+    fontSize: 13,
+    color: '#6b7280',
   },
 });
-
-export default LoginScreen;
 
 export default LoginScreen;
