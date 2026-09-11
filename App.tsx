@@ -11,6 +11,8 @@ import DevicesScreen from './src/screens/DevicesScreen';
 import ProjectedInventoryScreen from './src/screens/ProjectedInventoryScreen';
 import {DebugSqlScreen} from './src/screens/DebugSqlScreen';
 import FeedbackDemoScreen from './src/screens/FeedbackDemoScreen';
+import {OpenLogsScreen} from './src/screens/OpenLogsScreen';
+import {PendingSyncScreen} from './src/screens/PendingSyncScreen';
 import {AppToastHost} from './src/components/feedback/AppToast';
 
 type Screen =
@@ -23,7 +25,9 @@ type Screen =
   | 'Devices'
   | 'ProjectedInventory'
   | 'DebugSql'
-  | 'FeedbackDemo';
+  | 'FeedbackDemo'
+  | 'OpenLogs'
+  | 'PendingSync';
 
 interface NavigationState {
   currentScreen: Screen;
@@ -138,6 +142,12 @@ function App(): React.JSX.Element {
         return <DebugSqlScreen onGoBack={goBack} />;
       case 'FeedbackDemo':
         return <FeedbackDemoScreen onGoBack={goBack} />;
+      case 'OpenLogs':
+        return <OpenLogsScreen username={username} onGoBack={goBack} />;
+      case 'PendingSync':
+        return (
+          <PendingSyncScreen username={username} onGoBack={goBack} />
+        );
       default:
         return <LoginScreen onLogin={() => navigate('Manifest')} />;
     }

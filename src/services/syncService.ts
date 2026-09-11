@@ -4,23 +4,50 @@ import NetInfo from '@react-native-community/netinfo';
 
 export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'error' | 'pending';
 
+export type PendingOperationType = 'container' | 'order' | 'manifest' | 'materials';
+export type PendingTransactionStatus = 'pending' | 'failed';
+
+export const SYNC_TYPE_BY_OPERATION: Record<PendingOperationType, string> = {
+  order: 'PostOrderData',
+  container: 'PostContainerData',
+  manifest: 'PostManifestData',
+  materials: 'PostMaterialsData',
+};
+
 export interface PendingOperation {
   id: string;
-  type: 'container' | 'order' | 'manifest' | 'materials';
+  type: PendingOperationType;
+  /** Core API / sync method name, e.g. PostOrderData. */
+  syncType: string;
   data: any;
   timestamp: number;
   retries: number;
+  status: PendingTransactionStatus;
+  errorMessage?: string;
+  completedBy?: string;
+  /** Debug-only: stay in the queue until an explicit sync from Pending Sync. */
+  debugHold?: boolean;
 }
 
 const PENDING_OPERATIONS_KEY = '@pending_operations';
 const MAX_RETRIES = 3;
 const SYNC_INTERVAL = 30000; // 30 seconds
 
+function normalizePendingOperation(op: PendingOperation): PendingOperation {
+  return {
+    ...op,
+    data: op.data,
+    syncType: op.syncType || SYNC_TYPE_BY_OPERATION[op.type] || 'PostOrderData',
+    status: op.status || (op.retries >= MAX_RETRIES ? 'failed' : 'pending'),
+  };
+}
+
 class SyncService {
   private syncStatus: SyncStatus = 'synced';
   private pendingOperations: PendingOperation[] = [];
   private syncInterval: NodeJS.Timeout | null = null;
   private statusListeners: Array<(status: SyncStatus) => void> = [];
+  private queueListeners: Array<(operations: PendingOperation[]) => void> = [];
   private isOnline: boolean = true;
 
   private netInfoUnsubscribe: (() => void) | null = null;
@@ -47,11 +74,17 @@ class SyncService {
     try {
       const stored = await safeAsyncStorage.getItem(PENDING_OPERATIONS_KEY);
       if (stored) {
-        this.pendingOperations = JSON.parse(stored);
+        this.pendingOperations = JSON.parse(stored).map(normalizePendingOperation);
       }
+      this.notifyQueue();
     } catch (error) {
       console.error('Error loading pending operations:', error);
     }
+  }
+
+  private notifyQueue() {
+    const snapshot = this.getPendingOperations();
+    this.queueListeners.forEach(listener => listener(snapshot));
   }
 
   private async savePendingOperations() {
@@ -88,7 +121,8 @@ class SyncService {
     }
     
     this.syncInterval = setInterval(() => {
-      if (this.isOnline && this.pendingOperations.length > 0) {
+      const readyCount = this.pendingOperations.filter(op => !op.debugHold).length;
+      if (this.isOnline && readyCount > 0) {
         this.syncPendingOperations();
       }
     }, SYNC_INTERVAL);
@@ -102,21 +136,75 @@ class SyncService {
     const operation: PendingOperation = {
       id: `op_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       type,
+      syncType: SYNC_TYPE_BY_OPERATION[type],
       data,
       timestamp: Date.now(),
       retries: 0,
+      status: 'pending',
+      completedBy:
+        typeof data?.completedBy === 'string' ? data.completedBy : undefined,
     };
 
     this.pendingOperations.push(operation);
     await this.savePendingOperations();
+    this.notifyQueue();
     this.updateSyncStatus();
 
     // Try to sync immediately if online
-    if (this.isOnline) {
+    if (this.isOnline && !operation.debugHold) {
       this.syncPendingOperations();
     }
 
     return operation.id;
+  }
+
+  async seedDebugPendingOperations(): Promise<number> {
+    const samples: Array<Omit<PendingOperation, 'id'>> = [
+      {
+        type: 'order',
+        syncType: 'PostOrderData',
+        data: {orderNumber: '1234567', completed: true},
+        timestamp: new Date(2026, 8, 10, 20, 2, 5).getTime(),
+        retries: 0,
+        status: 'pending',
+        completedBy: 'jraja',
+        debugHold: true,
+      },
+      {
+        type: 'order',
+        syncType: 'PostOrderData',
+        data: {orderNumber: '1234568', completed: true},
+        timestamp: new Date(2026, 8, 10, 14, 45, 44).getTime(),
+        retries: 3,
+        status: 'failed',
+        completedBy: 'jraja',
+        errorMessage:
+          'PostOrderData failed: 500 Internal Server Error — transaction rejected by Core.',
+        debugHold: true,
+      },
+      {
+        type: 'container',
+        syncType: 'PostContainerData',
+        data: {orderNumber: '1234567', containerId: 'C-2291', action: 'save'},
+        timestamp: new Date(2026, 8, 10, 19, 48, 12).getTime(),
+        retries: 0,
+        status: 'pending',
+        completedBy: 'jraja',
+        debugHold: true,
+      },
+    ];
+
+    for (const sample of samples) {
+      this.pendingOperations.push({
+        ...sample,
+        id: `op_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      });
+    }
+
+    await this.savePendingOperations();
+    this.notifyQueue();
+    this.updateSyncStatus();
+    return samples.length;
   }
 
   // Remove a pending operation (after successful sync)
@@ -125,18 +213,32 @@ class SyncService {
       op => op.id !== id,
     );
     await this.savePendingOperations();
+    this.notifyQueue();
     this.updateSyncStatus();
   }
 
+  async discardPendingOperation(id: string): Promise<void> {
+    await this.removePendingOperation(id);
+  }
+
   // Sync all pending operations
-  async syncPendingOperations(): Promise<void> {
-    if (!this.isOnline || this.pendingOperations.length === 0) {
+  async syncPendingOperations(options?: {includeHeld?: boolean}): Promise<void> {
+    const includeHeld = options?.includeHeld === true;
+    const operationsToSync = this.pendingOperations.filter(
+      op =>
+        op.status !== 'failed' && (includeHeld || !op.debugHold),
+    );
+    if (!this.isOnline || operationsToSync.length === 0) {
       return;
     }
 
-    this.setSyncStatus('syncing');
+    if (includeHeld) {
+      operationsToSync.forEach(op => {
+        op.debugHold = false;
+      });
+    }
 
-    const operationsToSync = [...this.pendingOperations];
+    this.setSyncStatus('syncing');
     const results: Array<{id: string; success: boolean}> = [];
 
     for (const operation of operationsToSync) {
@@ -152,8 +254,8 @@ class SyncService {
           // Increment retry count
           operation.retries += 1;
           if (operation.retries >= MAX_RETRIES) {
-            // Mark as failed after max retries
-            await this.removePendingOperation(operation.id);
+            operation.status = 'failed';
+            operation.errorMessage = `${operation.syncType} failed: 500 Internal Server Error — transaction rejected by Core.`;
             console.error(`Operation ${operation.id} failed after ${MAX_RETRIES} retries`);
           }
         }
@@ -161,12 +263,17 @@ class SyncService {
         console.error(`Error syncing operation ${operation.id}:`, error);
         operation.retries += 1;
         if (operation.retries >= MAX_RETRIES) {
-          await this.removePendingOperation(operation.id);
+          operation.status = 'failed';
+          operation.errorMessage =
+            error instanceof Error
+              ? `${operation.syncType} failed: ${error.message}`
+              : `${operation.syncType} failed after ${MAX_RETRIES} retries`;
         }
       }
     }
 
     await this.savePendingOperations();
+    this.notifyQueue();
     this.updateSyncStatus();
   }
 
@@ -220,6 +327,20 @@ class SyncService {
   // Get pending operations count
   getPendingCount(): number {
     return this.pendingOperations.length;
+  }
+
+  getPendingOperations(): PendingOperation[] {
+    return this.pendingOperations.map(op => normalizePendingOperation(op));
+  }
+
+  onQueueChange(
+    listener: (operations: PendingOperation[]) => void,
+  ): () => void {
+    this.queueListeners.push(listener);
+    listener(this.getPendingOperations());
+    return () => {
+      this.queueListeners = this.queueListeners.filter(item => item !== listener);
+    };
   }
 
   // Subscribe to status changes

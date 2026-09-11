@@ -40,7 +40,7 @@ import {vehicleService, Truck, Trailer} from '../services/vehicleService';
 import {Input} from '../components/Input';
 import {showToast} from '../components/feedback/toastService';
 
-type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings' | 'Devices' | 'DebugSql' | 'FeedbackDemo';
+type Screen = 'Login' | 'Manifest' | 'WasteCollection' | 'MaterialsSupplies' | 'ServiceCloseout' | 'Settings' | 'Devices' | 'DebugSql' | 'FeedbackDemo' | 'OpenLogs' | 'PendingSync';
 
 interface SettingsScreenProps {
   username?: string;
@@ -687,17 +687,43 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 title="Open SQL Console"
                 variant="outline"
                 size="md"
+                fullWidth
                 onPress={() => onNavigate('DebugSql')}
-                style={{marginBottom: spacing.sm}}
+                style={styles.debugAction}
+              />
+              <Text style={styles.description}>
+                View and Download application logs for troubleshooting (admin
+                only).
+              </Text>
+              <Button
+                title="Open Logs"
+                variant="outline"
+                size="md"
+                fullWidth
+                onPress={() => onNavigate('OpenLogs')}
+                style={styles.debugAction}
+              />
+              <Text style={styles.description}>
+                View completed work orders that are still waiting to sync (admin
+                only).
+              </Text>
+              <Button
+                title="Pending Sync"
+                variant="outline"
+                size="md"
+                fullWidth
+                onPress={() => onNavigate('PendingSync')}
+                style={styles.debugAction}
               />
               <Text style={styles.description}>
                 Preview reusable feedback modals (progress, error, success,
                 confirmation, warning, recovery) without entering a work order.
               </Text>
               <Button
-                title="Open Feedback Modals Demo"
+                title="Open Feedback Modals Demo (prototype only)"
                 variant="outline"
                 size="md"
+                fullWidth
                 onPress={() => onNavigate('FeedbackDemo')}
               />
             </CardContent>
@@ -890,6 +916,9 @@ const styles = StyleSheet.create({
   debugButtonReset: {
     width: '100%',
     marginTop: spacing.xs,
+  },
+  debugAction: {
+    marginBottom: spacing.lg,
   },
   // Success Notification Styles
   notificationOverlay: {
