@@ -341,7 +341,7 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity
+          <View
             style={[
               styles.iconAction,
               !offlineStatus.isOnline && styles.iconActionOffline,
@@ -353,32 +353,29 @@ export const PersistentOrderHeader: React.FC<PersistentOrderHeaderProps> = ({
                 offlineStatus.isBlocked) &&
                 styles.iconActionError,
             ]}
-            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
-            activeOpacity={0.7}
+            accessibilityRole="image"
             accessibilityLabel={
               offlineStatus.isOnline
-                ? 'Connected'
-                : `Offline ${offlineStatus.offlineDurationFormatted}`
+                ? 'Connected to server'
+                : `Disconnected from server. Offline ${offlineStatus.offlineDurationFormatted}`
             }>
-            {offlineStatus.isOnline ? (
-              <Icon name="wifi" size={20} color={colors.success} />
-            ) : (
-              <Icon
-                name="wifi-off"
-                size={20}
-                color={
-                  offlineStatus.isBlocked ||
-                  offlineStatus.warningLevel === 'critical'
+            <Icon
+              name={offlineStatus.isOnline ? 'cloud-done' : 'cloud-off'}
+              size={20}
+              color={
+                offlineStatus.isOnline
+                  ? colors.success
+                  : offlineStatus.isBlocked ||
+                      offlineStatus.warningLevel === 'critical'
                     ? colors.destructive
                     : offlineStatus.warningLevel === 'orange'
                       ? '#FF6B35'
                       : offlineStatus.warningLevel === 'warning'
                         ? colors.warning
                         : colors.mutedForeground
-                }
-              />
-            )}
-          </TouchableOpacity>
+              }
+            />
+          </View>
 
           <TouchableOpacity
             onPress={onToggleCollapse}
