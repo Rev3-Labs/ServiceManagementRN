@@ -86,14 +86,39 @@ export function groupEquipmentByServiceRequest(
   }));
 }
 
+/**
+ * Group photos by service request. When `includeEmpty` is true, every program
+ * appears even with zero photos (so each SR can show its own Add control).
+ */
 export function groupPhotosByServiceRequest(
   photos: OrderPhoto[],
   programOrder: string[],
+  options?: {includeEmpty?: boolean},
 ): ServiceRequestPhotoGroup[] {
-  return groupItemsByServiceRequest(photos, programOrder).map(group => ({
-    serviceTypeId: group.serviceTypeId,
-    photos: group.items,
+  if (!options?.includeEmpty) {
+    return groupItemsByServiceRequest(photos, programOrder).map(group => ({
+      serviceTypeId: group.serviceTypeId,
+      photos: group.items,
+    }));
+  }
+
+  const assignedIds = new Set(programOrder);
+  const groups: ServiceRequestPhotoGroup[] = programOrder.map(serviceTypeId => ({
+    serviceTypeId,
+    photos: photos.filter(photo => photo.serviceTypeId === serviceTypeId),
   }));
+
+  const unassigned = photos.filter(
+    photo => !photo.serviceTypeId || !assignedIds.has(photo.serviceTypeId),
+  );
+  if (unassigned.length > 0) {
+    groups.push({
+      serviceTypeId: UNASSIGNED_SERVICE_TYPE_ID,
+      photos: unassigned,
+    });
+  }
+
+  return groups;
 }
 
 export function getDefaultExpandedServiceTypeId(
